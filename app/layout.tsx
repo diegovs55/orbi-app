@@ -31,6 +31,12 @@ const navItems = [
   { href: "/admin", label: "Admin", icon: Activity }
 ];
 
+const footerLinks = [
+  { href: "/privacidad", label: "Privacidad" },
+  { href: "/terminos", label: "Términos" },
+  { href: "/confianza", label: "Confianza" }
+];
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
@@ -39,6 +45,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="orbit-grid pointer-events-none absolute inset-0 opacity-80" />
           <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-6 sm:px-8">
             {children}
+            <footer className="mt-10 border-t border-white/10 pt-5">
+              <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-semibold text-orbi-muted">
+                {footerLinks.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="transition hover:text-orbi-cyan"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </footer>
           </main>
           <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-orbi-black/88 px-2 py-2 backdrop-blur-xl">
             <div className="mx-auto grid max-w-2xl grid-cols-5 gap-1">
