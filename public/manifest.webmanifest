@@ -1,0 +1,16 @@
+{
+  "name": "Orbi",
+  "short_name": "Orbi",
+  "description": "Red logística y de movilidad local.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05070d",
+  "theme_color": "#05070d",
+  "icons": [
+    {
+      "src": "/orbi-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

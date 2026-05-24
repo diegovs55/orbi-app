@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #05070d;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(31, 139, 255, 0.2), transparent 28rem),
+    radial-gradient(circle at 88% 0%, rgba(54, 215, 255, 0.12), transparent 24rem),
+    linear-gradient(150deg, #05070d 0%, #081424 52%, #05070d 100%);
+  color: #eef7ff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+.orbit-grid {
+  background-image:
+    linear-gradient(rgba(54, 215, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(54, 215, 255, 0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+.orbit-ring {
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(54, 215, 255, 0.24);
+  border-radius: 9999px;
+  transform: rotate(-18deg);
+}
+
+.orbit-ring::before,
+.orbit-ring::after {
+  position: absolute;
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #36d7ff;
+  box-shadow: 0 0 18px rgba(54, 215, 255, 0.9);
+}
+
+.orbit-ring::before {
+  left: 16%;
+  top: 7%;
+}
+
+.orbit-ring::after {
+  right: 12%;
+  bottom: 12%;
+}
