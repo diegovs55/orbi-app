@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import Image from "next/image";
 import Link from "next/link";
-import { Activity, Building2, Home, PackagePlus, Route } from "lucide-react";
+import { Activity, Building2, PackagePlus, Route } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ export const viewport: Viewport = {
 };
 
 const navItems = [
-  { href: "/", label: "Inicio", icon: Home },
+  { href: "/", label: "Inicio", icon: null },
   { href: "/pedir", label: "Pedir", icon: PackagePlus },
   { href: "/orbita", label: "Órbita", icon: Route },
   { href: "/negocios", label: "Negocios", icon: Building2 },
@@ -49,7 +50,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     href={item.href}
                     className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-medium text-orbi-muted transition hover:bg-white/7 hover:text-orbi-text"
                   >
-                    <Icon aria-hidden="true" className="h-5 w-5" />
+                    {Icon ? (
+                      <Icon aria-hidden="true" className="h-5 w-5" />
+                    ) : (
+                      <span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-sm border border-orbi-cyan/20 bg-orbi-black shadow-[0_0_14px_rgba(31,139,255,0.22)]">
+                        <Image
+                          src="/orbi-logo.png"
+                          alt=""
+                          width={24}
+                          height={24}
+                          aria-hidden="true"
+                          className="h-full w-full object-cover"
+                        />
+                      </span>
+                    )}
                     <span>{item.label}</span>
                   </Link>
                 );

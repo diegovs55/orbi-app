@@ -1,4 +1,5 @@
 import { ArrowRight, Building2, PackagePlus, Route } from "lucide-react";
+import Image from "next/image";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
 
@@ -18,6 +19,16 @@ export default function HomePage() {
         </div>
 
         <div className="relative max-w-3xl">
+          <div className="mb-7 flex h-36 w-36 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-orbi-black/40 shadow-glow sm:h-44 sm:w-44">
+            <Image
+              src="/orbi-logo.png"
+              alt="Orbi"
+              width={176}
+              height={176}
+              className="h-full w-full object-contain"
+              priority
+            />
+          </div>
           <p className="mb-4 text-sm font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
             Red Orbi
           </p>
