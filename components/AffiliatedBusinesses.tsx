@@ -1,13 +1,12 @@
 "use client";
 
-import { Coffee, Gift, Pill, Printer, ShoppingBag } from "lucide-react";
+import { Building2, Coffee, Gift, Pill, Printer, ShoppingBag } from "lucide-react";
 import { useMemo, useSyncExternalStore } from "react";
 import {
   AffiliateBusiness,
   BusinessCategory,
   businessCategories,
-  readLocalBusinesses,
-  seedBusinesses
+  readLocalBusinesses
 } from "@/lib/businesses";
 
 const categoryMeta: Record<
@@ -47,13 +46,29 @@ export function AffiliatedBusinesses() {
   );
 
   const businessesByCategory = useMemo(() => {
-    const businesses = [...seedBusinesses, ...localBusinesses];
-
-    return businessCategories.map((category) => ({
-      category,
-      businesses: businesses.filter((business) => business.category === category)
-    }));
+    return businessCategories
+      .map((category) => ({
+        category,
+        businesses: localBusinesses.filter((business) => business.category === category)
+      }))
+      .filter(({ businesses }) => businesses.length > 0);
   }, [localBusinesses]);
+
+  if (!localBusinesses.length) {
+    return (
+      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
+          <Building2 aria-hidden="true" className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-black tracking-normal text-orbi-text">
+          Aún no hay negocios afiliados registrados.
+        </h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted sm:text-base">
+          Pronto podrás ver aquí los aliados activos de Red Orbi.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
