@@ -1,14 +1,14 @@
 import { PageShell } from "@/components/PageShell";
-import { AdminOrders } from "@/components/AdminOrders";
+import { AdminBusinesses } from "@/components/AdminBusinesses";
 
 export default function AdminPage() {
   return (
     <PageShell
       eyebrow="Panel Admin"
-      title="Pedidos simulados y estados operativos."
-      description="Una vista básica para validar cómo se vería el control de solicitudes antes de conectar base de datos."
+      title="Administra la red local de negocios."
+      description="Acceso privado básico para dar de alta aliados y validar operación antes de conectar Supabase."
     >
-      <AdminOrders />
+      <AdminBusinesses />
     </PageShell>
   );
 }
