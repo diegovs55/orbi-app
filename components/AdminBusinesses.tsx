@@ -1,15 +1,15 @@
 "use client";
 
-import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Plus, Trash2, LockKeyhole, LogOut } from "lucide-react";
 import {
   AffiliateBusiness,
   BusinessCategory,
   BusinessStatus,
   businessCategories,
-  createBusinessId,
-  readLocalBusinesses,
-  writeLocalBusinesses
+  createBusiness,
+  deleteBusiness,
+  getBusinesses
 } from "@/lib/businesses";
 
 const ADMIN_PASSWORD = "orbi2026";
@@ -17,9 +17,47 @@ const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
 export function AdminBusinesses() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
-  const businesses = useSyncExternalStore(subscribeToBusinessChanges, readLocalBusinesses, () => []);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [businessError, setBusinessError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    getBusinesses()
+      .then((nextBusinesses) => {
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses(nextBusinesses);
+        setBusinessError("");
+      })
+      .catch((caughtError: unknown) => {
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses([]);
+        setBusinessError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "No fue posible cargar los negocios guardados."
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const sortedBusinesses = useMemo(() => {
     return [...businesses].sort((a, b) => a.category.localeCompare(b.category));
@@ -44,34 +82,57 @@ export function AdminBusinesses() {
     window.dispatchEvent(new Event("orbi-admin-session-change"));
   }
 
-  function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
 
-    const newBusiness: AffiliateBusiness = {
-      id: createBusinessId(),
+    const newBusiness = {
       name: String(data.get("name") ?? "").trim(),
       category: String(data.get("category")) as BusinessCategory,
       description: String(data.get("description") ?? "").trim(),
       estimatedTime: String(data.get("estimatedTime") ?? "").trim(),
       status: String(data.get("status")) as BusinessStatus,
-      rating: String(data.get("rating") ?? "").trim(),
-      source: "local"
+      rating: String(data.get("rating") ?? "").trim()
     };
 
     if (!newBusiness.name || !newBusiness.description || !newBusiness.estimatedTime) {
       return;
     }
 
-    const nextBusinesses = [newBusiness, ...businesses];
-    writeLocalBusinesses(nextBusinesses);
-    form.reset();
+    setIsSaving(true);
+    setBusinessError("");
+
+    try {
+      const savedBusiness = await createBusiness(newBusiness);
+      setBusinesses((currentBusinesses) => [savedBusiness, ...currentBusinesses]);
+      form.reset();
+    } catch (caughtError) {
+      setBusinessError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible guardar el negocio."
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function handleDeleteBusiness(id: string) {
-    const nextBusinesses = businesses.filter((business) => business.id !== id);
-    writeLocalBusinesses(nextBusinesses);
+  async function handleDeleteBusiness(id: string) {
+    setBusinessError("");
+
+    try {
+      await deleteBusiness(id);
+      setBusinesses((currentBusinesses) =>
+        currentBusinesses.filter((business) => business.id !== id)
+      );
+    } catch (caughtError) {
+      setBusinessError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible eliminar el negocio."
+      );
+    }
   }
 
   if (!isUnlocked) {
@@ -110,7 +171,7 @@ export function AdminBusinesses() {
       <div className="flex items-center justify-between gap-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
         <div>
           <p className="text-sm font-black text-orbi-text">Administrador activo</p>
-          <p className="mt-1 text-xs text-orbi-muted">Los cambios se guardan en este navegador.</p>
+          <p className="mt-1 text-xs text-orbi-muted">Los cambios se guardan en Supabase.</p>
         </div>
         <button
           type="button"
@@ -179,10 +240,11 @@ export function AdminBusinesses() {
         </label>
         <button
           type="submit"
+          disabled={isSaving}
           className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] focus:outline-none focus:ring-2 focus:ring-orbi-cyan/70 focus:ring-offset-2 focus:ring-offset-orbi-black sm:col-span-2"
         >
           <Plus aria-hidden="true" className="h-5 w-5" />
-          Guardar negocio
+          {isSaving ? "Guardando..." : "Guardar negocio"}
         </button>
       </form>
 
@@ -194,7 +256,17 @@ export function AdminBusinesses() {
           </span>
         </div>
 
-        {sortedBusinesses.length ? (
+        {businessError ? (
+          <p className="mb-4 rounded-md border border-red-300/15 bg-red-400/10 p-4 text-sm font-semibold text-red-200">
+            {businessError}
+          </p>
+        ) : null}
+
+        {isLoading ? (
+          <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+            Cargando negocios guardados...
+          </p>
+        ) : sortedBusinesses.length ? (
           <div className="space-y-3">
             {sortedBusinesses.map((business) => (
               <article
@@ -285,15 +357,5 @@ function subscribeToAdminSession(callback: () => void) {
   return () => {
     window.removeEventListener("storage", callback);
     window.removeEventListener("orbi-admin-session-change", callback);
-  };
-}
-
-function subscribeToBusinessChanges(callback: () => void) {
-  window.addEventListener("storage", callback);
-  window.addEventListener("orbi-businesses-change", callback);
-
-  return () => {
-    window.removeEventListener("storage", callback);
-    window.removeEventListener("orbi-businesses-change", callback);
   };
 }

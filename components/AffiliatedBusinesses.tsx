@@ -1,12 +1,12 @@
 "use client";
 
 import { Building2, Coffee, Gift, Pill, Printer, ShoppingBag } from "lucide-react";
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AffiliateBusiness,
   BusinessCategory,
   businessCategories,
-  readLocalBusinesses
+  getBusinesses
 } from "@/lib/businesses";
 
 const categoryMeta: Record<
@@ -39,34 +39,68 @@ const categoryMeta: Record<
 };
 
 export function AffiliatedBusinesses() {
-  const localBusinesses = useSyncExternalStore(
-    subscribeToBusinessChanges,
-    readLocalBusinesses,
-    () => []
-  );
+  const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    getBusinesses()
+      .then((nextBusinesses) => {
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses(nextBusinesses);
+        setError("");
+      })
+      .catch((caughtError: unknown) => {
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses([]);
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "No fue posible cargar los negocios afiliados."
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const businessesByCategory = useMemo(() => {
     return businessCategories
       .map((category) => ({
         category,
-        businesses: localBusinesses.filter((business) => business.category === category)
+        businesses: businesses.filter((business) => business.category === category)
       }))
       .filter(({ businesses }) => businesses.length > 0);
-  }, [localBusinesses]);
+  }, [businesses]);
 
-  if (!localBusinesses.length) {
+  if (isLoading) {
+    return <StateCard title="Cargando negocios afiliados..." body="Estamos consultando la red activa de Orbi." />;
+  }
+
+  if (error) {
+    return <StateCard title="No pudimos cargar los negocios." body={error} tone="error" />;
+  }
+
+  if (!businesses.length) {
     return (
-      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-10">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
-          <Building2 aria-hidden="true" className="h-7 w-7" />
-        </div>
-        <h2 className="text-2xl font-black tracking-normal text-orbi-text">
-          Aún no hay negocios afiliados registrados.
-        </h2>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted sm:text-base">
-          Pronto podrás ver aquí los aliados activos de Red Orbi.
-        </p>
-      </div>
+      <StateCard
+        title="Aún no hay negocios afiliados registrados."
+        body="Pronto podrás ver aquí los aliados activos de Red Orbi."
+      />
     );
   }
 
@@ -111,16 +145,6 @@ export function AffiliatedBusinesses() {
   );
 }
 
-function subscribeToBusinessChanges(callback: () => void) {
-  window.addEventListener("storage", callback);
-  window.addEventListener("orbi-businesses-change", callback);
-
-  return () => {
-    window.removeEventListener("storage", callback);
-    window.removeEventListener("orbi-businesses-change", callback);
-  };
-}
-
 function BusinessRow({ business }: { business: AffiliateBusiness }) {
   const isAvailable = business.status === "Disponible";
 
@@ -152,6 +176,34 @@ function BusinessRow({ business }: { business: AffiliateBusiness }) {
           <p className="mt-1 font-black text-orbi-text">⭐ {business.rating}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StateCard({
+  title,
+  body,
+  tone = "default"
+}: {
+  title: string;
+  body: string;
+  tone?: "default" | "error";
+}) {
+  return (
+    <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-10">
+      <div
+        className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border shadow-[0_0_24px_rgba(31,139,255,0.14)] ${
+          tone === "error"
+            ? "border-red-300/20 bg-red-400/10 text-red-200"
+            : "border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan"
+        }`}
+      >
+        <Building2 aria-hidden="true" className="h-7 w-7" />
+      </div>
+      <h2 className="text-2xl font-black tracking-normal text-orbi-text">{title}</h2>
+      <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted sm:text-base">
+        {body}
+      </p>
     </div>
   );
 }

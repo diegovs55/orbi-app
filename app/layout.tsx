@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, Building2, PackagePlus, Route } from "lucide-react";
+import { Activity, Building2, PackagePlus, Route, UsersRound } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,6 +28,7 @@ const navItems = [
   { href: "/pedir", label: "Pedir", icon: PackagePlus },
   { href: "/orbita", label: "Órbita", icon: Route },
   { href: "/negocios", label: "Negocios", icon: Building2 },
+  { href: "/agentes", label: "Agentes", icon: UsersRound },
   { href: "/admin", label: "Admin", icon: Activity }
 ];
 
@@ -60,14 +61,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </footer>
           </main>
           <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-orbi-black/88 px-2 py-2 backdrop-blur-xl">
-            <div className="mx-auto grid max-w-2xl grid-cols-5 gap-1">
+            <div className="mx-auto grid max-w-2xl grid-cols-6 gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-medium text-orbi-muted transition hover:bg-white/7 hover:text-orbi-text"
+                    className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium text-orbi-muted transition hover:bg-white/7 hover:text-orbi-text sm:text-[11px]"
                   >
                     {Icon ? (
                       <Icon aria-hidden="true" className="h-5 w-5" />
