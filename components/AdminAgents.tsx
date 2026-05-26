@@ -158,13 +158,17 @@ export function AdminAgents() {
       const updatedAgent = await updateAgentOrbit(agent.id, {
         status: "En órbita",
         lat: position.latitude,
-        lng: position.longitude
+        lng: position.longitude,
+        radiusKm: agent.radiusKm,
+        serviceType: agent.serviceType,
+        availability: agent.availability
       });
       setAgents((currentAgents) =>
         currentAgents.map((currentAgent) =>
           currentAgent.id === agent.id ? updatedAgent : currentAgent
         )
       );
+      setLocationMessage(`${agent.name} tomó órbita con ubicación operativa actualizada.`);
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error
@@ -181,13 +185,17 @@ export function AdminAgents() {
       const updatedAgent = await updateAgentOrbit(agent.id, {
         status: "Fuera de órbita",
         lat: agent.lat,
-        lng: agent.lng
+        lng: agent.lng,
+        radiusKm: agent.radiusKm,
+        serviceType: agent.serviceType,
+        availability: agent.availability
       });
       setAgents((currentAgents) =>
         currentAgents.map((currentAgent) =>
           currentAgent.id === agent.id ? updatedAgent : currentAgent
         )
       );
+      setLocationMessage(`${agent.name} salió de órbita.`);
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error

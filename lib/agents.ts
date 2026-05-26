@@ -57,6 +57,9 @@ type AgentUpdate = {
   status: AgentStatus;
   lat?: number | null;
   lng?: number | null;
+  radius_km?: number | null;
+  service_type?: AgentServiceType;
+  availability?: string | null;
 };
 
 type AgentInsert = {
@@ -179,13 +182,23 @@ export async function deleteAgent(id: string) {
 
 export async function updateAgentOrbit(
   id: string,
-  update: { status: AgentStatus; lat?: number | null; lng?: number | null }
+  update: {
+    status: AgentStatus;
+    lat?: number | null;
+    lng?: number | null;
+    radiusKm?: number;
+    serviceType?: AgentServiceType;
+    availability?: string;
+  }
 ) {
   const client = getSupabaseClient();
   const payload: AgentUpdate = {
     status: update.status,
     lat: update.lat,
-    lng: update.lng
+    lng: update.lng,
+    radius_km: update.radiusKm,
+    service_type: update.serviceType,
+    availability: update.availability || null
   };
 
   const { data, error } = await client
@@ -198,7 +211,11 @@ export async function updateAgentOrbit(
   if (isMissingCoordinateColumnError(error)) {
     const fallback = await client
       .from("agents")
-      .update({ status: update.status })
+      .update({
+        status: update.status,
+        service_type: update.serviceType,
+        availability: update.availability || null
+      })
       .eq("id", id)
       .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
       .single();

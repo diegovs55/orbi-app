@@ -84,6 +84,8 @@ type RequestDetails = {
   requesterPhone: string;
 };
 
+type PaymentMethod = "Efectivo" | "Transferencia" | "Pago contra entrega";
+
 const emptyDetails: RequestDetails = {
   origin: "",
   originLat: null,
@@ -126,6 +128,7 @@ const initialGeocodeState: GeocodeState = {
 
 const activeAgentStatus: OrbiAgent["status"] = "En órbita";
 const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
+const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Pago contra entrega"];
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -140,6 +143,8 @@ export function ServiceRequestFlow() {
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
+  const [requestStatusMessage, setRequestStatusMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -283,6 +288,8 @@ export function ServiceRequestFlow() {
     setDetails(emptyDetails);
     setIsRequestReady(false);
     setSelectedAgent(null);
+    setPaymentMethod("Efectivo");
+    setRequestStatusMessage("");
   }
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
@@ -525,6 +532,7 @@ export function ServiceRequestFlow() {
     }
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
+    const estimatedOrbit = getEstimatedOrbit(distance);
 
     const message = [
       "Solicitud Orbi",
@@ -543,10 +551,15 @@ export function ServiceRequestFlow() {
       `Teléfono: ${details.requesterPhone}`,
       `Agente: ${selectedAgent.name}`,
       `Zona del agente: ${selectedAgent.zone}`,
+      `Vehículo: ${selectedAgent.vehicle || "No especificado"}`,
+      `Nivel de confianza: ${selectedAgent.trustLevel}`,
+      `Método de pago: ${paymentMethod}`,
+      `Órbita estimada: ${estimatedOrbit}`,
       ...(distance === null ? [] : [`Distancia aproximada: ${distance.toFixed(1)} km`])
     ].join("\n");
 
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
+    setRequestStatusMessage("Esperando confirmación del agente");
   }
 
   return (
@@ -720,11 +733,11 @@ export function ServiceRequestFlow() {
       {selectedService && selectedAgent ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-            Confirmar ficha
+            Confirmar misión
           </p>
-          <h2 className="mt-2 text-2xl font-black text-orbi-text">Solicitud lista para enviar</h2>
+          <h2 className="mt-2 text-2xl font-black text-orbi-text">Misión lista para enviar</h2>
           <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
-            <SummaryItem label="Servicio" value={selectedService.label} />
+            <SummaryItem label="Resumen de servicio" value={selectedService.label} />
             <SummaryItem label="Origen" value={details.origin} />
             <SummaryItem label="Origen lat/lng" value={formatCoordinates(details.originLat, details.originLng)} />
             <SummaryItem label="Destino" value={details.destination} />
@@ -738,8 +751,56 @@ export function ServiceRequestFlow() {
               label="Distancia aproximada"
               value={formatDistance(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
             />
+            <SummaryItem label="Vehículo" value={selectedAgent.vehicle || "No especificado"} />
+            <SummaryItem label="Nivel de confianza" value={selectedAgent.trustLevel} />
+            <SummaryItem
+              label="Órbita estimada"
+              value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
+            />
             <SummaryItem label="Detalle" value={details.detail} wide />
           </div>
+
+          <div className="mt-5 rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-blue/[0.14] to-white/[0.04] p-4 shadow-[0_0_28px_rgba(31,139,255,0.1)]">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+              Tiempo estimado de atención
+            </p>
+            <h3 className="mt-2 text-2xl font-black text-orbi-text">
+              Órbita estimada: {getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-orbi-muted">
+              Es una referencia aproximada según distancia y disponibilidad operativa; el agente confirma la misión.
+            </p>
+          </div>
+
+          <div className="mt-5 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4">
+            <h3 className="text-lg font-black text-orbi-text">¿Cómo quieres continuar?</h3>
+            <p className="mt-1 text-sm leading-6 text-orbi-muted">
+              Elige un método simple para coordinar la misión. Aún no hay pasarela integrada.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {paymentMethods.map((method) => (
+                <button
+                  key={method}
+                  type="button"
+                  onClick={() => setPaymentMethod(method)}
+                  className={`min-h-11 rounded-md border px-3 py-2 text-sm font-bold transition ${
+                    paymentMethod === method
+                      ? "border-orbi-cyan/45 bg-orbi-blue/25 text-orbi-cyan"
+                      : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
+                  }`}
+                >
+                  {method}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {requestStatusMessage ? (
+            <p className="mt-5 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm font-bold text-emerald-200">
+              {requestStatusMessage}
+            </p>
+          ) : null}
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
@@ -754,7 +815,7 @@ export function ServiceRequestFlow() {
               className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
             >
               <Send aria-hidden="true" className="h-5 w-5" />
-              Enviar solicitud por WhatsApp
+              Enviar solicitud al agente
             </button>
           </div>
         </section>
@@ -787,7 +848,7 @@ function StepHeader({
     { label: "Servicio", active: true, done: Boolean(selectedService) },
     { label: "Ficha", active: Boolean(selectedService), done: isRequestReady },
     { label: "Agente", active: isRequestReady, done: Boolean(selectedAgent) },
-    { label: "Confirmar", active: Boolean(selectedAgent), done: false }
+    { label: "Confirmar misión", active: Boolean(selectedAgent), done: false }
   ];
 
   return (
@@ -1191,6 +1252,26 @@ function formatCoordinates(lat: number | null, lng: number | null) {
 
 function formatDistance(distance: number | null) {
   return distance === null ? "Sin ubicación operativa registrada." : `${distance.toFixed(1)} km`;
+}
+
+function getEstimatedOrbit(distance: number | null) {
+  if (distance === null) {
+    return "Por confirmar con el agente";
+  }
+
+  if (distance <= 2) {
+    return "5-10 min";
+  }
+
+  if (distance <= 5) {
+    return "10-20 min";
+  }
+
+  if (distance <= 10) {
+    return "20-35 min";
+  }
+
+  return "35-60 min";
 }
 
 function hasCoordinates(lat: number | null, lng: number | null) {
