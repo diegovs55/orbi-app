@@ -12,9 +12,22 @@ import {
   Truck,
   UserRound
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+
+const LocationPickerMap = dynamic(
+  () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
+  {
+    loading: () => (
+      <div className="flex h-full min-h-[320px] items-center justify-center bg-orbi-black text-sm font-semibold text-orbi-muted">
+        Cargando mapa...
+      </div>
+    ),
+    ssr: false
+  }
+);
 
 const services = [
   {
@@ -94,6 +107,11 @@ const statusStyles: Record<OrbiAgent["status"], string> = {
 
 type LocationTarget = "origin" | "destination";
 
+type MapPoint = {
+  lat: number;
+  lng: number;
+};
+
 type GeocodeState = Record<
   LocationTarget,
   {
@@ -109,6 +127,7 @@ const initialGeocodeState: GeocodeState = {
 };
 
 const matchableStatuses: OrbiAgent["status"][] = ["Disponible", "En órbita"];
+const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -120,6 +139,9 @@ export function ServiceRequestFlow() {
   const [agentError, setAgentError] = useState("");
   const [locationError, setLocationError] = useState("");
   const [geocodeState, setGeocodeState] = useState<GeocodeState>(initialGeocodeState);
+  const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
+  const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
+  const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -275,6 +297,79 @@ export function ServiceRequestFlow() {
     );
   }
 
+  function handleOpenMap(target: LocationTarget) {
+    const currentLat = target === "origin" ? details.originLat : details.destinationLat;
+    const currentLng = target === "origin" ? details.originLng : details.destinationLng;
+
+    setMapPoint(
+      hasCoordinates(currentLat, currentLng)
+        ? { lat: currentLat!, lng: currentLng! }
+        : zumpahuacanCenter
+    );
+    setMapTarget(target);
+
+    if (!hasCoordinates(currentLat, currentLng) && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setMapPoint({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        () => undefined,
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  }
+
+  async function handleConfirmMapPoint() {
+    if (!mapTarget) {
+      return;
+    }
+
+    setIsReverseGeocoding(true);
+
+    try {
+      updateCoordinateDetails(mapTarget, {
+        latitude: mapPoint.lat,
+        longitude: mapPoint.lng
+      });
+
+      const address = await reverseGeocodePoint(mapPoint);
+      setDetails((currentDetails) => ({
+        ...currentDetails,
+        ...(mapTarget === "origin"
+          ? { origin: address || "Punto marcado en mapa" }
+          : { destination: address || "Punto marcado en mapa" })
+      }));
+      updateGeocodeState(mapTarget, {
+        isLoading: false,
+        message: `Ubicación encontrada: ${formatCoordinates(mapPoint.lat, mapPoint.lng)}`,
+        tone: "success"
+      });
+      setMapTarget(null);
+    } catch {
+      updateCoordinateDetails(mapTarget, {
+        latitude: mapPoint.lat,
+        longitude: mapPoint.lng
+      });
+      setDetails((currentDetails) => ({
+        ...currentDetails,
+        ...(mapTarget === "origin"
+          ? { origin: "Punto marcado en mapa" }
+          : { destination: "Punto marcado en mapa" })
+      }));
+      updateGeocodeState(mapTarget, {
+        isLoading: false,
+        message: `Ubicación encontrada: ${formatCoordinates(mapPoint.lat, mapPoint.lng)}`,
+        tone: "success"
+      });
+      setMapTarget(null);
+    } finally {
+      setIsReverseGeocoding(false);
+    }
+  }
+
   async function handleGeocodeLocation(target: LocationTarget) {
     const rawQuery = target === "origin" ? details.origin : details.destination;
     const query = buildLocalGeocodeQuery(rawQuery);
@@ -428,6 +523,7 @@ export function ServiceRequestFlow() {
             onChange={(value) => updateLocationText("origin", value)}
             onUseLocation={() => handleUseCurrentLocation("origin")}
             onGeocode={() => handleGeocodeLocation("origin")}
+            onOpenMap={() => handleOpenMap("origin")}
           />
           <LocationField
             label="Punto de destino"
@@ -441,6 +537,7 @@ export function ServiceRequestFlow() {
             onChange={(value) => updateLocationText("destination", value)}
             onUseLocation={() => handleUseCurrentLocation("destination")}
             onGeocode={() => handleGeocodeLocation("destination")}
+            onOpenMap={() => handleOpenMap("destination")}
           />
           <ScheduleField
             mode={details.scheduleMode}
@@ -581,6 +678,17 @@ export function ServiceRequestFlow() {
             </button>
           </div>
         </section>
+      ) : null}
+
+      {mapTarget ? (
+        <LocationPickerDialog
+          isSaving={isReverseGeocoding}
+          point={mapPoint}
+          title={mapTarget === "origin" ? "Elegir punto de origen" : "Elegir punto de destino"}
+          onClose={() => setMapTarget(null)}
+          onConfirm={handleConfirmMapPoint}
+          onPointChange={setMapPoint}
+        />
       ) : null}
     </div>
   );
@@ -766,7 +874,8 @@ function LocationField({
   geocodeState,
   onChange,
   onUseLocation,
-  onGeocode
+  onGeocode,
+  onOpenMap
 }: {
   label: string;
   value: string;
@@ -779,6 +888,7 @@ function LocationField({
   onChange: (value: string) => void;
   onUseLocation: () => void;
   onGeocode: () => void;
+  onOpenMap: () => void;
 }) {
   return (
     <div className="space-y-2">
@@ -792,6 +902,14 @@ function LocationField({
         >
           <MapPin aria-hidden="true" className="h-4 w-4" />
           {geocodeState.isLoading ? "Buscando..." : geocodeLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onOpenMap}
+          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+        >
+          <MapPin aria-hidden="true" className="h-4 w-4" />
+          Elegir en mapa
         </button>
         <button
           type="button"
@@ -818,6 +936,63 @@ function LocationField({
           Ubicación encontrada: {formatCoordinates(lat, lng)}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function LocationPickerDialog({
+  title,
+  point,
+  isSaving,
+  onPointChange,
+  onConfirm,
+  onClose
+}: {
+  title: string;
+  point: MapPoint;
+  isSaving: boolean;
+  onPointChange: (point: MapPoint) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-orbi-black/82 px-3 pb-3 pt-10 backdrop-blur sm:items-center sm:justify-center sm:p-6">
+      <section className="max-h-[92vh] w-full overflow-hidden rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-panel via-orbi-panel/95 to-orbi-black shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_44px_rgba(31,139,255,0.18)] sm:max-w-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 p-4 sm:p-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orbi-cyan">
+              Selección visual
+            </p>
+            <h2 className="mt-1 text-xl font-black text-orbi-text">{title}</h2>
+            <p className="mt-1 text-sm leading-6 text-orbi-muted">
+              Toca el mapa o arrastra el marcador para ajustar el punto.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/10"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="h-[58vh] min-h-[320px] w-full border-b border-white/10">
+          <LocationPickerMap point={point} onPointChange={onPointChange} />
+        </div>
+        <div className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center sm:p-5">
+          <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-muted">
+            Punto seleccionado: {formatCoordinates(point.lat, point.lng)}
+          </p>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isSaving}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {isSaving ? "Confirmando..." : "Confirmar punto"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -970,6 +1145,21 @@ function buildLocalGeocodeQuery(rawQuery: string) {
   }
 
   return `${query}, Zumpahuacán, Estado de México, México`;
+}
+
+async function reverseGeocodePoint(point: MapPoint) {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
+      point.lat
+    )}&lon=${encodeURIComponent(point.lng)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("No fue posible consultar la dirección del punto marcado.");
+  }
+
+  const result = (await response.json()) as { display_name?: string };
+  return result.display_name?.trim() ?? "";
 }
 
 function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {

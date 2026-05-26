@@ -1,3 +1,5 @@
+@import "leaflet/dist/leaflet.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -73,4 +75,32 @@ button {
 .orbit-ring::after {
   right: 12%;
   bottom: 12%;
+}
+
+.leaflet-container {
+  background: #081424;
+  color: #081424;
+  font: inherit;
+}
+
+.leaflet-control-attribution {
+  background: rgba(5, 7, 13, 0.72) !important;
+  color: rgba(238, 247, 255, 0.72) !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #36d7ff !important;
+}
+
+.orbi-map-marker {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #eef7ff;
+  border-radius: 9999px;
+  background: #1f8bff;
+  box-shadow:
+    0 0 0 7px rgba(31, 139, 255, 0.22),
+    0 0 28px rgba(54, 215, 255, 0.72);
 }
