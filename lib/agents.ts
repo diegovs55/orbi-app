@@ -10,7 +10,7 @@ export const agentServiceTypes = [
 
 export type AgentServiceType = (typeof agentServiceTypes)[number];
 
-export type AgentStatus = "Disponible" | "Ocupado" | "Fuera de servicio";
+export type AgentStatus = "Disponible" | "En órbita" | "Ocupado" | "Desconectado";
 
 export type AgentTrustLevel = "Verificado" | "En validación";
 
@@ -41,7 +41,7 @@ type AgentRow = {
   initials: string | null;
   service_type: AgentServiceType;
   zone: string;
-  status: AgentStatus;
+  status: AgentStatus | "Fuera de servicio";
   trust_level: AgentTrustLevel;
   phone: string;
   description: string;
@@ -187,7 +187,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     initials: row.initials ?? getAgentInitials(row.name),
     serviceType: row.service_type,
     zone: row.zone,
-    status: row.status,
+    status: normalizeAgentStatus(row.status),
     trustLevel: row.trust_level,
     phone: row.phone,
     description: row.description,
@@ -197,6 +197,10 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     lng: typeof row.lng === "number" ? row.lng : null,
     radiusKm: typeof row.radius_km === "number" ? row.radius_km : 20
   };
+}
+
+function normalizeAgentStatus(status: AgentRow["status"]): AgentStatus {
+  return status === "Fuera de servicio" ? "Desconectado" : status;
 }
 
 function isMissingCoordinateColumnError(error: { message?: string; code?: string } | null) {

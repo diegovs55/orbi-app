@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Plus, Trash2, UserRound } from "lucide-react";
+import { LocateFixed, Plus, Trash2, UserRound } from "lucide-react";
 import {
   AgentServiceType,
   AgentStatus,
@@ -22,6 +22,9 @@ export function AdminAgents() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [agentError, setAgentError] = useState("");
+  const [agentLat, setAgentLat] = useState("");
+  const [agentLng, setAgentLng] = useState("");
+  const [locationMessage, setLocationMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -109,6 +112,8 @@ export function AdminAgents() {
       const savedAgent = await createAgent(newAgent);
       setAgents((currentAgents) => [savedAgent, ...currentAgents]);
       form.reset();
+      setAgentLat("");
+      setAgentLng("");
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el agente."
@@ -116,6 +121,28 @@ export function AdminAgents() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handleUseAgentLocation() {
+    setLocationMessage("");
+    setAgentError("");
+
+    if (!navigator.geolocation) {
+      setLocationMessage("Tu navegador no permite obtener ubicación.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setAgentLat(position.coords.latitude.toFixed(6));
+        setAgentLng(position.coords.longitude.toFixed(6));
+        setLocationMessage("Ubicación operativa capturada.");
+      },
+      () => {
+        setLocationMessage("No pudimos obtener la ubicación del agente.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   }
 
   async function handleDeleteAgent(id: string) {
@@ -181,8 +208,9 @@ export function AdminAgents() {
             defaultValue="Disponible"
           >
             <option value="Disponible">Disponible</option>
+            <option value="En órbita">En órbita</option>
             <option value="Ocupado">Ocupado</option>
-            <option value="Fuera de servicio">Fuera de servicio</option>
+            <option value="Desconectado">Desconectado</option>
           </select>
         </label>
         <label className="block text-sm font-semibold text-orbi-text">
@@ -199,15 +227,44 @@ export function AdminAgents() {
         <Input label="Teléfono/WhatsApp interno" name="phone" placeholder="5255..." />
         <Input label="Placa o vehículo" name="vehicle" placeholder="Moto azul / ABC-123" required={false} />
         <Input label="Horario disponible" name="availability" placeholder="9:00–18:00" required={false} />
-        <Input label="Latitud" name="lat" placeholder="19.4326" required={false} />
-        <Input label="Longitud" name="lng" placeholder="-99.1332" required={false} />
         <Input
-          label="Radio de operación en km"
+          label="Latitud operativa actual"
+          name="lat"
+          placeholder="19.4326"
+          value={agentLat}
+          onChange={setAgentLat}
+          required={false}
+        />
+        <Input
+          label="Longitud operativa actual"
+          name="lng"
+          placeholder="-99.1332"
+          value={agentLng}
+          onChange={setAgentLng}
+          required={false}
+        />
+        <Input
+          label="Radio operativo km"
           name="radiusKm"
           placeholder="20"
           defaultValue="20"
           required={false}
         />
+        <div className="sm:col-span-2">
+          <button
+            type="button"
+            onClick={handleUseAgentLocation}
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+          >
+            <LocateFixed aria-hidden="true" className="h-4 w-4" />
+            Usar mi ubicación como ubicación del agente
+          </button>
+          {locationMessage ? (
+            <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
+              {locationMessage}
+            </p>
+          ) : null}
+        </div>
         <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
           Descripción breve
           <textarea
@@ -285,7 +342,7 @@ export function AdminAgents() {
                   ) : null}
                   {agent.lat !== null && agent.lng !== null ? (
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
-                      {agent.radiusKm} km
+                      Base operativa · {agent.radiusKm} km
                     </span>
                   ) : null}
                 </div>
@@ -308,9 +365,19 @@ type InputProps = {
   placeholder: string;
   required?: boolean;
   defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
 };
 
-function Input({ label, name, placeholder, required = true, defaultValue }: InputProps) {
+function Input({
+  label,
+  name,
+  placeholder,
+  required = true,
+  defaultValue,
+  value,
+  onChange
+}: InputProps) {
   return (
     <label className="block text-sm font-semibold text-orbi-text">
       {label}
@@ -319,6 +386,8 @@ function Input({ label, name, placeholder, required = true, defaultValue }: Inpu
         name={name}
         placeholder={placeholder}
         defaultValue={defaultValue}
+        value={value}
+        onChange={onChange ? (event) => onChange(event.target.value) : undefined}
         required={required}
       />
     </label>

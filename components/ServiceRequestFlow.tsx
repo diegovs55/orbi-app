@@ -87,9 +87,28 @@ const emptyDetails: RequestDetails = {
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
   Disponible: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
   Ocupado: "border-yellow-300/25 bg-yellow-300/10 text-yellow-100",
-  "Fuera de servicio": "border-white/10 bg-white/5 text-orbi-muted"
+  Desconectado: "border-white/10 bg-white/5 text-orbi-muted"
 };
+
+type LocationTarget = "origin" | "destination";
+
+type GeocodeState = Record<
+  LocationTarget,
+  {
+    isLoading: boolean;
+    message: string;
+    tone: "success" | "warning" | "";
+  }
+>;
+
+const initialGeocodeState: GeocodeState = {
+  origin: { isLoading: false, message: "", tone: "" },
+  destination: { isLoading: false, message: "", tone: "" }
+};
+
+const matchableStatuses: OrbiAgent["status"][] = ["Disponible", "En órbita"];
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -100,6 +119,7 @@ export function ServiceRequestFlow() {
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [agentError, setAgentError] = useState("");
   const [locationError, setLocationError] = useState("");
+  const [geocodeState, setGeocodeState] = useState<GeocodeState>(initialGeocodeState);
 
   useEffect(() => {
     let isActive = true;
@@ -156,7 +176,7 @@ export function ServiceRequestFlow() {
     return agents.filter((agent) => {
       const matchesCoreFilters =
         agent.serviceType === (selectedService.compatibleType as AgentServiceType) &&
-        agent.status === "Disponible";
+        matchableStatuses.includes(agent.status);
 
       if (!matchesCoreFilters) {
         return false;
@@ -197,8 +217,18 @@ export function ServiceRequestFlow() {
     setDetails((currentDetails) => ({ ...currentDetails, [field]: value }));
   }
 
+  function updateLocationText(target: LocationTarget, value: string) {
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      ...(target === "origin"
+        ? { origin: value, originLat: null, originLng: null }
+        : { destination: value, destinationLat: null, destinationLng: null })
+    }));
+    updateGeocodeState(target, { isLoading: false, message: "", tone: "" });
+  }
+
   function updateCoordinateDetails(
-    target: "origin" | "destination",
+    target: LocationTarget,
     coords: { latitude: number; longitude: number }
   ) {
     setDetails((currentDetails) => ({
@@ -209,7 +239,16 @@ export function ServiceRequestFlow() {
     }));
   }
 
-  function handleUseCurrentLocation(target: "origin" | "destination") {
+  function clearCoordinateDetails(target: LocationTarget) {
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      ...(target === "origin"
+        ? { originLat: null, originLng: null }
+        : { destinationLat: null, destinationLng: null })
+    }));
+  }
+
+  function handleUseCurrentLocation(target: LocationTarget) {
     setLocationError("");
 
     if (!navigator.geolocation) {
@@ -220,6 +259,14 @@ export function ServiceRequestFlow() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         updateCoordinateDetails(target, position.coords);
+        updateGeocodeState(target, {
+          isLoading: false,
+          message: `Ubicación encontrada: ${formatCoordinates(
+            position.coords.latitude,
+            position.coords.longitude
+          )}`,
+          tone: "success"
+        });
       },
       () => {
         setLocationError("No pudimos obtener tu ubicación. Puedes escribir una referencia manual.");
@@ -228,24 +275,104 @@ export function ServiceRequestFlow() {
     );
   }
 
+  async function handleGeocodeLocation(target: LocationTarget) {
+    const rawQuery = target === "origin" ? details.origin : details.destination;
+    const query = buildLocalGeocodeQuery(rawQuery);
+
+    if (!rawQuery.trim()) {
+      updateGeocodeState(target, {
+        message: "Escribe una dirección o referencia para buscar ubicación.",
+        tone: "warning"
+      });
+      return;
+    }
+
+    updateGeocodeState(target, { isLoading: true, message: "", tone: "" });
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("No fue posible consultar la referencia.");
+      }
+
+      const results = (await response.json()) as Array<{ lat: string; lon: string }>;
+      const firstResult = results[0];
+
+      if (!firstResult) {
+        clearCoordinateDetails(target);
+        updateGeocodeState(target, {
+          isLoading: false,
+          message:
+            "No pudimos georreferenciar esta referencia. Usa tu ubicación actual o escribe más detalles.",
+          tone: "warning"
+        });
+        return;
+      }
+
+      const latitude = Number(firstResult.lat);
+      const longitude = Number(firstResult.lon);
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        throw new Error("La referencia no devolvió coordenadas válidas.");
+      }
+
+      updateCoordinateDetails(target, { latitude, longitude });
+      updateGeocodeState(target, {
+        isLoading: false,
+        message: `Ubicación encontrada: ${formatCoordinates(latitude, longitude)}`,
+        tone: "success"
+      });
+    } catch {
+      updateGeocodeState(target, {
+        isLoading: false,
+        message:
+          "No pudimos georreferenciar esta referencia. Usa tu ubicación actual o escribe más detalles.",
+        tone: "warning"
+      });
+    }
+  }
+
+  function updateGeocodeState(
+    target: LocationTarget,
+    nextState: Partial<GeocodeState[LocationTarget]>
+  ) {
+    setGeocodeState((currentState) => ({
+      ...currentState,
+      [target]: {
+        ...currentState[target],
+        ...nextState
+      }
+    }));
+  }
+
   function sendWhatsApp() {
     if (!selectedService || !selectedAgent) {
       return;
     }
 
+    const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
+
     const message = [
       "Solicitud Orbi",
       `Servicio: ${selectedService.label}`,
-      `Origen: ${details.origin}`,
-      `Origen lat/lng: ${formatCoordinates(details.originLat, details.originLng)}`,
-      `Destino: ${details.destination}`,
-      `Destino lat/lng: ${formatCoordinates(details.destinationLat, details.destinationLng)}`,
+      `Origen texto: ${details.origin}`,
+      ...(hasCoordinates(details.originLat, details.originLng)
+        ? [`Origen coordenadas: ${formatCoordinates(details.originLat, details.originLng)}`]
+        : []),
+      `Destino texto: ${details.destination}`,
+      ...(hasCoordinates(details.destinationLat, details.destinationLng)
+        ? [`Destino coordenadas: ${formatCoordinates(details.destinationLat, details.destinationLng)}`]
+        : []),
       `Detalle: ${details.detail}`,
       `Horario: ${getDesiredTimeLabel(details)}`,
       `Solicitante: ${details.requesterName}`,
       `Teléfono: ${details.requesterPhone}`,
-      `Agente seleccionado: ${selectedAgent.name}`,
-      `Zona del agente: ${selectedAgent.zone}`
+      `Agente: ${selectedAgent.name}`,
+      `Zona del agente: ${selectedAgent.zone}`,
+      ...(distance === null ? [] : [`Distancia aproximada: ${distance.toFixed(1)} km`])
     ].join("\n");
 
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
@@ -296,8 +423,11 @@ export function ServiceRequestFlow() {
             lat={details.originLat}
             lng={details.originLng}
             buttonLabel="Usar mi ubicación"
-            onChange={(value) => updateDetails("origin", value)}
+            geocodeLabel="Buscar ubicación"
+            geocodeState={geocodeState.origin}
+            onChange={(value) => updateLocationText("origin", value)}
             onUseLocation={() => handleUseCurrentLocation("origin")}
+            onGeocode={() => handleGeocodeLocation("origin")}
           />
           <LocationField
             label="Punto de destino"
@@ -306,8 +436,11 @@ export function ServiceRequestFlow() {
             lat={details.destinationLat}
             lng={details.destinationLng}
             buttonLabel="Usar ubicación actual como destino"
-            onChange={(value) => updateDetails("destination", value)}
+            geocodeLabel="Buscar ubicación"
+            geocodeState={geocodeState.destination}
+            onChange={(value) => updateLocationText("destination", value)}
             onUseLocation={() => handleUseCurrentLocation("destination")}
+            onGeocode={() => handleGeocodeLocation("destination")}
           />
           <ScheduleField
             mode={details.scheduleMode}
@@ -371,9 +504,14 @@ export function ServiceRequestFlow() {
             <StateCard title="No pudimos cargar agentes." body={agentError} tone="error" />
           ) : compatibleAgents.length ? (
             <>
+              {details.originLat === null || details.originLng === null ? (
+                <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
+                  Sin ubicación precisa, mostramos agentes disponibles por servicio.
+                </p>
+              ) : null}
               {details.originLat !== null && details.originLng !== null && compatibleAgentsWithoutCoordinates ? (
                 <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
-                  Algunos agentes todavía no tienen coordenadas registradas. Los mostramos para no detener la operación mientras se completa su ubicación.
+                  Algunos agentes todavía no tienen ubicación operativa registrada. Los mostramos para no detener la operación mientras se completa su base de operación.
                 </p>
               ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
@@ -419,6 +557,10 @@ export function ServiceRequestFlow() {
             <SummaryItem label="Teléfono" value={details.requesterPhone} />
             <SummaryItem label="Agente seleccionado" value={selectedAgent.name} />
             <SummaryItem label="Zona del agente" value={selectedAgent.zone} />
+            <SummaryItem
+              label="Distancia aproximada"
+              value={formatDistance(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
+            />
             <SummaryItem label="Detalle" value={details.detail} wide />
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -526,10 +668,7 @@ function AgentOptionCard({
   originLng: number | null;
   onSelect: () => void;
 }) {
-  const distance =
-    originLat !== null && originLng !== null && agent.lat !== null && agent.lng !== null
-      ? calculateDistanceKm(originLat, originLng, agent.lat, agent.lng)
-      : null;
+  const distance = getAgentDistance(originLat, originLng, agent);
 
   return (
     <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)]">
@@ -552,7 +691,14 @@ function AgentOptionCard({
         <InfoTile label="Zona" value={agent.zone} />
         <InfoTile label="Confianza" value={agent.trustLevel} />
         <InfoTile label="Radio" value={`${agent.radiusKm || 20} km`} />
-        <InfoTile label="Distancia" value={distance === null ? "Sin coordenadas" : `${distance.toFixed(1)} km`} />
+        <InfoTile
+          label="Distancia"
+          value={
+            distance === null
+              ? "Sin ubicación operativa registrada."
+              : `A ${distance.toFixed(1)} km de tu punto de origen`
+          }
+        />
       </div>
       <button
         type="button"
@@ -616,8 +762,11 @@ function LocationField({
   lat,
   lng,
   buttonLabel,
+  geocodeLabel,
+  geocodeState,
   onChange,
-  onUseLocation
+  onUseLocation,
+  onGeocode
 }: {
   label: string;
   value: string;
@@ -625,23 +774,48 @@ function LocationField({
   lat: number | null;
   lng: number | null;
   buttonLabel: string;
+  geocodeLabel: string;
+  geocodeState: GeocodeState[LocationTarget];
   onChange: (value: string) => void;
   onUseLocation: () => void;
+  onGeocode: () => void;
 }) {
   return (
     <div className="space-y-2">
       <RequestInput label={label} value={value} placeholder={placeholder} onChange={onChange} />
-      <button
-        type="button"
-        onClick={onUseLocation}
-        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-      >
-        <LocateFixed aria-hidden="true" className="h-4 w-4" />
-        {buttonLabel}
-      </button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onGeocode}
+          disabled={geocodeState.isLoading}
+          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <MapPin aria-hidden="true" className="h-4 w-4" />
+          {geocodeState.isLoading ? "Buscando..." : geocodeLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onUseLocation}
+          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+        >
+          <LocateFixed aria-hidden="true" className="h-4 w-4" />
+          {buttonLabel}
+        </button>
+      </div>
+      {geocodeState.message ? (
+        <p
+          className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+            geocodeState.tone === "success"
+              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+              : "border-yellow-300/15 bg-yellow-300/10 text-yellow-100"
+          }`}
+        >
+          {geocodeState.message}
+        </p>
+      ) : null}
       {lat !== null && lng !== null ? (
         <p className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
-          Ubicación capturada: {formatCoordinates(lat, lng)}
+          Ubicación encontrada: {formatCoordinates(lat, lng)}
         </p>
       ) : null}
     </div>
@@ -753,11 +927,49 @@ function getDesiredTimeLabel(details: RequestDetails) {
 }
 
 function formatCoordinates(lat: number | null, lng: number | null) {
-  if (lat === null || lng === null) {
+  if (!hasCoordinates(lat, lng)) {
     return "No capturada";
   }
 
-  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  return `${lat!.toFixed(6)}, ${lng!.toFixed(6)}`;
+}
+
+function formatDistance(distance: number | null) {
+  return distance === null ? "Sin ubicación operativa registrada." : `${distance.toFixed(1)} km`;
+}
+
+function hasCoordinates(lat: number | null, lng: number | null) {
+  return lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
+}
+
+function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
+  if (!hasCoordinates(originLat, originLng) || !hasCoordinates(agent.lat, agent.lng)) {
+    return null;
+  }
+
+  return calculateDistanceKm(originLat!, originLng!, agent.lat!, agent.lng!);
+}
+
+function buildLocalGeocodeQuery(rawQuery: string) {
+  const query = rawQuery.trim();
+
+  if (!query) {
+    return "";
+  }
+
+  const hasStateOrCountry = /estado de m[eé]xico|m[eé]xico/i.test(query);
+  const hasMunicipality = /zumpahuac[aá]n/i.test(query);
+  const isShortReference = query.split(/\s+/).filter(Boolean).length <= 3;
+
+  if (hasStateOrCountry || !isShortReference) {
+    return query;
+  }
+
+  if (hasMunicipality) {
+    return `${query}, Estado de México, México`;
+  }
+
+  return `${query}, Zumpahuacán, Estado de México, México`;
 }
 
 function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {

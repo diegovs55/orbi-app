@@ -6,8 +6,9 @@ import { getAgents, OrbiAgent } from "@/lib/agents";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
   Disponible: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
   Ocupado: "border-yellow-300/25 bg-yellow-300/10 text-yellow-100",
-  "Fuera de servicio": "border-white/10 bg-white/5 text-orbi-muted"
+  Desconectado: "border-white/10 bg-white/5 text-orbi-muted"
 };
 
 export function AgentCards() {
