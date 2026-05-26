@@ -196,32 +196,68 @@ export function ServiceRequestFlow() {
     }
 
     return agents.filter((agent) => {
-      const matchesCoreFilters =
-        agent.serviceType === (selectedService.compatibleType as AgentServiceType) &&
-        matchableStatuses.includes(agent.status);
+      const userHasOrigin = hasCoordinates(details.originLat, details.originLng);
+      const agentHasCoordinates = hasCoordinates(agent.lat, agent.lng);
+      const serviceMatches = agent.serviceType === (selectedService.compatibleType as AgentServiceType);
+      const statusMatches = matchableStatuses.includes(agent.status);
+      const distance =
+        userHasOrigin && agentHasCoordinates
+          ? calculateDistanceKm(details.originLat!, details.originLng!, agent.lat!, agent.lng!)
+          : null;
+      const radius = agent.radiusKm || 20;
+      let exclusionReason = "";
 
-      if (!matchesCoreFilters) {
+      if (!serviceMatches) {
+        exclusionReason = `Servicio no compatible: ${agent.serviceType}`;
+      } else if (!statusMatches) {
+        exclusionReason = `Estado no operativo: ${agent.status}`;
+      } else if (!agentHasCoordinates) {
+        exclusionReason = "Agente sin lat/lng operativos válidos";
+      } else if (distance !== null && distance > radius) {
+        exclusionReason = `Fuera de radio operativo: ${distance.toFixed(1)} km > ${radius} km`;
+      }
+
+      console.info("[Orbi matching]", {
+        usuario: {
+          origin_lat: details.originLat,
+          origin_lng: details.originLng,
+          tiene_origen_preciso: userHasOrigin
+        },
+        agente: {
+          id: agent.id,
+          nombre: agent.name,
+          service_type: agent.serviceType,
+          status: agent.status,
+          lat: agent.lat,
+          lng: agent.lng,
+          radius_km: radius,
+          tiene_ubicacion_operativa: agentHasCoordinates
+        },
+        distancia_km: distance,
+        incluido: !exclusionReason,
+        motivo_exclusion: exclusionReason || "Incluido"
+      });
+
+      if (exclusionReason) {
         return false;
       }
 
-      if (details.originLat === null || details.originLng === null) {
-        return true;
-      }
-
-      if (agent.lat === null || agent.lng === null) {
-        return true;
-      }
-
-      return (
-        calculateDistanceKm(details.originLat, details.originLng, agent.lat, agent.lng) <=
-        (agent.radiusKm || 20)
-      );
+      return true;
     });
   }, [agents, details.originLat, details.originLng, selectedService]);
 
-  const compatibleAgentsWithoutCoordinates = useMemo(() => {
-    return compatibleAgents.some((agent) => agent.lat === null || agent.lng === null);
-  }, [compatibleAgents]);
+  const invalidOperationalLocationCount = useMemo(() => {
+    if (!selectedService) {
+      return 0;
+    }
+
+    return agents.filter(
+      (agent) =>
+        agent.serviceType === (selectedService.compatibleType as AgentServiceType) &&
+        matchableStatuses.includes(agent.status) &&
+        !hasCoordinates(agent.lat, agent.lng)
+    ).length;
+  }, [agents, selectedService]);
 
   function resetFlow() {
     setSelectedService(null);
@@ -279,7 +315,11 @@ export function ServiceRequestFlow() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
+        const point = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
         updateCoordinateDetails(target, position.coords);
         updateGeocodeState(target, {
           isLoading: false,
@@ -289,6 +329,23 @@ export function ServiceRequestFlow() {
           )}`,
           tone: "success"
         });
+
+        try {
+          const address = await reverseGeocodePoint(point);
+          setDetails((currentDetails) => ({
+            ...currentDetails,
+            ...(target === "origin"
+              ? { origin: address || "Ubicación actual" }
+              : { destination: address || "Ubicación actual" })
+          }));
+        } catch {
+          setDetails((currentDetails) => ({
+            ...currentDetails,
+            ...(target === "origin"
+              ? { origin: "Ubicación actual" }
+              : { destination: "Ubicación actual" })
+          }));
+        }
       },
       () => {
         setLocationError("No pudimos obtener tu ubicación. Puedes escribir una referencia manual.");
@@ -606,9 +663,9 @@ export function ServiceRequestFlow() {
                   Sin ubicación precisa, mostramos agentes disponibles por servicio.
                 </p>
               ) : null}
-              {details.originLat !== null && details.originLng !== null && compatibleAgentsWithoutCoordinates ? (
+              {invalidOperationalLocationCount ? (
                 <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
-                  Algunos agentes todavía no tienen ubicación operativa registrada. Los mostramos para no detener la operación mientras se completa su base de operación.
+                  {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
                 </p>
               ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
@@ -626,7 +683,11 @@ export function ServiceRequestFlow() {
           ) : (
             <StateCard
               title="No hay agentes disponibles para este servicio o zona."
-              body="Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
+              body={
+                invalidOperationalLocationCount
+                  ? `${invalidOperationalLocationCount} agente(s) coinciden por servicio y estado, pero fueron excluidos por no tener lat/lng válidos.`
+                  : "Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
+              }
               actionLabel="Cambiar servicio o ajustar ubicación"
               onAction={() => {
                 setSelectedAgent(null);

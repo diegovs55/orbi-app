@@ -24,6 +24,7 @@ export function AdminAgents() {
   const [agentError, setAgentError] = useState("");
   const [agentLat, setAgentLat] = useState("");
   const [agentLng, setAgentLng] = useState("");
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>("Disponible");
   const [locationMessage, setLocationMessage] = useState("");
 
   useEffect(() => {
@@ -90,7 +91,7 @@ export function AdminAgents() {
       initials,
       serviceType: String(data.get("serviceType")) as AgentServiceType,
       zone: String(data.get("zone") ?? "").trim(),
-      status: String(data.get("status")) as AgentStatus,
+      status: agentStatus,
       trustLevel: String(data.get("trustLevel")) as AgentTrustLevel,
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
@@ -114,6 +115,7 @@ export function AdminAgents() {
       form.reset();
       setAgentLat("");
       setAgentLng("");
+      setAgentStatus("Disponible");
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el agente."
@@ -143,6 +145,14 @@ export function AdminAgents() {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
+  }
+
+  function handleStatusChange(status: AgentStatus) {
+    setAgentStatus(status);
+
+    if (status === "Disponible" || status === "En órbita") {
+      handleUseAgentLocation();
+    }
   }
 
   async function handleDeleteAgent(id: string) {
@@ -205,7 +215,8 @@ export function AdminAgents() {
           <select
             name="status"
             className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
-            defaultValue="Disponible"
+            value={agentStatus}
+            onChange={(event) => handleStatusChange(event.target.value as AgentStatus)}
           >
             <option value="Disponible">Disponible</option>
             <option value="En órbita">En órbita</option>
@@ -340,11 +351,15 @@ export function AdminAgents() {
                       {agent.vehicle}
                     </span>
                   ) : null}
-                  {agent.lat !== null && agent.lng !== null ? (
+                  {hasValidAgentCoordinates(agent) ? (
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                       Base operativa · {agent.radiusKm} km
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="rounded-full border border-red-300/15 bg-red-400/10 px-3 py-1 text-red-200">
+                      Sin ubicación operativa válida
+                    </span>
+                  )}
                 </div>
               </article>
             ))}
@@ -416,4 +431,13 @@ function parseOptionalNumber(value: FormDataEntryValue | null) {
 
   const parsedValue = Number(rawValue);
   return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function hasValidAgentCoordinates(agent: OrbiAgent) {
+  return (
+    agent.lat !== null &&
+    agent.lng !== null &&
+    Number.isFinite(agent.lat) &&
+    Number.isFinite(agent.lng)
+  );
 }
