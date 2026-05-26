@@ -1,14 +1,14 @@
-import { RequestForm } from "@/components/RequestForm";
 import { PageShell } from "@/components/PageShell";
+import { ServiceRequestFlow } from "@/components/ServiceRequestFlow";
 
 export default function PedirPage() {
   return (
     <PageShell
       eyebrow="Pedir algo"
-      title="Cuéntanos qué necesitas mover o conseguir."
-      description="Orbi arma el pedido y lo envía por WhatsApp para coordinar la atención local."
+      title="¿Qué necesitas hoy?"
+      description="Define la necesidad, completa la ficha operativa y elige un agente disponible para resolverla."
     >
-      <RequestForm mode="pedido" />
+      <ServiceRequestFlow />
     </PageShell>
   );
 }
