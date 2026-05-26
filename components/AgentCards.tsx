@@ -5,10 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { getAgents, OrbiAgent } from "@/lib/agents";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
-  Disponible: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
   "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
-  Ocupado: "border-yellow-300/25 bg-yellow-300/10 text-yellow-100",
-  Desconectado: "border-white/10 bg-white/5 text-orbi-muted"
+  "Fuera de órbita": "border-white/10 bg-white/5 text-orbi-muted"
 };
 
 export function AgentCards() {
@@ -104,16 +102,13 @@ export function AgentCards() {
                     {agent.status}
                   </span>
                 </div>
-                <p className="mt-1 text-sm font-semibold text-orbi-cyan">{agent.serviceType}</p>
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
               </div>
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-              <InfoTile label="Zona" value={agent.zone} />
-              <InfoTile label="Confianza" value={agent.trustLevel} />
               {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
-              {agent.availability ? <InfoTile label="Horario" value={agent.availability} /> : null}
+              <InfoTile label="Confianza" value={agent.trustLevel} />
             </div>
 
             <button
@@ -146,9 +141,7 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
                 Perfil de confianza
               </p>
               <h2 className="mt-1 text-2xl font-black text-orbi-text">{agent.name}</h2>
-              <p className="mt-1 text-sm text-orbi-muted">
-                {agent.serviceType} · {agent.zone}
-              </p>
+              <p className="mt-1 text-sm text-orbi-muted">{agent.status}</p>
             </div>
           </div>
           <button
@@ -164,11 +157,20 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
         <p className="mt-5 text-sm leading-6 text-orbi-muted">{agent.description}</p>
         <div className="mt-5 grid gap-2 text-xs sm:grid-cols-2">
           <InfoTile label="Estado" value={agent.status} />
-          <InfoTile label="Confianza" value={agent.trustLevel} />
-          <InfoTile label="Zona principal" value={agent.zone} />
-          <InfoTile label="Servicio" value={agent.serviceType} />
-          {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
           {agent.availability ? <InfoTile label="Horario" value={agent.availability} /> : null}
+          <InfoTile label="Zona" value={agent.zone} />
+          {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
+          <InfoTile label="Confianza" value={agent.trustLevel} />
+          <InfoTile label="Servicios que cubre" value={agent.serviceType} />
+          <InfoTile label="Radio operativo" value={`${agent.radiusKm || 20} km`} />
+          <InfoTile
+            label="Ubicación operativa"
+            value={
+              hasValidAgentCoordinates(agent)
+                ? `${agent.lat!.toFixed(6)}, ${agent.lng!.toFixed(6)}`
+                : "Sin ubicación registrada"
+            }
+          />
         </div>
       </section>
     </div>
@@ -200,6 +202,15 @@ function InfoTile({ label, value }: { label: string; value: string }) {
       <p className="font-semibold text-orbi-muted">{label}</p>
       <p className="mt-1 font-black text-orbi-text">{value}</p>
     </div>
+  );
+}
+
+function hasValidAgentCoordinates(agent: OrbiAgent) {
+  return (
+    agent.lat !== null &&
+    agent.lng !== null &&
+    Number.isFinite(agent.lat) &&
+    Number.isFinite(agent.lng)
   );
 }
 

@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
 export const agentServiceTypes = [
+  "Todos los servicios",
   "Mandados",
   "Entregas",
   "Traslados",
@@ -10,7 +11,7 @@ export const agentServiceTypes = [
 
 export type AgentServiceType = (typeof agentServiceTypes)[number];
 
-export type AgentStatus = "Disponible" | "En órbita" | "Ocupado" | "Desconectado";
+export type AgentStatus = "En órbita" | "Fuera de órbita";
 
 export type AgentTrustLevel = "Verificado" | "En validación";
 
@@ -41,7 +42,7 @@ type AgentRow = {
   initials: string | null;
   service_type: AgentServiceType;
   zone: string;
-  status: AgentStatus | "Fuera de servicio";
+  status: AgentStatus | "Disponible" | "Ocupado" | "Desconectado" | "Fuera de servicio";
   trust_level: AgentTrustLevel;
   phone: string;
   description: string;
@@ -50,6 +51,12 @@ type AgentRow = {
   lat?: number | null;
   lng?: number | null;
   radius_km?: number | null;
+};
+
+type AgentUpdate = {
+  status: AgentStatus;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 type AgentInsert = {
@@ -170,6 +177,46 @@ export async function deleteAgent(id: string) {
   }
 }
 
+export async function updateAgentOrbit(
+  id: string,
+  update: { status: AgentStatus; lat?: number | null; lng?: number | null }
+) {
+  const client = getSupabaseClient();
+  const payload: AgentUpdate = {
+    status: update.status,
+    lat: update.lat,
+    lng: update.lng
+  };
+
+  const { data, error } = await client
+    .from("agents")
+    .update(payload)
+    .eq("id", id)
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
+    .single();
+
+  if (isMissingCoordinateColumnError(error)) {
+    const fallback = await client
+      .from("agents")
+      .update({ status: update.status })
+      .eq("id", id)
+      .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+      .single();
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+
+    return mapAgentRow(fallback.data);
+  }
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapAgentRow(data);
+}
+
 export function getAgentInitials(name: string) {
   return name
     .split(" ")
@@ -200,7 +247,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
 }
 
 function normalizeAgentStatus(status: AgentRow["status"]): AgentStatus {
-  return status === "Fuera de servicio" ? "Desconectado" : status;
+  return status === "En órbita" ? "En órbita" : "Fuera de órbita";
 }
 
 function isMissingCoordinateColumnError(error: { message?: string; code?: string } | null) {

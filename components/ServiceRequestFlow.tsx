@@ -99,10 +99,8 @@ const emptyDetails: RequestDetails = {
 };
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
-  Disponible: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
   "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
-  Ocupado: "border-yellow-300/25 bg-yellow-300/10 text-yellow-100",
-  Desconectado: "border-white/10 bg-white/5 text-orbi-muted"
+  "Fuera de órbita": "border-white/10 bg-white/5 text-orbi-muted"
 };
 
 type LocationTarget = "origin" | "destination";
@@ -126,7 +124,7 @@ const initialGeocodeState: GeocodeState = {
   destination: { isLoading: false, message: "", tone: "" }
 };
 
-const matchableStatuses: OrbiAgent["status"][] = ["Disponible", "En órbita"];
+const activeAgentStatus: OrbiAgent["status"] = "En órbita";
 const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
 
 export function ServiceRequestFlow() {
@@ -195,11 +193,15 @@ export function ServiceRequestFlow() {
       return [];
     }
 
-    return agents.filter((agent) => {
+    return agents
+      .map((agent) => {
       const userHasOrigin = hasCoordinates(details.originLat, details.originLng);
       const agentHasCoordinates = hasCoordinates(agent.lat, agent.lng);
-      const serviceMatches = agent.serviceType === (selectedService.compatibleType as AgentServiceType);
-      const statusMatches = matchableStatuses.includes(agent.status);
+      const serviceMatches = isServiceCompatible(
+        agent.serviceType,
+        selectedService.compatibleType as AgentServiceType
+      );
+      const statusMatches = agent.status === activeAgentStatus;
       const distance =
         userHasOrigin && agentHasCoordinates
           ? calculateDistanceKm(details.originLat!, details.originLng!, agent.lat!, agent.lng!)
@@ -239,11 +241,28 @@ export function ServiceRequestFlow() {
       });
 
       if (exclusionReason) {
-        return false;
+        return { agent, distance, included: false };
       }
 
-      return true;
-    });
+      return { agent, distance, included: true };
+    })
+      .filter((result) => result.included)
+      .sort((a, b) => {
+        if (a.distance === null && b.distance === null) {
+          return a.agent.name.localeCompare(b.agent.name);
+        }
+
+        if (a.distance === null) {
+          return 1;
+        }
+
+        if (b.distance === null) {
+          return -1;
+        }
+
+        return a.distance - b.distance;
+      })
+      .map((result) => result.agent);
   }, [agents, details.originLat, details.originLng, selectedService]);
 
   const invalidOperationalLocationCount = useMemo(() => {
@@ -253,8 +272,8 @@ export function ServiceRequestFlow() {
 
     return agents.filter(
       (agent) =>
-        agent.serviceType === (selectedService.compatibleType as AgentServiceType) &&
-        matchableStatuses.includes(agent.status) &&
+        isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType) &&
+        agent.status === activeAgentStatus &&
         !hasCoordinates(agent.lat, agent.lng)
     ).length;
   }, [agents, selectedService]);
@@ -1184,6 +1203,10 @@ function getAgentDistance(originLat: number | null, originLng: number | null, ag
   }
 
   return calculateDistanceKm(originLat!, originLng!, agent.lat!, agent.lng!);
+}
+
+function isServiceCompatible(agentService: AgentServiceType, requestedService: AgentServiceType) {
+  return agentService === "Todos los servicios" || agentService === requestedService;
 }
 
 function buildLocalGeocodeQuery(rawQuery: string) {

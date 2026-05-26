@@ -11,7 +11,8 @@ import {
   createAgent,
   deleteAgent,
   getAgentInitials,
-  getAgents
+  getAgents,
+  updateAgentOrbit
 } from "@/lib/agents";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -24,7 +25,9 @@ export function AdminAgents() {
   const [agentError, setAgentError] = useState("");
   const [agentLat, setAgentLat] = useState("");
   const [agentLng, setAgentLng] = useState("");
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>("Disponible");
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>("Fuera de órbita");
+  const [availabilityStart, setAvailabilityStart] = useState("");
+  const [availabilityEnd, setAvailabilityEnd] = useState("");
   const [locationMessage, setLocationMessage] = useState("");
 
   useEffect(() => {
@@ -96,7 +99,7 @@ export function AdminAgents() {
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
       vehicle: String(data.get("vehicle") ?? "").trim(),
-      availability: String(data.get("availability") ?? "").trim(),
+      availability: formatAvailability(availabilityStart, availabilityEnd),
       lat: parseOptionalNumber(data.get("lat")),
       lng: parseOptionalNumber(data.get("lng")),
       radiusKm: parseOptionalNumber(data.get("radiusKm")) ?? 20
@@ -115,7 +118,9 @@ export function AdminAgents() {
       form.reset();
       setAgentLat("");
       setAgentLng("");
-      setAgentStatus("Disponible");
+      setAgentStatus("Fuera de órbita");
+      setAvailabilityStart("");
+      setAvailabilityEnd("");
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el agente."
@@ -125,33 +130,70 @@ export function AdminAgents() {
     }
   }
 
-  function handleUseAgentLocation() {
+  async function handleTakeOrbitDraft() {
     setLocationMessage("");
     setAgentError("");
 
-    if (!navigator.geolocation) {
-      setLocationMessage("Tu navegador no permite obtener ubicación.");
-      return;
+    try {
+      const position = await getCurrentPosition();
+      setAgentLat(position.latitude.toFixed(6));
+      setAgentLng(position.longitude.toFixed(6));
+      setAgentStatus("En órbita");
+      setLocationMessage("Agente en órbita con ubicación operativa actualizada.");
+    } catch {
+      setLocationMessage("No pudimos obtener la ubicación del agente.");
     }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setAgentLat(position.coords.latitude.toFixed(6));
-        setAgentLng(position.coords.longitude.toFixed(6));
-        setLocationMessage("Ubicación operativa capturada.");
-      },
-      () => {
-        setLocationMessage("No pudimos obtener la ubicación del agente.");
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
   }
 
-  function handleStatusChange(status: AgentStatus) {
-    setAgentStatus(status);
+  function handleExitOrbitDraft() {
+    setAgentStatus("Fuera de órbita");
+    setLocationMessage("El agente quedará fuera de órbita al guardar.");
+  }
 
-    if (status === "Disponible" || status === "En órbita") {
-      handleUseAgentLocation();
+  async function handleTakeOrbitAgent(agent: OrbiAgent) {
+    setAgentError("");
+
+    try {
+      const position = await getCurrentPosition();
+      const updatedAgent = await updateAgentOrbit(agent.id, {
+        status: "En órbita",
+        lat: position.latitude,
+        lng: position.longitude
+      });
+      setAgents((currentAgents) =>
+        currentAgents.map((currentAgent) =>
+          currentAgent.id === agent.id ? updatedAgent : currentAgent
+        )
+      );
+    } catch (caughtError) {
+      setAgentError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible tomar órbita con este agente."
+      );
+    }
+  }
+
+  async function handleExitOrbitAgent(agent: OrbiAgent) {
+    setAgentError("");
+
+    try {
+      const updatedAgent = await updateAgentOrbit(agent.id, {
+        status: "Fuera de órbita",
+        lat: agent.lat,
+        lng: agent.lng
+      });
+      setAgents((currentAgents) =>
+        currentAgents.map((currentAgent) =>
+          currentAgent.id === agent.id ? updatedAgent : currentAgent
+        )
+      );
+    } catch (caughtError) {
+      setAgentError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible sacar de órbita a este agente."
+      );
     }
   }
 
@@ -210,20 +252,33 @@ export function AdminAgents() {
           </select>
         </label>
         <Input label="Zona principal de operación" name="zone" placeholder="Centro / Norte" />
-        <label className="block text-sm font-semibold text-orbi-text">
-          Estado
-          <select
-            name="status"
-            className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
-            value={agentStatus}
-            onChange={(event) => handleStatusChange(event.target.value as AgentStatus)}
-          >
-            <option value="Disponible">Disponible</option>
-            <option value="En órbita">En órbita</option>
-            <option value="Ocupado">Ocupado</option>
-            <option value="Desconectado">Desconectado</option>
-          </select>
-        </label>
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-orbi-text">Estado operativo</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleTakeOrbitDraft}
+              className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
+                agentStatus === "En órbita"
+                  ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan"
+                  : "border-orbi-cyan/20 bg-orbi-blue/[0.08] text-orbi-cyan hover:bg-orbi-blue/15"
+              }`}
+            >
+              Tomar órbita
+            </button>
+            <button
+              type="button"
+              onClick={handleExitOrbitDraft}
+              className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
+                agentStatus === "Fuera de órbita"
+                  ? "border-white/20 bg-white/10 text-orbi-text"
+                  : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
+              }`}
+            >
+              Salir de órbita
+            </button>
+          </div>
+        </div>
         <label className="block text-sm font-semibold text-orbi-text">
           Nivel de confianza
           <select
@@ -237,7 +292,24 @@ export function AdminAgents() {
         </label>
         <Input label="Teléfono/WhatsApp interno" name="phone" placeholder="5255..." />
         <Input label="Placa o vehículo" name="vehicle" placeholder="Moto azul / ABC-123" required={false} />
-        <Input label="Horario disponible" name="availability" placeholder="9:00–18:00" required={false} />
+        <Input
+          label="Hora inicio"
+          name="availabilityStart"
+          placeholder="09:00"
+          type="time"
+          value={availabilityStart}
+          onChange={setAvailabilityStart}
+          required={false}
+        />
+        <Input
+          label="Hora fin"
+          name="availabilityEnd"
+          placeholder="18:00"
+          type="time"
+          value={availabilityEnd}
+          onChange={setAvailabilityEnd}
+          required={false}
+        />
         <Input
           label="Latitud operativa actual"
           name="lat"
@@ -264,11 +336,11 @@ export function AdminAgents() {
         <div className="sm:col-span-2">
           <button
             type="button"
-            onClick={handleUseAgentLocation}
+            onClick={handleTakeOrbitDraft}
             className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
           >
             <LocateFixed aria-hidden="true" className="h-4 w-4" />
-            Usar mi ubicación como ubicación del agente
+            Usar mi ubicación y tomar órbita
           </button>
           {locationMessage ? (
             <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
@@ -361,6 +433,22 @@ export function AdminAgents() {
                     </span>
                   )}
                 </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTakeOrbitAgent(agent)}
+                    className="inline-flex min-h-10 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+                  >
+                    Tomar órbita
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExitOrbitAgent(agent)}
+                    className="inline-flex min-h-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+                  >
+                    Salir de órbita
+                  </button>
+                </div>
               </article>
             ))}
           </div>
@@ -378,6 +466,7 @@ type InputProps = {
   label: string;
   name: string;
   placeholder: string;
+  type?: string;
   required?: boolean;
   defaultValue?: string;
   value?: string;
@@ -388,6 +477,7 @@ function Input({
   label,
   name,
   placeholder,
+  type = "text",
   required = true,
   defaultValue,
   value,
@@ -400,6 +490,7 @@ function Input({
         className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
         name={name}
         placeholder={placeholder}
+        type={type}
         defaultValue={defaultValue}
         value={value}
         onChange={onChange ? (event) => onChange(event.target.value) : undefined}
@@ -431,6 +522,34 @@ function parseOptionalNumber(value: FormDataEntryValue | null) {
 
   const parsedValue = Number(rawValue);
   return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function formatAvailability(start: string, end: string) {
+  if (!start.trim() && !end.trim()) {
+    return "";
+  }
+
+  return `${start.trim() || "--:--"} - ${end.trim() || "--:--"}`;
+}
+
+function getCurrentPosition() {
+  return new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Tu navegador no permite obtener ubicación."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        });
+      },
+      reject,
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {
