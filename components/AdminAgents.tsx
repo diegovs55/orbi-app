@@ -92,7 +92,10 @@ export function AdminAgents() {
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
       vehicle: String(data.get("vehicle") ?? "").trim(),
-      availability: String(data.get("availability") ?? "").trim()
+      availability: String(data.get("availability") ?? "").trim(),
+      lat: parseOptionalNumber(data.get("lat")),
+      lng: parseOptionalNumber(data.get("lng")),
+      radiusKm: parseOptionalNumber(data.get("radiusKm")) ?? 20
     };
 
     if (!newAgent.name || !newAgent.zone || !newAgent.phone || !newAgent.description) {
@@ -196,6 +199,15 @@ export function AdminAgents() {
         <Input label="Teléfono/WhatsApp interno" name="phone" placeholder="5255..." />
         <Input label="Placa o vehículo" name="vehicle" placeholder="Moto azul / ABC-123" required={false} />
         <Input label="Horario disponible" name="availability" placeholder="9:00–18:00" required={false} />
+        <Input label="Latitud" name="lat" placeholder="19.4326" required={false} />
+        <Input label="Longitud" name="lng" placeholder="-99.1332" required={false} />
+        <Input
+          label="Radio de operación en km"
+          name="radiusKm"
+          placeholder="20"
+          defaultValue="20"
+          required={false}
+        />
         <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
           Descripción breve
           <textarea
@@ -271,6 +283,11 @@ export function AdminAgents() {
                       {agent.vehicle}
                     </span>
                   ) : null}
+                  {agent.lat !== null && agent.lng !== null ? (
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
+                      {agent.radiusKm} km
+                    </span>
+                  ) : null}
                 </div>
               </article>
             ))}
@@ -290,9 +307,10 @@ type InputProps = {
   name: string;
   placeholder: string;
   required?: boolean;
+  defaultValue?: string;
 };
 
-function Input({ label, name, placeholder, required = true }: InputProps) {
+function Input({ label, name, placeholder, required = true, defaultValue }: InputProps) {
   return (
     <label className="block text-sm font-semibold text-orbi-text">
       {label}
@@ -300,6 +318,7 @@ function Input({ label, name, placeholder, required = true }: InputProps) {
         className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
         name={name}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         required={required}
       />
     </label>
@@ -318,4 +337,14 @@ function subscribeToAdminSession(callback: () => void) {
     window.removeEventListener("storage", callback);
     window.removeEventListener("orbi-admin-session-change", callback);
   };
+}
+
+function parseOptionalNumber(value: FormDataEntryValue | null) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) ? parsedValue : null;
 }

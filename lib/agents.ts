@@ -27,6 +27,9 @@ export type OrbiAgent = {
   description: string;
   vehicle: string;
   availability: string;
+  lat: number | null;
+  lng: number | null;
+  radiusKm: number;
 };
 
 export type CreateAgentInput = Omit<OrbiAgent, "id">;
@@ -44,6 +47,9 @@ type AgentRow = {
   description: string;
   vehicle: string | null;
   availability: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  radius_km?: number | null;
 };
 
 type AgentInsert = {
@@ -58,6 +64,9 @@ type AgentInsert = {
   description: string;
   vehicle: string | null;
   availability: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  radius_km?: number | null;
 };
 
 export async function getAgents() {
@@ -65,9 +74,23 @@ export async function getAgents() {
 
   const { data, error } = await client
     .from("agents")
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
     .order("status", { ascending: true })
     .order("name", { ascending: true });
+
+  if (isMissingCoordinateColumnError(error)) {
+    const fallback = await client
+      .from("agents")
+      .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+      .order("status", { ascending: true })
+      .order("name", { ascending: true });
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+
+    return (fallback.data ?? []).map(mapAgentRow);
+  }
 
   if (error) {
     throw new Error(error.message);
@@ -90,14 +113,45 @@ export async function createAgent(agent: CreateAgentInput) {
     phone: agent.phone,
     description: agent.description,
     vehicle: agent.vehicle || null,
-    availability: agent.availability || null
+    availability: agent.availability || null,
+    lat: agent.lat,
+    lng: agent.lng,
+    radius_km: agent.radiusKm || 20
   };
 
   const { data, error } = await client
     .from("agents")
     .insert(payload)
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
     .single();
+
+  if (isMissingCoordinateColumnError(error)) {
+    const fallbackPayload = {
+      name: payload.name,
+      photo_url: payload.photo_url,
+      initials: payload.initials,
+      service_type: payload.service_type,
+      zone: payload.zone,
+      status: payload.status,
+      trust_level: payload.trust_level,
+      phone: payload.phone,
+      description: payload.description,
+      vehicle: payload.vehicle,
+      availability: payload.availability
+    };
+
+    const fallback = await client
+      .from("agents")
+      .insert(fallbackPayload)
+      .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+      .single();
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+
+    return mapAgentRow(fallback.data);
+  }
 
   if (error) {
     throw new Error(error.message);
@@ -138,8 +192,22 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     phone: row.phone,
     description: row.description,
     vehicle: row.vehicle ?? "",
-    availability: row.availability ?? ""
+    availability: row.availability ?? "",
+    lat: typeof row.lat === "number" ? row.lat : null,
+    lng: typeof row.lng === "number" ? row.lng : null,
+    radiusKm: typeof row.radius_km === "number" ? row.radius_km : 20
   };
+}
+
+function isMissingCoordinateColumnError(error: { message?: string; code?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  return (
+    error.code === "42703" ||
+    /lat|lng|radius_km|column|schema cache/i.test(error.message ?? "")
+  );
 }
 
 function getSupabaseClient() {

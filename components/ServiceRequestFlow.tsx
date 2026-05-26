@@ -3,6 +3,7 @@
 import {
   ClipboardList,
   CreditCard,
+  LocateFixed,
   MapPin,
   PackageCheck,
   RefreshCw,
@@ -58,18 +59,28 @@ type ServiceOption = (typeof services)[number];
 
 type RequestDetails = {
   origin: string;
+  originLat: number | null;
+  originLng: number | null;
   destination: string;
+  destinationLat: number | null;
+  destinationLng: number | null;
   detail: string;
-  desiredTime: string;
+  scheduleMode: "asap" | "scheduled";
+  scheduledAt: string;
   requesterName: string;
   requesterPhone: string;
 };
 
 const emptyDetails: RequestDetails = {
   origin: "",
+  originLat: null,
+  originLng: null,
   destination: "",
+  destinationLat: null,
+  destinationLng: null,
   detail: "",
-  desiredTime: "",
+  scheduleMode: "asap",
+  scheduledAt: "",
   requesterName: "",
   requesterPhone: ""
 };
@@ -88,6 +99,7 @@ export function ServiceRequestFlow() {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [agentError, setAgentError] = useState("");
+  const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -141,12 +153,33 @@ export function ServiceRequestFlow() {
       return [];
     }
 
-    return agents.filter(
-      (agent) =>
+    return agents.filter((agent) => {
+      const matchesCoreFilters =
         agent.serviceType === (selectedService.compatibleType as AgentServiceType) &&
-        agent.status === "Disponible"
-    );
-  }, [agents, selectedService]);
+        agent.status === "Disponible";
+
+      if (!matchesCoreFilters) {
+        return false;
+      }
+
+      if (details.originLat === null || details.originLng === null) {
+        return true;
+      }
+
+      if (agent.lat === null || agent.lng === null) {
+        return true;
+      }
+
+      return (
+        calculateDistanceKm(details.originLat, details.originLng, agent.lat, agent.lng) <=
+        (agent.radiusKm || 20)
+      );
+    });
+  }, [agents, details.originLat, details.originLng, selectedService]);
+
+  const compatibleAgentsWithoutCoordinates = useMemo(() => {
+    return compatibleAgents.some((agent) => agent.lat === null || agent.lng === null);
+  }, [compatibleAgents]);
 
   function resetFlow() {
     setSelectedService(null);
@@ -164,6 +197,37 @@ export function ServiceRequestFlow() {
     setDetails((currentDetails) => ({ ...currentDetails, [field]: value }));
   }
 
+  function updateCoordinateDetails(
+    target: "origin" | "destination",
+    coords: { latitude: number; longitude: number }
+  ) {
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      ...(target === "origin"
+        ? { originLat: coords.latitude, originLng: coords.longitude }
+        : { destinationLat: coords.latitude, destinationLng: coords.longitude })
+    }));
+  }
+
+  function handleUseCurrentLocation(target: "origin" | "destination") {
+    setLocationError("");
+
+    if (!navigator.geolocation) {
+      setLocationError("Tu navegador no permite obtener ubicación.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        updateCoordinateDetails(target, position.coords);
+      },
+      () => {
+        setLocationError("No pudimos obtener tu ubicación. Puedes escribir una referencia manual.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
   function sendWhatsApp() {
     if (!selectedService || !selectedAgent) {
       return;
@@ -173,9 +237,11 @@ export function ServiceRequestFlow() {
       "Solicitud Orbi",
       `Servicio: ${selectedService.label}`,
       `Origen: ${details.origin}`,
+      `Origen lat/lng: ${formatCoordinates(details.originLat, details.originLng)}`,
       `Destino: ${details.destination}`,
+      `Destino lat/lng: ${formatCoordinates(details.destinationLat, details.destinationLng)}`,
       `Detalle: ${details.detail}`,
-      `Horario: ${details.desiredTime}`,
+      `Horario: ${getDesiredTimeLabel(details)}`,
       `Solicitante: ${details.requesterName}`,
       `Teléfono: ${details.requesterPhone}`,
       `Agente seleccionado: ${selectedAgent.name}`,
@@ -223,24 +289,35 @@ export function ServiceRequestFlow() {
           className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:grid-cols-2 sm:p-6"
         >
           <SelectedService service={selectedService} onReset={resetFlow} />
-          <RequestInput
+          <LocationField
             label="Punto de origen"
             value={details.origin}
             placeholder="Dirección o referencia de salida"
+            lat={details.originLat}
+            lng={details.originLng}
+            buttonLabel="Usar mi ubicación"
             onChange={(value) => updateDetails("origin", value)}
+            onUseLocation={() => handleUseCurrentLocation("origin")}
           />
-          <RequestInput
+          <LocationField
             label="Punto de destino"
             value={details.destination}
             placeholder="Dirección o referencia de llegada"
+            lat={details.destinationLat}
+            lng={details.destinationLng}
+            buttonLabel="Usar ubicación actual como destino"
             onChange={(value) => updateDetails("destination", value)}
+            onUseLocation={() => handleUseCurrentLocation("destination")}
           />
-          <RequestInput
-            label="Horario deseado"
-            value={details.desiredTime}
-            placeholder="Hoy 5:30 PM"
-            onChange={(value) => updateDetails("desiredTime", value)}
+          <ScheduleField
+            mode={details.scheduleMode}
+            scheduledAt={details.scheduledAt}
+            onModeChange={(value) =>
+              setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
+            }
+            onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
           />
+          {/* Future auth user profile autofill */}
           <RequestInput
             label="Nombre del solicitante"
             value={details.requesterName}
@@ -253,6 +330,11 @@ export function ServiceRequestFlow() {
             placeholder="55 0000 0000"
             onChange={(value) => updateDetails("requesterPhone", value)}
           />
+          {locationError ? (
+            <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100 sm:col-span-2">
+              {locationError}
+            </p>
+          ) : null}
           <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
             Detalle de la solicitud
             <textarea
@@ -288,19 +370,33 @@ export function ServiceRequestFlow() {
           ) : agentError ? (
             <StateCard title="No pudimos cargar agentes." body={agentError} tone="error" />
           ) : compatibleAgents.length ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {compatibleAgents.map((agent) => (
-                <AgentOptionCard
-                  key={agent.id}
-                  agent={agent}
-                  onSelect={() => setSelectedAgent(agent)}
-                />
-              ))}
-            </div>
+            <>
+              {details.originLat !== null && details.originLng !== null && compatibleAgentsWithoutCoordinates ? (
+                <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
+                  Algunos agentes todavía no tienen coordenadas registradas. Los mostramos para no detener la operación mientras se completa su ubicación.
+                </p>
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {compatibleAgents.map((agent) => (
+                  <AgentOptionCard
+                    key={agent.id}
+                    agent={agent}
+                    originLat={details.originLat}
+                    originLng={details.originLng}
+                    onSelect={() => setSelectedAgent(agent)}
+                  />
+                ))}
+              </div>
+            </>
           ) : (
             <StateCard
-              title="No hay agentes disponibles para este servicio."
-              body="Puedes ajustar la solicitud o intentar más tarde mientras se libera la red."
+              title="No hay agentes disponibles para este servicio o zona."
+              body="Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
+              actionLabel="Cambiar servicio o ajustar ubicación"
+              onAction={() => {
+                setSelectedAgent(null);
+                setIsRequestReady(false);
+              }}
             />
           )}
         </section>
@@ -315,8 +411,10 @@ export function ServiceRequestFlow() {
           <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Servicio" value={selectedService.label} />
             <SummaryItem label="Origen" value={details.origin} />
+            <SummaryItem label="Origen lat/lng" value={formatCoordinates(details.originLat, details.originLng)} />
             <SummaryItem label="Destino" value={details.destination} />
-            <SummaryItem label="Horario" value={details.desiredTime} />
+            <SummaryItem label="Destino lat/lng" value={formatCoordinates(details.destinationLat, details.destinationLng)} />
+            <SummaryItem label="Horario" value={getDesiredTimeLabel(details)} />
             <SummaryItem label="Solicitante" value={details.requesterName} />
             <SummaryItem label="Teléfono" value={details.requesterPhone} />
             <SummaryItem label="Agente seleccionado" value={selectedAgent.name} />
@@ -417,7 +515,22 @@ function SelectedService({
   );
 }
 
-function AgentOptionCard({ agent, onSelect }: { agent: OrbiAgent; onSelect: () => void }) {
+function AgentOptionCard({
+  agent,
+  originLat,
+  originLng,
+  onSelect
+}: {
+  agent: OrbiAgent;
+  originLat: number | null;
+  originLng: number | null;
+  onSelect: () => void;
+}) {
+  const distance =
+    originLat !== null && originLng !== null && agent.lat !== null && agent.lng !== null
+      ? calculateDistanceKm(originLat, originLng, agent.lat, agent.lng)
+      : null;
+
   return (
     <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)]">
       <div className="flex items-start gap-4">
@@ -438,6 +551,8 @@ function AgentOptionCard({ agent, onSelect }: { agent: OrbiAgent; onSelect: () =
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <InfoTile label="Zona" value={agent.zone} />
         <InfoTile label="Confianza" value={agent.trustLevel} />
+        <InfoTile label="Radio" value={`${agent.radiusKm || 20} km`} />
+        <InfoTile label="Distancia" value={distance === null ? "Sin coordenadas" : `${distance.toFixed(1)} km`} />
       </div>
       <button
         type="button"
@@ -494,6 +609,82 @@ function RequestInput({
   );
 }
 
+function LocationField({
+  label,
+  value,
+  placeholder,
+  lat,
+  lng,
+  buttonLabel,
+  onChange,
+  onUseLocation
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  lat: number | null;
+  lng: number | null;
+  buttonLabel: string;
+  onChange: (value: string) => void;
+  onUseLocation: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <RequestInput label={label} value={value} placeholder={placeholder} onChange={onChange} />
+      <button
+        type="button"
+        onClick={onUseLocation}
+        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+      >
+        <LocateFixed aria-hidden="true" className="h-4 w-4" />
+        {buttonLabel}
+      </button>
+      {lat !== null && lng !== null ? (
+        <p className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
+          Ubicación capturada: {formatCoordinates(lat, lng)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ScheduleField({
+  mode,
+  scheduledAt,
+  onModeChange,
+  onScheduledAtChange
+}: {
+  mode: "asap" | "scheduled";
+  scheduledAt: string;
+  onModeChange: (value: "asap" | "scheduled") => void;
+  onScheduledAtChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-semibold text-orbi-text">
+        Horario deseado
+        <select
+          className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+          value={mode}
+          onChange={(event) => onModeChange(event.target.value as "asap" | "scheduled")}
+        >
+          <option value="asap">Lo antes posible</option>
+          <option value="scheduled">Programar horario</option>
+        </select>
+      </label>
+      {mode === "scheduled" ? (
+        <input
+          className="w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+          type="datetime-local"
+          value={scheduledAt}
+          onChange={(event) => onScheduledAtChange(event.target.value)}
+          required
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
@@ -515,11 +706,15 @@ function SummaryItem({ label, value, wide }: { label: string; value: string; wid
 function StateCard({
   title,
   body,
-  tone = "default"
+  tone = "default",
+  actionLabel,
+  onAction
 }: {
   title: string;
   body: string;
   tone?: "default" | "error";
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   return (
     <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-10">
@@ -536,6 +731,49 @@ function StateCard({
       <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted sm:text-base">
         {body}
       </p>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="mt-5 inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
+}
+
+function getDesiredTimeLabel(details: RequestDetails) {
+  if (details.scheduleMode === "asap") {
+    return "Lo antes posible";
+  }
+
+  return details.scheduledAt || "Programar horario";
+}
+
+function formatCoordinates(lat: number | null, lng: number | null) {
+  if (lat === null || lng === null) {
+    return "No capturada";
+  }
+
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {
+  const earthRadiusKm = 6371;
+  const dLat = degreesToRadians(latB - latA);
+  const dLng = degreesToRadians(lngB - lngA);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(degreesToRadians(latA)) *
+      Math.cos(degreesToRadians(latB)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(degrees: number) {
+  return degrees * (Math.PI / 180);
 }
