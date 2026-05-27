@@ -104,3 +104,30 @@ button {
     0 0 0 7px rgba(31, 139, 255, 0.22),
     0 0 28px rgba(54, 215, 255, 0.72);
 }
+
+.orbi-map-marker-origin {
+  background: #36d7ff;
+}
+
+.orbi-map-marker-destination {
+  background: #19d27f;
+  box-shadow:
+    0 0 0 7px rgba(25, 210, 127, 0.2),
+    0 0 28px rgba(25, 210, 127, 0.65);
+}
+
+.orbi-map-marker-agent {
+  background: #1f8bff;
+  animation: orbi-agent-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes orbi-agent-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.12);
+  }
+}

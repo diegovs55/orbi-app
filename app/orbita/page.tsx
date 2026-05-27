@@ -1,14 +1,14 @@
-import { RequestForm } from "@/components/RequestForm";
+import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
 import { PageShell } from "@/components/PageShell";
 
 export default function OrbitaPage() {
   return (
     <PageShell
-      eyebrow="Ponerme en órbita"
-      title="Solicita un traslado o movimiento local."
-      description="Comparte origen, destino y referencia para que la red Orbi pueda coordinar la ruta."
+      eyebrow="Seguimiento Orbi"
+      title="Misión en órbita"
+      description="Sigue en tiempo real el avance de tu entrega, traslado o mandado."
     >
-      <RequestForm mode="movilidad" />
+      <MissionOrbitTracker />
     </PageShell>
   );
 }
