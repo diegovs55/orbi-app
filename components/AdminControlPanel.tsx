@@ -402,7 +402,7 @@ function AgentsPanel({ analytics }: { analytics: Analytics }) {
               <span className="text-xs font-bold text-orbi-cyan">{agent.missions} misiones</span>
             </div>
             <p className="mt-1 text-xs text-orbi-muted">
-              Cumplidas: {agent.completed} · Calificación promedio: {agent.averageRating.toFixed(1)}
+              Nivel: {agent.level} · Cumplidas: {agent.completed} · Calificación promedio: {agent.averageRating.toFixed(1)}
             </p>
           </div>
         ))}
@@ -600,12 +600,14 @@ function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
   return names
     .map((name) => {
       const agentMissions = missions.filter((mission) => mission.agent === name);
+      const agentProfile = agents.find((agent) => agent.name === name);
       const ratings = agentMissions
         .map((mission) => mission.rating)
         .filter((rating): rating is number => rating !== null);
 
       return {
         name,
+        level: agentProfile?.trustLevel ?? getSuggestedAgentLevel(agentMissions),
         missions: agentMissions.length,
         completed: agentMissions.filter((mission) => mission.missionStatus === "Misión cumplida").length,
         averageRating: ratings.length
@@ -634,6 +636,27 @@ function rankByBusiness(missions: MissionRecord[], businesses: AffiliateBusiness
     })
     .sort((a, b) => b.missions - a.missions)
     .slice(0, 5);
+}
+
+function getSuggestedAgentLevel(agentMissions: MissionRecord[]) {
+  const completed = agentMissions.filter((mission) => mission.missionStatus === "Misión cumplida").length;
+  const cancelled = agentMissions.filter((mission) => mission.missionStatus === "Misión cancelada").length;
+  const ratings = agentMissions
+    .map((mission) => mission.rating)
+    .filter((rating): rating is number => rating !== null);
+  const averageRating = ratings.length
+    ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
+    : 0;
+
+  if (completed >= 30 && averageRating >= 4.8 && cancelled <= 1) {
+    return "Elite";
+  }
+
+  if (completed >= 10 && averageRating >= 4.5) {
+    return "Experto";
+  }
+
+  return "Aprendiz";
 }
 
 function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {

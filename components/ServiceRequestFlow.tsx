@@ -575,7 +575,7 @@ export function ServiceRequestFlow() {
       `Agente: ${selectedAgent.name}`,
       `Zona del agente: ${selectedAgent.zone}`,
       `Vehículo: ${selectedAgent.vehicle || "No especificado"}`,
-      `Nivel de confianza: ${selectedAgent.trustLevel}`,
+      `Nivel del agente: ${selectedAgent.trustLevel}`,
       `Estado de pago: ${paymentStatus}`,
       `Método de pago: ${paymentMethod}`,
       `Órbita estimada: ${estimatedOrbit}`,
@@ -813,7 +813,7 @@ export function ServiceRequestFlow() {
               value={formatDistance(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
             />
             <SummaryItem label="Vehículo" value={selectedAgent.vehicle || "No especificado"} />
-            <SummaryItem label="Nivel de confianza" value={selectedAgent.trustLevel} />
+            <SummaryItem label="Nivel del agente" value={selectedAgent.trustLevel} />
             <SummaryItem label="Estado de pago" value={paymentStatus} />
             <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem
@@ -1051,7 +1051,7 @@ function AgentOptionCard({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <InfoTile label="Zona" value={agent.zone} />
-        <InfoTile label="Confianza" value={agent.trustLevel} />
+        <InfoTile label="Nivel" value={agent.trustLevel} />
         <InfoTile label="Radio" value={`${agent.radiusKm || 20} km`} />
         <InfoTile
           label="Distancia"

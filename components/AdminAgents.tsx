@@ -8,6 +8,7 @@ import {
   AgentStatus,
   AgentTrustLevel,
   OrbiAgent,
+  agentLevels,
   agentServiceTypes,
   createAgent,
   deleteAgent,
@@ -20,6 +21,7 @@ import {
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
 const radiusOptions = [10, 20, 30];
+const defaultAgentLevel: AgentTrustLevel = "Aprendiz";
 
 const LocationPickerMap = dynamic(
   () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
@@ -116,7 +118,7 @@ export function AdminAgents() {
       serviceType: String(data.get("serviceType")) as AgentServiceType,
       zone: operationalBaseText || String(data.get("zone") ?? "").trim(),
       status: agentStatus,
-      trustLevel: String(data.get("trustLevel")) as AgentTrustLevel,
+      trustLevel: String(data.get("trustLevel") || defaultAgentLevel) as AgentTrustLevel,
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
       vehicle: String(data.get("vehicle") ?? "").trim(),
@@ -300,51 +302,66 @@ export function AdminAgents() {
             ))}
           </select>
         </label>
-        <Input
-          label="Zona/base operativa"
-          name="zone"
-          placeholder="Elige la base en mapa"
-          value={operationalBaseText}
-          onChange={setOperationalBaseText}
-        />
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-orbi-text">Estado operativo</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleTakeOrbitDraft}
-              className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
-                agentStatus === "En órbita"
-                  ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan"
-                  : "border-orbi-cyan/20 bg-orbi-blue/[0.08] text-orbi-cyan hover:bg-orbi-blue/15"
-              }`}
-            >
-              Tomar órbita
-            </button>
-            <button
-              type="button"
-              onClick={handleExitOrbitDraft}
-              className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
-                agentStatus === "Fuera de órbita"
-                  ? "border-white/20 bg-white/10 text-orbi-text"
-                  : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
-              }`}
-            >
-              Salir de órbita
-            </button>
-          </div>
-        </div>
         <label className="block text-sm font-semibold text-orbi-text">
-          Nivel de confianza
+          Nivel
           <select
             name="trustLevel"
             className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
-            defaultValue="Verificado"
+            defaultValue={defaultAgentLevel}
           >
-            <option value="Verificado">Verificado</option>
-            <option value="En validación">En validación</option>
+            {agentLevels.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
           </select>
         </label>
+        <div className="space-y-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
+          <p className="text-sm font-black text-orbi-text">Zona/base operativa</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMapPoint(
+                  hasValidCoordinates(parseOptionalNumber(agentLat), parseOptionalNumber(agentLng))
+                    ? { lat: Number(agentLat), lng: Number(agentLng) }
+                    : zumpahuacanCenter
+                );
+                setIsMapOpen(true);
+              }}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+            >
+              <MapPin aria-hidden="true" className="h-4 w-4" />
+              Elegir base en mapa
+            </button>
+            <button
+              type="button"
+              onClick={handleTakeOrbitDraft}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+            >
+              <LocateFixed aria-hidden="true" className="h-4 w-4" />
+              Usar mi ubicación y tomar órbita
+            </button>
+          </div>
+          <div className="rounded-md border border-white/10 bg-orbi-black/35 p-3">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">
+              Base operativa
+            </p>
+            <p className="mt-1 text-sm font-semibold text-orbi-text">
+              {operationalBaseText || "Sin base marcada todavía"}
+            </p>
+            {hasValidCoordinates(parseOptionalNumber(agentLat), parseOptionalNumber(agentLng)) ? (
+              <p className="mt-1 text-xs text-orbi-muted">
+                {Number(agentLat).toFixed(6)}, {Number(agentLng).toFixed(6)}
+              </p>
+            ) : null}
+          </div>
+          {locationMessage ? (
+            <p className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
+              {locationMessage}
+            </p>
+          ) : null}
+        </div>
         <Input label="Teléfono/WhatsApp interno" name="phone" placeholder="5255..." />
         <Input label="Placa o vehículo" name="vehicle" placeholder="Moto azul / ABC-123" required={false} />
         <Input
@@ -396,36 +413,6 @@ export function AdminAgents() {
             ))}
           </select>
         </label>
-        <div className="sm:col-span-2">
-          <button
-            type="button"
-            onClick={() => {
-              setMapPoint(
-                hasValidCoordinates(parseOptionalNumber(agentLat), parseOptionalNumber(agentLng))
-                  ? { lat: Number(agentLat), lng: Number(agentLng) }
-                  : zumpahuacanCenter
-              );
-              setIsMapOpen(true);
-            }}
-            className="mb-2 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-          >
-            <MapPin aria-hidden="true" className="h-4 w-4" />
-            Elegir base en mapa
-          </button>
-          <button
-            type="button"
-            onClick={handleTakeOrbitDraft}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-          >
-            <LocateFixed aria-hidden="true" className="h-4 w-4" />
-            Usar mi ubicación y tomar órbita
-          </button>
-          {locationMessage ? (
-            <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
-              {locationMessage}
-            </p>
-          ) : null}
-        </div>
         <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
           Descripción breve
           <textarea
@@ -502,7 +489,7 @@ export function AdminAgents() {
                     {agent.status}
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
-                    {agent.trustLevel}
+                    Nivel {agent.trustLevel}
                   </span>
                   {agent.vehicle ? (
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
@@ -650,7 +637,8 @@ function AgentEditDialog({
   const [radius, setRadius] = useState(String(agent.radiusKm || 20));
   const [phone, setPhone] = useState(agent.phone);
   const [vehicle, setVehicle] = useState(agent.vehicle);
-  const [availability, setAvailability] = useState(agent.availability);
+  const [availabilityStart, setAvailabilityStart] = useState(getAvailabilityParts(agent.availability).start);
+  const [availabilityEnd, setAvailabilityEnd] = useState(getAvailabilityParts(agent.availability).end);
   const [description, setDescription] = useState(agent.description);
   const [trustLevel, setTrustLevel] = useState<AgentTrustLevel>(agent.trustLevel);
   const [status, setStatus] = useState<AgentStatus>(agent.status);
@@ -661,6 +649,21 @@ function AgentEditDialog({
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  async function handleUseCurrentLocation() {
+    setError("");
+
+    try {
+      const position = await getCurrentPosition();
+      setLat(position.latitude.toFixed(6));
+      setLng(position.longitude.toFixed(6));
+      setZone("Ubicación actual del agente");
+      setStatus("En órbita");
+    } catch {
+      setStatus("Fuera de órbita");
+      setError("No pudimos obtener la ubicación del agente. No se puede tomar órbita sin ubicación válida.");
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -688,7 +691,7 @@ function AgentEditDialog({
         phone,
         description,
         vehicle,
-        availability,
+        availability: formatAvailability(availabilityStart, availabilityEnd),
         lat: parsedLat,
         lng: parsedLng,
         operationalBaseLat: parsedLat,
@@ -722,26 +725,49 @@ function AgentEditDialog({
           <ControlledInput label="Nombre" value={name} onChange={setName} />
           <ControlledInput label="Foto URL" value={photoUrl} onChange={setPhotoUrl} required={false} />
           <SelectInput label="Servicio" value={serviceType} onChange={(value) => setServiceType(value as AgentServiceType)} options={agentServiceTypes} />
-          <SelectInput label="Nivel de confianza" value={trustLevel} onChange={(value) => setTrustLevel(value as AgentTrustLevel)} options={["Verificado", "En validación"]} />
-          <ControlledInput label="Zona/base operativa" value={zone} onChange={setZone} />
+          <SelectInput label="Nivel" value={trustLevel} onChange={(value) => setTrustLevel(value as AgentTrustLevel)} options={agentLevels} />
+          <div className="space-y-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
+            <p className="text-sm font-black text-orbi-text">Zona/base operativa</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setIsMapOpen(true)}
+                className="min-h-11 w-full rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan"
+              >
+                Elegir base en mapa
+              </button>
+              <button
+                type="button"
+                onClick={handleUseCurrentLocation}
+                className="min-h-11 w-full rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan"
+              >
+                Usar mi ubicación y tomar órbita
+              </button>
+            </div>
+            <div className="rounded-md border border-white/10 bg-orbi-black/35 p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">
+                Base operativa
+              </p>
+              <p className="mt-1 text-sm font-semibold text-orbi-text">{zone}</p>
+              {hasValidCoordinates(parseOptionalNumber(lat), parseOptionalNumber(lng)) ? (
+                <p className="mt-1 text-xs text-orbi-muted">
+                  {Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}
+                </p>
+              ) : null}
+            </div>
+          </div>
           <SelectInput label="Radio operativo" value={radius} onChange={setRadius} options={radiusOptions.map(String)} suffix=" km" />
           <ControlledInput label="Latitud base" value={lat} onChange={setLat} required={false} />
           <ControlledInput label="Longitud base" value={lng} onChange={setLng} required={false} />
           <ControlledInput label="Teléfono" value={phone} onChange={setPhone} />
           <ControlledInput label="Vehículo" value={vehicle} onChange={setVehicle} required={false} />
-          <ControlledInput label="Horario" value={availability} onChange={setAvailability} required={false} />
+          <ControlledInput label="Hora inicio" value={availabilityStart} onChange={setAvailabilityStart} required={false} type="time" />
+          <ControlledInput label="Hora fin" value={availabilityEnd} onChange={setAvailabilityEnd} required={false} type="time" />
           <SelectInput label="Estado" value={status} onChange={(value) => setStatus(value as AgentStatus)} options={["En órbita", "Fuera de órbita"]} />
           <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
             Descripción
             <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none" value={description} onChange={(event) => setDescription(event.target.value)} required />
           </label>
-          <button
-            type="button"
-            onClick={() => setIsMapOpen(true)}
-            className="min-h-11 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan sm:col-span-2"
-          >
-            Elegir base en mapa
-          </button>
           {error ? <p className="rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-bold text-red-100 sm:col-span-2">{error}</p> : null}
           <button type="submit" disabled={isSaving} className="min-h-12 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow sm:col-span-2">
             {isSaving ? "Guardando..." : "Guardar cambios"}
@@ -796,18 +822,21 @@ function ControlledInput({
   label,
   value,
   onChange,
-  required = true
+  required = true,
+  type = "text"
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  type?: string;
 }) {
   return (
     <label className="block text-sm font-semibold text-orbi-text">
       {label}
       <input
         className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+        type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         required={required}
@@ -881,7 +910,21 @@ function formatAvailability(start: string, end: string) {
     return "";
   }
 
-  return `${start.trim() || "--:--"} - ${end.trim() || "--:--"}`;
+  return [normalizeTimeValue(start), normalizeTimeValue(end)].filter(Boolean).join(" - ");
+}
+
+function getAvailabilityParts(availability: string) {
+  const [start = "", end = ""] = availability.split(" - ");
+
+  return {
+    start: normalizeTimeValue(start),
+    end: normalizeTimeValue(end)
+  };
+}
+
+function normalizeTimeValue(value: string) {
+  const match = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? match[0] : "";
 }
 
 function getCurrentPosition() {

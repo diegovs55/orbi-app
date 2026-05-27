@@ -15,7 +15,9 @@ export type AgentServiceType = (typeof agentServiceTypes)[number];
 
 export type AgentStatus = "En órbita" | "Fuera de órbita";
 
-export type AgentTrustLevel = "Verificado" | "En validación";
+export const agentLevels = ["Aprendiz", "Experto", "Elite"] as const;
+
+export type AgentTrustLevel = (typeof agentLevels)[number];
 
 export type OrbiAgent = {
   id: string;
@@ -48,7 +50,7 @@ type AgentRow = {
   service_type: AgentServiceType;
   zone: string;
   status: AgentStatus | "Disponible" | "Ocupado" | "Desconectado" | "Fuera de servicio";
-  trust_level: AgentTrustLevel;
+  trust_level: AgentTrustLevel | "Verificado" | "En validación";
   phone: string;
   description: string;
   vehicle: string | null;
@@ -358,7 +360,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     serviceType: row.service_type,
     zone: row.zone,
     status: normalizeAgentStatus(row.status),
-    trustLevel: row.trust_level,
+    trustLevel: normalizeAgentLevel(row.trust_level),
     phone: row.phone,
     description: row.description,
     vehicle: row.vehicle ?? "",
@@ -415,6 +417,14 @@ function getLocallyDeletedAgentIds() {
 
 function normalizeAgentStatus(status: AgentRow["status"]): AgentStatus {
   return status === "En órbita" ? "En órbita" : "Fuera de órbita";
+}
+
+function normalizeAgentLevel(level: AgentRow["trust_level"]): AgentTrustLevel {
+  if (level === "Elite" || level === "Experto" || level === "Aprendiz") {
+    return level;
+  }
+
+  return level === "Verificado" ? "Experto" : "Aprendiz";
 }
 
 function isMissingCoordinateColumnError(error: { message?: string; code?: string } | null) {
