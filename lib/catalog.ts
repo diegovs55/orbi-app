@@ -2,6 +2,10 @@ import { supabase } from "@/lib/supabase";
 
 const CATALOG_BUSINESSES_KEY = "orbi_catalog_businesses";
 const CATALOG_PRODUCTS_KEY = "orbi_catalog_products";
+const businessSelectWithLocation =
+  "id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,location_lat,location_lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at";
+const businessSelectFallback =
+  "id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at";
 
 export const businessSectors = [
   "Alimentos y bebidas",
@@ -140,6 +144,8 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
           base_text: business.baseText,
           direccion: business.baseText,
           telefono: business.phone,
+          location_lat: business.lat,
+          location_lng: business.lng,
           ubicacion_lat: business.lat,
           ubicacion_lng: business.lng,
           estado: business.status,
@@ -148,7 +154,7 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
           description: `${business.category} en ${business.zone}`,
           estimated_time: business.estimatedTime,
           status: business.status === "activo" ? "Disponible" : "No disponible",
-          rating: business.rating,
+          rating: null,
           is_active: business.status === "activo"
         })
         .select("id")
@@ -277,10 +283,23 @@ async function getRemoteCatalogBusinesses() {
   try {
     const { data, error } = await supabase
       .from("businesses")
-      .select("id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,location_lat,location_lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at")
+      .select(businessSelectWithLocation)
       .order("name", { ascending: true });
 
     if (error) {
+      if (isMissingLocationColumnError(error)) {
+        const fallback = await supabase
+          .from("businesses")
+          .select(businessSelectFallback)
+          .order("name", { ascending: true });
+
+        if (fallback.error) {
+          return [];
+        }
+
+        return (fallback.data ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
+      }
+
       return [];
     }
 
@@ -356,6 +375,14 @@ function mapProductRow(row: ProductRow, businessesById: Map<string, CatalogBusin
 
 function isActiveBusinessRow(row: BusinessRow) {
   return row.deleted_at == null && row.is_active !== false && row.estado !== "inactivo";
+}
+
+function isMissingLocationColumnError(error: { message?: string; code?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  return error.code === "42703" || /location_lat|location_lng|column|schema cache/i.test(error.message ?? "");
 }
 
 function normalizeSector(value: string | null | undefined): BusinessSector {

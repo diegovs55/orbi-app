@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { PackagePlus, Plus, Store } from "lucide-react";
+import dynamic from "next/dynamic";
+import { LocateFixed, MapPin, PackagePlus, Plus, Search, Store, X } from "lucide-react";
 import {
   BusinessSector,
   CatalogBusiness,
@@ -14,6 +15,19 @@ import {
 } from "@/lib/catalog";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
+const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
+
+const LocationPickerMap = dynamic(
+  () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
+  {
+    loading: () => (
+      <div className="flex h-full min-h-[320px] items-center justify-center bg-orbi-black text-sm font-semibold text-orbi-muted">
+        Cargando mapa...
+      </div>
+    ),
+    ssr: false
+  }
+);
 
 export function AdminCatalog() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
@@ -25,6 +39,16 @@ export function AdminCatalog() {
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [businessSearch, setBusinessSearch] = useState("");
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
+  const [businessLocationSearch, setBusinessLocationSearch] = useState("");
+  const [businessLocationMessage, setBusinessLocationMessage] = useState("");
+  const [businessLocation, setBusinessLocation] = useState<BusinessLocationState>({
+    lat: null,
+    lng: null,
+    zone: "",
+    baseText: ""
+  });
+  const [businessMapPoint, setBusinessMapPoint] = useState(zumpahuacanCenter);
+  const [isBusinessMapOpen, setIsBusinessMapOpen] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -70,13 +94,9 @@ export function AdminCatalog() {
     const data = new FormData(form);
     const name = String(data.get("name") ?? "").trim();
     const category = String(data.get("category")) as BusinessSector;
-    const zone = String(data.get("zone") ?? "").trim();
-    const baseText = String(data.get("baseText") ?? "").trim();
-    const lat = parseOptionalNumber(data.get("lat"));
-    const lng = parseOptionalNumber(data.get("lng"));
 
-    if (!name || !zone || !baseText || lat === null || lng === null) {
-      setBusinessError("Completa nombre, zona, dirección/base y coordenadas del negocio.");
+    if (!name || !businessLocation.zone || !businessLocation.baseText || businessLocation.lat === null || businessLocation.lng === null) {
+      setBusinessError("Completa nombre y registra la ubicación del negocio con mapa, búsqueda o ubicación actual.");
       return;
     }
 
@@ -87,23 +107,92 @@ export function AdminCatalog() {
       const business = await createCatalogBusiness({
         name,
         category,
-        zone,
-        baseText,
+        zone: businessLocation.zone,
+        baseText: businessLocation.baseText,
         phone: String(data.get("phone") ?? "").trim(),
-        lat,
-        lng,
+        lat: businessLocation.lat,
+        lng: businessLocation.lng,
         status: String(data.get("status") ?? "activo") as "activo" | "inactivo",
-        estimatedTime: String(data.get("estimatedTime") ?? "15-25 min").trim() || "15-25 min",
-        rating: String(data.get("rating") ?? "4.8").trim() || "4.8"
+        estimatedTime: "Dinámico",
+        rating: "Sin calificaciones"
       });
       setBusinesses((currentBusinesses) => [business, ...currentBusinesses]);
       form.reset();
+      setBusinessLocationSearch("");
+      setBusinessLocationMessage("");
+      setBusinessLocation({ lat: null, lng: null, zone: "", baseText: "" });
     } catch (caughtError) {
       setBusinessError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el negocio."
       );
     } finally {
       setIsSavingBusiness(false);
+    }
+  }
+
+  async function handleSearchBusinessLocation() {
+    const query = businessLocationSearch.trim();
+
+    if (!query) {
+      setBusinessLocationMessage("Escribe una referencia para buscar la ubicación del negocio.");
+      return;
+    }
+
+    setBusinessLocationMessage("Buscando ubicación...");
+
+    try {
+      const point = await geocodeBusinessLocation(query);
+      await applyBusinessLocation(point);
+      setBusinessMapPoint(point);
+    } catch {
+      setBusinessLocationMessage("No pudimos encontrar esa ubicación. Prueba con una referencia más específica.");
+    }
+  }
+
+  function handleUseCurrentBusinessLocation() {
+    if (!navigator.geolocation) {
+      setBusinessLocationMessage("Tu navegador no permite obtener ubicación actual.");
+      return;
+    }
+
+    setBusinessLocationMessage("Solicitando ubicación actual...");
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const point = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+        setBusinessMapPoint(point);
+        await applyBusinessLocation(point);
+      },
+      () => {
+        setBusinessLocationMessage("No pudimos obtener tu ubicación actual.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  async function handleConfirmBusinessMapPoint() {
+    await applyBusinessLocation(businessMapPoint);
+    setIsBusinessMapOpen(false);
+  }
+
+  async function applyBusinessLocation(point: { lat: number; lng: number }) {
+    try {
+      const location = await reverseGeocodeBusinessPoint(point);
+      setBusinessLocation(location);
+      setBusinessLocationSearch(location.baseText);
+      setBusinessLocationMessage(`Ubicación registrada: ${location.zone}`);
+    } catch {
+      const fallback = {
+        lat: point.lat,
+        lng: point.lng,
+        zone: "Zona calculada por ubicación",
+        baseText: `Punto marcado en mapa (${point.lat.toFixed(5)}, ${point.lng.toFixed(5)})`
+      };
+      setBusinessLocation(fallback);
+      setBusinessLocationSearch(fallback.baseText);
+      setBusinessLocationMessage("Ubicación registrada con coordenadas. No pudimos leer una zona exacta.");
     }
   }
 
@@ -191,24 +280,30 @@ export function AdminCatalog() {
               ))}
             </select>
           </label>
-          <AdminInput label="Zona" name="zone" placeholder="Centro" />
-          <AdminInput label="Dirección/base" name="baseText" placeholder="Ubicación registrada del negocio" />
           <AdminInput label="Teléfono" name="phone" placeholder="5255..." required={false} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <AdminInput label="Ubicación lat" name="lat" placeholder="18.8349" required={false} />
-            <AdminInput label="Ubicación lng" name="lng" placeholder="-99.5818" required={false} />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <AdminInput label="Tiempo estimado" name="estimatedTime" placeholder="15-25 min" required={false} />
-            <AdminInput label="Rating" name="rating" placeholder="4.8" required={false} />
-            <label className="block text-sm font-semibold text-orbi-text">
-              Estado
-              <select name="status" className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none">
-                <option value="activo">activo</option>
-                <option value="inactivo">inactivo</option>
-              </select>
-            </label>
-          </div>
+          <label className="block text-sm font-semibold text-orbi-text">
+            Estado
+            <select name="status" className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none">
+              <option value="activo">activo</option>
+              <option value="inactivo">inactivo</option>
+            </select>
+          </label>
+          <BusinessLocationCapture
+            location={businessLocation}
+            message={businessLocationMessage}
+            searchValue={businessLocationSearch}
+            onSearchValueChange={setBusinessLocationSearch}
+            onSearch={handleSearchBusinessLocation}
+            onUseCurrentLocation={handleUseCurrentBusinessLocation}
+            onOpenMap={() => {
+              setBusinessMapPoint(
+                businessLocation.lat !== null && businessLocation.lng !== null
+                  ? { lat: businessLocation.lat, lng: businessLocation.lng }
+                  : zumpahuacanCenter
+              );
+              setIsBusinessMapOpen(true);
+            }}
+          />
           {businessError ? <ErrorText>{businessError}</ErrorText> : null}
           <button type="submit" disabled={isSavingBusiness} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow">
             <Plus aria-hidden="true" className="h-5 w-5" />
@@ -274,12 +369,21 @@ export function AdminCatalog() {
         </form>
       </div>
 
+      {isBusinessMapOpen ? (
+        <BusinessMapDialog
+          point={businessMapPoint}
+          onPointChange={setBusinessMapPoint}
+          onConfirm={handleConfirmBusinessMapPoint}
+          onClose={() => setIsBusinessMapOpen(false)}
+        />
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <CatalogList title="Negocios activos" items={businesses.map((business) => ({
           id: business.id,
           title: business.name,
           meta: `${business.category} · ${business.zone}`,
-          detail: `${business.estimatedTime} · ⭐ ${business.rating} · ${business.status}`
+          detail: `${business.status} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`
         }))} />
         <CatalogList title="Productos y servicios" items={products.map((product) => ({
           id: product.id,
@@ -289,6 +393,152 @@ export function AdminCatalog() {
         }))} />
       </div>
     </section>
+  );
+}
+
+type BusinessLocationState = {
+  lat: number | null;
+  lng: number | null;
+  zone: string;
+  baseText: string;
+};
+
+function BusinessLocationCapture({
+  location,
+  message,
+  searchValue,
+  onSearchValueChange,
+  onSearch,
+  onUseCurrentLocation,
+  onOpenMap
+}: {
+  location: BusinessLocationState;
+  message: string;
+  searchValue: string;
+  onSearchValueChange: (value: string) => void;
+  onSearch: () => void;
+  onUseCurrentLocation: () => void;
+  onOpenMap: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
+      <div>
+        <p className="text-sm font-black text-orbi-text">Ubicación operativa del negocio</p>
+        <p className="mt-1 text-xs leading-5 text-orbi-muted">
+          La zona se calcula automáticamente desde la ubicación registrada.
+        </p>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <label className="block text-sm font-semibold text-orbi-text">
+          Buscar ubicación
+          <input
+            value={searchValue}
+            onChange={(event) => onSearchValueChange(event.target.value)}
+            placeholder="Buscar negocio, calle o referencia..."
+            className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onSearch}
+          className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 px-4 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/25"
+        >
+          <Search aria-hidden="true" className="h-4 w-4" />
+          Buscar
+        </button>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onOpenMap}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-orbi-text transition hover:border-orbi-cyan/35 hover:bg-white/10"
+        >
+          <MapPin aria-hidden="true" className="h-4 w-4" />
+          Elegir en mapa
+        </button>
+        <button
+          type="button"
+          onClick={onUseCurrentLocation}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-orbi-text transition hover:border-orbi-cyan/35 hover:bg-white/10"
+        >
+          <LocateFixed aria-hidden="true" className="h-4 w-4" />
+          Usar ubicación actual
+        </button>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-orbi-black/25 p-3 text-sm">
+        <p className="font-bold text-orbi-text">Zona calculada</p>
+        <p className="mt-1 text-orbi-muted">{location.zone || "Sin zona calculada todavía"}</p>
+        <p className="mt-3 font-bold text-orbi-text">Ubicación registrada</p>
+        <p className="mt-1 text-orbi-muted">{location.baseText || "Elige un punto para registrar el origen del negocio"}</p>
+        {location.lat !== null && location.lng !== null ? (
+          <p className="mt-2 text-xs font-semibold text-orbi-cyan">
+            Coordenadas internas: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+          </p>
+        ) : null}
+      </div>
+
+      {message ? (
+        <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/10 p-3 text-xs font-semibold text-orbi-cyan">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BusinessMapDialog({
+  point,
+  onPointChange,
+  onConfirm,
+  onClose
+}: {
+  point: { lat: number; lng: number };
+  onPointChange: (point: { lat: number; lng: number }) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end bg-orbi-black/75 px-3 py-4 backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
+      <section className="max-h-[92vh] w-full overflow-hidden rounded-md border border-orbi-cyan/20 bg-orbi-panel shadow-[0_24px_80px_rgba(0,0,0,0.5),0_0_45px_rgba(31,139,255,0.16)] sm:max-w-3xl">
+        <div className="flex items-center justify-between gap-4 border-b border-white/10 p-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+              Negocio afiliado
+            </p>
+            <h3 className="mt-1 text-lg font-black text-orbi-text">Elegir ubicación en mapa</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-text"
+          >
+            <X aria-hidden="true" className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="h-[55vh] min-h-[320px]">
+          <LocationPickerMap point={point} onPointChange={onPointChange} />
+        </div>
+        <div className="grid gap-2 border-t border-white/10 p-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="min-h-11 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow"
+          >
+            Confirmar ubicación
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -379,6 +629,86 @@ function ErrorText({ children }: { children: string }) {
 function parseOptionalNumber(value: FormDataEntryValue | null) {
   const parsed = Number(String(value ?? "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function geocodeBusinessLocation(query: string) {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
+      buildLocalLocationQuery(query)
+    )}`
+  );
+
+  if (!response.ok) {
+    throw new Error("No fue posible consultar la ubicación.");
+  }
+
+  const results = (await response.json()) as Array<{ lat?: string; lon?: string }>;
+  const result = results[0];
+  const lat = Number(result?.lat);
+  const lng = Number(result?.lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error("La ubicación no devolvió coordenadas válidas.");
+  }
+
+  return { lat, lng };
+}
+
+async function reverseGeocodeBusinessPoint(point: { lat: number; lng: number }) {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
+      point.lat
+    )}&lon=${encodeURIComponent(point.lng)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("No fue posible leer la zona.");
+  }
+
+  const result = (await response.json()) as {
+    display_name?: string;
+    address?: {
+      neighbourhood?: string;
+      suburb?: string;
+      village?: string;
+      town?: string;
+      city?: string;
+      municipality?: string;
+      county?: string;
+      state?: string;
+    };
+  };
+  const address = result.address ?? {};
+  const zone =
+    address.neighbourhood ||
+    address.suburb ||
+    address.village ||
+    address.town ||
+    address.city ||
+    address.municipality ||
+    address.county ||
+    address.state ||
+    "Zona calculada por ubicación";
+  const baseText = result.display_name?.trim() || `Punto marcado (${point.lat}, ${point.lng})`;
+
+  return {
+    lat: point.lat,
+    lng: point.lng,
+    zone,
+    baseText
+  };
+}
+
+function buildLocalLocationQuery(rawQuery: string) {
+  const query = rawQuery.trim();
+  const hasStateOrCountry = /estado de m[eé]xico|m[eé]xico/i.test(query);
+  const isShortReference = query.split(/\s+/).filter(Boolean).length <= 3;
+
+  if (hasStateOrCountry || !isShortReference) {
+    return query;
+  }
+
+  return `${query}, Zumpahuacán, Estado de México, México`;
 }
 
 function normalizeSearch(value: string) {
