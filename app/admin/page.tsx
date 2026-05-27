@@ -1,17 +1,17 @@
 import { PageShell } from "@/components/PageShell";
+import { AdminControlPanel } from "@/components/AdminControlPanel";
 import { AdminBusinesses } from "@/components/AdminBusinesses";
 import { AdminAgents } from "@/components/AdminAgents";
-import { AdminMissions } from "@/components/AdminMissions";
 
 export default function AdminPage() {
   return (
     <PageShell
       eyebrow="Panel Admin"
-      title="Administra la red local de negocios."
-      description="Acceso privado básico para dar de alta aliados y validar operación antes de conectar Supabase."
+      title="Centro operativo de Red Orbi."
+      description="Control de misiones, agentes, pagos, negocios y señales de crecimiento de la red local."
     >
       <div className="space-y-8">
-        <AdminMissions />
+        <AdminControlPanel />
         <AdminBusinesses />
         <AdminAgents />
       </div>

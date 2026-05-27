@@ -603,7 +603,7 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       estimated_orbit: getEstimatedOrbit(distance),
-      mission_status: "Esperando confirmación del agente"
+      mission_status: "Misión por tomar"
     });
 
     setActiveMission(mission);
@@ -874,11 +874,11 @@ export function ServiceRequestFlow() {
               <p className="text-sm font-bold text-orbi-cyan">
                 {activeMission.mission_status === "Misión aceptada"
                   ? `Misión aceptada por ${activeMission.selected_agent_name}`
-                  : activeMission.mission_status === "Esperando confirmación del agente"
+                  : activeMission.mission_status === "Misión por tomar"
                     ? "Esperando confirmación del agente"
                     : activeMission.mission_status}
               </p>
-              {activeMission.mission_status === "Esperando confirmación del agente" ? (
+              {activeMission.mission_status === "Misión por tomar" ? (
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">
                   La solicitud ya está en la red. El agente seleccionado puede tomarla desde Orbi.
                 </p>

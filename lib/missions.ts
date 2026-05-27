@@ -1,11 +1,9 @@
 export const missionStatuses = [
-  "Esperando confirmación del agente",
+  "Misión por tomar",
   "Misión aceptada",
-  "En camino al origen",
   "En misión",
-  "Llegando al destino",
-  "Finalizada",
-  "Cancelada"
+  "Misión cumplida",
+  "Cancelar misión"
 ] as const;
 
 export type MissionStatus = (typeof missionStatuses)[number];

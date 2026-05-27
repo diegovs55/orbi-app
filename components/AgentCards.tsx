@@ -1,8 +1,11 @@
 "use client";
 
-import { ShieldCheck, UserRound, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getAgents, OrbiAgent } from "@/lib/agents";
+import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
+import { ActiveMission, getActiveMission, subscribeToMission, updateActiveMission } from "@/lib/missions";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
   "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
@@ -10,10 +13,13 @@ const statusStyles: Record<OrbiAgent["status"], string> = {
 };
 
 export function AgentCards() {
+  const router = useRouter();
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [profileAgent, setProfileAgent] = useState<OrbiAgent | null>(null);
+  const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
+  const [missionMessage, setMissionMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -62,29 +68,116 @@ export function AgentCards() {
     };
   }, []);
 
+  useEffect(() => {
+    return subscribeToMission(() => setMission(getActiveMission()));
+  }, []);
+
   const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => a.name.localeCompare(b.name));
   }, [agents]);
 
+  const missionAgents = useMemo(() => {
+    if (!mission) {
+      return [];
+    }
+
+    return sortedAgents.filter((agent) => canAgentSeeMission(agent, mission));
+  }, [mission, sortedAgents]);
+
+  function handleAcceptMission(agent: OrbiAgent) {
+    if (!mission) {
+      return;
+    }
+
+    const nextMission = updateActiveMission({
+      mission_status: "Misión aceptada",
+      selected_agent_id: agent.id,
+      selected_agent_name: agent.name,
+      selected_agent_zone: agent.zone,
+      selected_agent_vehicle: agent.vehicle,
+      selected_agent_trust: agent.trustLevel,
+      selected_agent_lat: agent.lat,
+      selected_agent_lng: agent.lng,
+      active_agent_id: agent.id,
+      accepted_at: new Date().toISOString()
+    });
+
+    setMission(nextMission);
+    setMissionMessage("Misión aceptada. Ya estás en órbita.");
+    router.push("/orbita");
+  }
+
+  function handleCancelMission(agent: OrbiAgent) {
+    if (!mission || !canAgentSeeMission(agent, mission)) {
+      return;
+    }
+
+    const nextMission = updateActiveMission({
+      mission_status: "Cancelar misión",
+      active_agent_id: mission.active_agent_id || agent.id
+    });
+    setMission(nextMission);
+    setMissionMessage("Misión cancelada. La red Orbi queda actualizada.");
+  }
+
   if (isLoading) {
-    return <StateCard title="Cargando agentes Orbi..." body="Estamos consultando la red activa." />;
+    return (
+      <>
+        <AgentMissionBoard
+          agents={missionAgents}
+          mission={mission}
+          message={missionMessage}
+          onAccept={handleAcceptMission}
+          onCancel={handleCancelMission}
+        />
+        <StateCard title="Cargando agentes Orbi..." body="Estamos consultando la red activa." />
+      </>
+    );
   }
 
   if (error) {
-    return <StateCard title="No pudimos cargar los agentes." body={error} tone="error" />;
+    return (
+      <>
+        <AgentMissionBoard
+          agents={missionAgents}
+          mission={mission}
+          message={missionMessage}
+          onAccept={handleAcceptMission}
+          onCancel={handleCancelMission}
+        />
+        <StateCard title="No pudimos cargar los agentes." body={error} tone="error" />
+      </>
+    );
   }
 
   if (!sortedAgents.length) {
     return (
-      <StateCard
-        title="Aún no hay agentes Orbi registrados."
-        body="Pronto podrás ver aquí perfiles verificados para recibir apoyo local."
-      />
+      <>
+        <AgentMissionBoard
+          agents={missionAgents}
+          mission={mission}
+          message={missionMessage}
+          onAccept={handleAcceptMission}
+          onCancel={handleCancelMission}
+        />
+        <StateCard
+          title="Aún no hay agentes Orbi registrados."
+          body="Pronto podrás ver aquí perfiles verificados para recibir apoyo local."
+        />
+      </>
     );
   }
 
   return (
     <>
+      <AgentMissionBoard
+        agents={missionAgents}
+        mission={mission}
+        message={missionMessage}
+        onAccept={handleAcceptMission}
+        onCancel={handleCancelMission}
+      />
+
       <div className="grid gap-4 sm:grid-cols-2">
         {sortedAgents.map((agent) => (
           <article
@@ -126,6 +219,120 @@ export function AgentCards() {
         <ProfileModal agent={profileAgent} onClose={() => setProfileAgent(null)} />
       ) : null}
     </>
+  );
+}
+
+function AgentMissionBoard({
+  agents,
+  mission,
+  message,
+  onAccept,
+  onCancel
+}: {
+  agents: OrbiAgent[];
+  mission: ActiveMission | null;
+  message: string;
+  onAccept: (agent: OrbiAgent) => void;
+  onCancel: (agent: OrbiAgent) => void;
+}) {
+  const hasMissionForAgents = Boolean(mission && agents.length);
+
+  return (
+    <section className="mb-6 space-y-4">
+      <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+            <Orbit aria-hidden="true" className="h-6 w-6" />
+          </span>
+          <div>
+            <h2 className="text-lg font-black text-orbi-text">Misiones por tomar</h2>
+            <p className="mt-1 text-xs text-orbi-muted">
+              Cada agente ve misiones compatibles con su servicio o asignadas a su órbita.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {message ? (
+        <p className="rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
+          {message}
+        </p>
+      ) : null}
+
+      {!mission ? (
+        <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+          No hay misiones pendientes en la red local.
+        </p>
+      ) : hasMissionForAgents ? (
+        <div className="grid gap-4">
+          {agents.map((agent) => {
+            const isAssigned = mission.active_agent_id === agent.id;
+            return (
+              <article
+                key={`${mission.id}-${agent.id}`}
+                className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)]"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+                      {isAssigned ? "Misión asignada a este agente" : "Misión compatible"}
+                    </p>
+                    <h3 className="mt-1 text-xl font-black text-orbi-text">{mission.service_type}</h3>
+                    <p className="mt-2 text-sm leading-6 text-orbi-muted">{mission.detail}</p>
+                  </div>
+                  <span className="w-fit rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
+                    {mission.mission_status === "Misión por tomar" ? "Por tomar" : mission.mission_status}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+                  <InfoTile label="Agente" value={agent.name} />
+                  <InfoTile label="Agente seleccionado" value={mission.selected_agent_name} />
+                  <InfoTile label="Origen" value={mission.origin_text} />
+                  <InfoTile label="Destino" value={mission.destination_text} />
+                  <InfoTile label="Solicitante" value={mission.requester_name} />
+                  <InfoTile label="Teléfono" value={mission.requester_phone} />
+                  <InfoTile label="Estado de pago" value={mission.payment_status} />
+                  <InfoTile label="Método de pago" value={mission.payment_method} />
+                  <InfoTile label="Órbita estimada" value={mission.estimated_orbit} />
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {mission.mission_status === "Misión por tomar" ? (
+                    <button
+                      type="button"
+                      onClick={() => onAccept(agent)}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+                    >
+                      <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+                      Aceptar misión
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onCancel(agent)}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-300/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+                  >
+                    <XCircle aria-hidden="true" className="h-4 w-4" />
+                    Cancelar misión
+                  </button>
+                  <Link
+                    href="/orbita"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+                  >
+                    Ver misión en órbita
+                  </Link>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+          Hay misión activa, pero ningún agente visible coincide por servicio o asignación.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -203,6 +410,39 @@ function InfoTile({ label, value }: { label: string; value: string }) {
       <p className="mt-1 font-black text-orbi-text">{value}</p>
     </div>
   );
+}
+
+function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission) {
+  const isAssigned = mission.active_agent_id === agent.id || mission.selected_agent_id === agent.id;
+  const isPending = mission.mission_status === "Misión por tomar";
+  const isAgentActive = agent.status === "En órbita";
+
+  if (isAssigned) {
+    return true;
+  }
+
+  return isPending && isAgentActive && isServiceCompatible(agent.serviceType, mission.service_type);
+}
+
+function isServiceCompatible(agentService: AgentServiceType, missionService: string) {
+  if (agentService === "Todos los servicios") {
+    return true;
+  }
+
+  return agentService === getCompatibleServiceType(missionService);
+}
+
+function getCompatibleServiceType(missionService: string): AgentServiceType {
+  const serviceMap: Record<string, AgentServiceType> = {
+    Mandado: "Mandados",
+    Entrega: "Entregas",
+    Traslado: "Traslados",
+    "Compra local": "Compras",
+    Recolección: "Recolecciones",
+    "Pago o trámite": "Mandados"
+  };
+
+  return serviceMap[missionService] ?? "Mandados";
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {

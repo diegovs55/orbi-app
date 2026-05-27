@@ -164,7 +164,7 @@ export function MissionOrbitTracker() {
           ) : null}
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          {(["En camino al origen", "En misión", "Llegando al destino", "Finalizada"] as const).map(
+          {(["Misión aceptada", "En misión", "Misión cumplida", "Cancelar misión"] as const).map(
             (status) => (
               <button
                 key={status}
@@ -268,26 +268,18 @@ function MissionTile({
 
 function getMissionStateFromTrack(index: number): ActiveMission["mission_status"] {
   if (index <= 0) {
-    return "Esperando confirmación del agente";
+    return "Misión aceptada";
   }
 
   if (index === 1) {
     return "Misión aceptada";
   }
 
-  if (index === 2) {
-    return "En camino al origen";
-  }
-
-  if (index === 3) {
+  if (index <= 3) {
     return "En misión";
   }
 
-  if (index === 4) {
-    return "Llegando al destino";
-  }
-
-  return "Finalizada";
+  return "Misión cumplida";
 }
 
 function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {

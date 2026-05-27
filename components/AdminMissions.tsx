@@ -40,7 +40,7 @@ export function AdminMissions() {
   }
 
   function handleRejectMission() {
-    const nextMission = updateActiveMission({ mission_status: "Cancelada" });
+    const nextMission = updateActiveMission({ mission_status: "Cancelar misión" });
     setMission(nextMission);
     setMessage("Misión rechazada. La solicitud queda fuera de órbita.");
   }
@@ -107,7 +107,7 @@ export function AdminMissions() {
           ) : null}
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            {mission.mission_status === "Esperando confirmación del agente" ? (
+            {mission.mission_status === "Misión por tomar" ? (
               <>
                 <button
                   type="button"
@@ -137,7 +137,7 @@ export function AdminMissions() {
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             {missionStatuses
-              .filter((status) => status !== "Esperando confirmación del agente")
+              .filter((status) => status !== "Misión por tomar")
               .map((status) => (
                 <button
                   key={status}
