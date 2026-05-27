@@ -37,6 +37,10 @@ type MissionRecord = {
   business: string;
   product: string;
   businessCategory: string;
+  productPrice?: number;
+  sector?: string;
+  productCategory?: string;
+  zone?: string;
 };
 
 const timeFilters: TimeFilter[] = [
@@ -291,12 +295,16 @@ export function AdminControlPanel() {
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartPanel title="Misiones por categoría" items={analytics.categoryBars} />
         <ChartPanel title="Métodos de pago" items={analytics.paymentBars} />
+        <ChartPanel title="Ventas por categoría" items={analytics.salesByCategoryBars} />
+        <ChartPanel title="Ventas por zona" items={analytics.salesByZoneBars} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <AgentsPanel analytics={analytics} />
         <BusinessesPanel analytics={analytics} />
       </div>
+
+      <CatalogAnalyticsPanel analytics={analytics} />
 
       <MissionHistoryTable missions={filteredMissions} />
       <RatingsPanel missions={filteredMissions} />
@@ -440,6 +448,52 @@ function BusinessesPanel({ analytics }: { analytics: Analytics }) {
   );
 }
 
+function CatalogAnalyticsPanel({ analytics }: { analytics: Analytics }) {
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-4 shadow-soft">
+      <div className="mb-4 flex items-center gap-2 text-orbi-cyan">
+        <Store aria-hidden="true" className="h-4 w-4" />
+        <h3 className="text-sm font-black text-orbi-text">Catálogo, ventas y rentabilidad</h3>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <MiniStat label="Facturación por productos" value={analytics.productRevenue} />
+        <MiniStat label="Costo del servicio" value={analytics.totalCost} />
+        <MiniStat label="Ganancia logística" value={analytics.logisticsProfit} />
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <RankingList title="Productos más vendidos" items={analytics.productRanking} />
+        <RankingList title="Usuarios que más compran" items={analytics.requesterRanking} />
+        <RankingList title="Ticket promedio por negocio" items={analytics.averageTicketByBusiness} />
+      </div>
+    </section>
+  );
+}
+
+function RankingList({
+  title,
+  items
+}: {
+  title: string;
+  items: Array<{ label: string; value: number; detail?: string }>;
+}) {
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+      <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">{title}</p>
+      <div className="space-y-2">
+        {items.slice(0, 5).map((item) => (
+          <div key={item.label} className="rounded-md border border-white/10 bg-orbi-black/25 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-orbi-text">{item.label}</p>
+              <span className="text-xs font-black text-orbi-cyan">{formatMetricValue(item.value)}</span>
+            </div>
+            {item.detail ? <p className="mt-1 text-xs text-orbi-muted">{item.detail}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
   return (
     <section className="overflow-hidden rounded-md border border-white/10 bg-orbi-panel/70 shadow-soft">
@@ -577,7 +631,14 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     agentRanking: rankByAgent(missions, agents),
     bestRatedMissions: ratedMissions.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 5),
     topBusiness,
-    businessRanking
+    businessRanking,
+    productRevenue: missions.reduce((total, mission) => total + (mission.productPrice ?? 0), 0),
+    logisticsProfit: missions.reduce((total, mission) => total + mission.orbiProfit, 0),
+    productRanking: rankByLabel(missions, "product"),
+    requesterRanking: rankByLabel(missions, "requester"),
+    averageTicketByBusiness: averageByLabel(missions, "business", "price"),
+    salesByCategoryBars: sumBars(missions, "businessCategory", "price"),
+    salesByZoneBars: sumBars(missions, "zone", "price")
   };
 }
 
@@ -590,6 +651,68 @@ function buildCountBars(
     label,
     value: missions.filter((mission) => mission[key] === label).length
   }));
+}
+
+function sumBars(missions: MissionRecord[], key: "businessCategory" | "zone", valueKey: "price") {
+  const totals = new Map<string, number>();
+
+  missions.forEach((mission) => {
+    const label = mission[key] || "Sin datos";
+    totals.set(label, (totals.get(label) ?? 0) + mission[valueKey]);
+  });
+
+  return Array.from(totals.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+}
+
+function rankByLabel(missions: MissionRecord[], key: "product" | "requester") {
+  const counts = new Map<string, { value: number; revenue: number }>();
+
+  missions.forEach((mission) => {
+    const label = mission[key] || "Sin datos";
+    const current = counts.get(label) ?? { value: 0, revenue: 0 };
+    counts.set(label, {
+      value: current.value + 1,
+      revenue: current.revenue + mission.price
+    });
+  });
+
+  return Array.from(counts.entries())
+    .map(([label, data]) => ({
+      label,
+      value: data.value,
+      detail: `$${data.revenue} facturados`
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}
+
+function averageByLabel(
+  missions: MissionRecord[],
+  labelKey: "business",
+  valueKey: "price"
+) {
+  const groups = new Map<string, { total: number; count: number }>();
+
+  missions.forEach((mission) => {
+    const label = mission[labelKey] || "Sin datos";
+    const current = groups.get(label) ?? { total: 0, count: 0 };
+    groups.set(label, {
+      total: current.total + mission[valueKey],
+      count: current.count + 1
+    });
+  });
+
+  return Array.from(groups.entries())
+    .map(([label, data]) => ({
+      label,
+      value: data.count ? data.total / data.count : 0,
+      detail: `${data.count} misión(es)`
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
 }
 
 function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
@@ -678,9 +801,13 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     rating: mission.rating ?? null,
     ratingComment: mission.rating_comment ?? "",
     detail: mission.detail,
-    business: "Orbi directo",
-    product: mission.service_type,
-    businessCategory: mission.service_type === "Pago o trámite" ? "Trámites" : mission.service_type
+    business: mission.business_name || "Orbi directo",
+    product: mission.product_name || mission.service_type,
+    businessCategory: mission.sector || (mission.service_type === "Pago o trámite" ? "Trámites" : mission.service_type),
+    productPrice: mission.product_price ?? 0,
+    sector: mission.sector,
+    productCategory: mission.categoria_producto,
+    zone: mission.selected_agent_zone || "Sin zona"
   };
 }
 
@@ -757,6 +884,10 @@ function normalizePaymentMethod(method: string): MissionRecord["paymentMethod"] 
   }
 
   return "Efectivo";
+}
+
+function formatMetricValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function formatDate(date: string) {

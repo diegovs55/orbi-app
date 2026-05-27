@@ -7,6 +7,7 @@ import {
   MapPin,
   PackageCheck,
   RefreshCw,
+  Search,
   Send,
   ShoppingBag,
   Truck,
@@ -16,6 +17,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AgentServiceType, getAgentOperationalLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   ActiveMission,
   createMission,
@@ -145,6 +147,10 @@ const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"]
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
+  const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogSearchResult | null>(null);
+  const [catalogError, setCatalogError] = useState("");
   const [details, setDetails] = useState<RequestDetails>(emptyDetails);
   const [isRequestReady, setIsRequestReady] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(null);
@@ -210,6 +216,36 @@ export function ServiceRequestFlow() {
 
   useEffect(() => {
     return subscribeToMission(() => setActiveMission(getActiveMission()));
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    getCatalogItems()
+      .then((items) => {
+        if (!isActive) {
+          return;
+        }
+
+        setCatalogItems(items);
+        setCatalogError("");
+      })
+      .catch((caughtError: unknown) => {
+        if (!isActive) {
+          return;
+        }
+
+        setCatalogItems([]);
+        setCatalogError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "No fue posible cargar el catálogo Orbi."
+        );
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
   const compatibleAgents = useMemo(() => {
@@ -309,8 +345,15 @@ export function ServiceRequestFlow() {
     ).length;
   }, [agents, selectedService]);
 
+  const catalogResults = useMemo(() => searchCatalog(catalogItems, searchQuery), [
+    catalogItems,
+    searchQuery
+  ]);
+
   function resetFlow() {
     setSelectedService(null);
+    setSearchQuery("");
+    setSelectedCatalogItem(null);
     setDetails(emptyDetails);
     setIsRequestReady(false);
     setSelectedAgent(null);
@@ -326,6 +369,32 @@ export function ServiceRequestFlow() {
 
   function updateDetails(field: keyof RequestDetails, value: string) {
     setDetails((currentDetails) => ({ ...currentDetails, [field]: value }));
+  }
+
+  function handleSelectProduct(product: CatalogSearchResult) {
+    const service = services.find((item) => item.label === "Compra local") ?? services[0];
+    setSelectedService(service);
+    setSelectedCatalogItem(product);
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      origin: product.businessName,
+      originLat: product.businessLat,
+      originLng: product.businessLng,
+      detail: `${product.name}${product.price ? ` · $${product.price}` : ""}. ${product.description}`.trim()
+    }));
+    setIsRequestReady(false);
+    setSelectedAgent(null);
+  }
+
+  function handleSelectCustomMission(label: "Mandado" | "Compra local" | "Servicio personalizado") {
+    const serviceLabel = label === "Servicio personalizado" ? "Mandado" : label;
+    const service = services.find((item) => item.label === serviceLabel) ?? services[0];
+    setSelectedService(service);
+    setSelectedCatalogItem(null);
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      detail: searchQuery ? `Necesidad buscada: ${searchQuery}` : currentDetails.detail
+    }));
   }
 
   function updateLocationText(target: LocationTarget, value: string) {
@@ -564,6 +633,14 @@ export function ServiceRequestFlow() {
     const message = [
       "Solicitud Orbi",
       `Servicio: ${selectedService.label}`,
+      ...(selectedCatalogItem
+        ? [
+            `Negocio: ${selectedCatalogItem.businessName}`,
+            `Producto: ${selectedCatalogItem.name}`,
+            `Precio producto: $${selectedCatalogItem.price}`,
+            `Sector: ${selectedCatalogItem.sector}`
+          ]
+        : []),
       `Origen texto: ${details.origin}`,
       ...(hasCoordinates(details.originLat, details.originLng)
         ? [`Origen coordenadas: ${formatCoordinates(details.originLat, details.originLng)}`]
@@ -596,6 +673,9 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const cost = estimateMissionCost(distance);
+    const productPrice = selectedCatalogItem?.price ?? 0;
+    const servicePrice = productPrice ? productPrice + cost.price : cost.price;
+    const agentLocation = getAgentOperationalLocation(selectedAgent);
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -607,18 +687,25 @@ export function ServiceRequestFlow() {
       requester_name: details.requesterName,
       requester_phone: details.requesterPhone,
       detail: details.detail,
+      business_id: selectedCatalogItem?.businessId,
+      product_id: selectedCatalogItem?.id,
+      product_name: selectedCatalogItem?.name,
+      business_name: selectedCatalogItem?.businessName,
+      product_price: selectedCatalogItem?.price,
+      sector: selectedCatalogItem?.sector,
+      categoria_producto: selectedCatalogItem?.category,
       selected_agent_id: selectedAgent.id,
       selected_agent_name: selectedAgent.name,
       selected_agent_zone: selectedAgent.zone,
       selected_agent_vehicle: selectedAgent.vehicle,
       selected_agent_trust: selectedAgent.trustLevel,
-      selected_agent_lat: selectedAgent.lat,
-      selected_agent_lng: selectedAgent.lng,
+      selected_agent_lat: agentLocation?.lat ?? selectedAgent.lat,
+      selected_agent_lng: agentLocation?.lng ?? selectedAgent.lng,
       payment_status: paymentStatus,
       payment_method: paymentMethod,
-      precio_servicio: cost.price,
+      precio_servicio: servicePrice,
       costo_agente: cost.agentCost,
-      ganancia_orbi: cost.orbiProfit,
+      ganancia_orbi: servicePrice - cost.agentCost,
       estimated_orbit: getEstimatedOrbit(distance),
       mission_status: "Misión por tomar"
     });
@@ -636,27 +723,67 @@ export function ServiceRequestFlow() {
       />
 
       {!selectedService ? (
-        <section className="grid gap-3 sm:grid-cols-2">
-          {services.map((service) => {
-            const Icon = service.icon;
-            return (
-              <button
-                key={service.label}
-                type="button"
-                onClick={() => setSelectedService(service)}
-                className="group rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 text-left shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
-              >
-                <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_22px_rgba(31,139,255,0.12)]">
-                  <Icon aria-hidden="true" className="h-6 w-6" />
-                </span>
-                <span className="block text-xl font-black text-orbi-text">{service.label}</span>
-                <span className="mt-2 block text-sm leading-6 text-orbi-muted">
-                  {service.description}
-                </span>
-              </button>
-            );
-          })}
-        </section>
+        <>
+          <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+              Red Orbi
+            </p>
+            <h2 className="mt-2 text-3xl font-black text-orbi-text">¿Qué necesitas?</h2>
+            <div className="mt-5 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
+              <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Buscar productos, servicios, mandados o trámites..."
+                className="min-w-0 flex-1 bg-transparent py-4 text-base font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
+              />
+            </div>
+            {catalogError ? (
+              <p className="mt-3 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
+                {catalogError}
+              </p>
+            ) : null}
+            {searchQuery.trim() ? (
+              <CatalogSuggestions
+                query={searchQuery}
+                results={catalogResults}
+                onSelectProduct={handleSelectProduct}
+                onSelectCustomMission={handleSelectCustomMission}
+              />
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-orbi-muted">
+                Escribe algo como frappe, medicina, traslado al centro, pago de recibo, recoger paquete o impresiones.
+              </p>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+              Accesos rápidos
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {services.map((service) => {
+                const Icon = service.icon;
+                return (
+                  <button
+                    key={service.label}
+                    type="button"
+                    onClick={() => setSelectedService(service)}
+                    className="group rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 text-left shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
+                  >
+                    <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_22px_rgba(31,139,255,0.12)]">
+                      <Icon aria-hidden="true" className="h-6 w-6" />
+                    </span>
+                    <span className="block text-xl font-black text-orbi-text">{service.label}</span>
+                    <span className="mt-2 block text-sm leading-6 text-orbi-muted">
+                      {service.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </>
       ) : null}
 
       {selectedService && !isRequestReady ? (
@@ -665,6 +792,7 @@ export function ServiceRequestFlow() {
           className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:grid-cols-2 sm:p-6"
         >
           <SelectedService service={selectedService} onReset={resetFlow} />
+          {selectedCatalogItem ? <SelectedCatalogItem item={selectedCatalogItem} /> : null}
           <LocationField
             label="Punto de origen"
             value={details.origin}
@@ -803,6 +931,14 @@ export function ServiceRequestFlow() {
           <h2 className="mt-2 text-2xl font-black text-orbi-text">Misión lista para enviar</h2>
           <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Resumen de servicio" value={selectedService.label} />
+            {selectedCatalogItem ? (
+              <>
+                <SummaryItem label="Negocio" value={selectedCatalogItem.businessName} />
+                <SummaryItem label="Producto" value={selectedCatalogItem.name} />
+                <SummaryItem label="Precio de venta" value={`$${selectedCatalogItem.price}`} />
+                <SummaryItem label="Sector" value={selectedCatalogItem.sector} />
+              </>
+            ) : null}
             <SummaryItem label="Origen" value={details.origin} />
             <SummaryItem label="Origen lat/lng" value={formatCoordinates(details.originLat, details.originLng)} />
             <SummaryItem label="Destino" value={details.destination} />
@@ -1018,6 +1154,101 @@ function SelectedService({
         >
           {actionLabel}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function CatalogSuggestions({
+  query,
+  results,
+  onSelectProduct,
+  onSelectCustomMission
+}: {
+  query: string;
+  results: CatalogSearchResult[];
+  onSelectProduct: (product: CatalogSearchResult) => void;
+  onSelectCustomMission: (label: "Mandado" | "Compra local" | "Servicio personalizado") => void;
+}) {
+  if (!results.length) {
+    return (
+      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.04] p-4">
+        <p className="text-sm font-bold text-orbi-text">
+          No encontramos algo exacto, pero podemos ayudarte con un mandado o misión personalizada.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {(["Mandado", "Compra local", "Servicio personalizado"] as const).map((label) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => onSelectCustomMission(label)}
+              className="min-h-10 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const firstResult = results[0];
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orbi-cyan">
+          Categoría: Compra local
+        </p>
+        <p className="mt-1 text-sm font-semibold text-orbi-muted">
+          Sector: {firstResult.sector} · Buscando “{query}”
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {results.slice(0, 6).map((result) => (
+          <button
+            key={result.id}
+            type="button"
+            onClick={() => onSelectProduct(result)}
+            className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-left transition hover:border-orbi-cyan/35 hover:bg-orbi-blue/[0.08]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-black text-orbi-text">
+                  {result.name} · {result.businessName}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-orbi-cyan">
+                  {result.category} · {result.sector}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-orbi-muted">{result.description}</p>
+              </div>
+              <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
+                ${result.price}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SelectedCatalogItem({ item }: { item: CatalogSearchResult }) {
+  return (
+    <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+        Producto seleccionado
+      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-black text-orbi-text">{item.name}</p>
+          <p className="mt-1 text-sm text-orbi-muted">
+            {item.businessName} · {item.sector} · {item.category}
+          </p>
+        </div>
+        <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
+          ${item.price}
+        </span>
       </div>
     </div>
   );

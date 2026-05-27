@@ -20,6 +20,13 @@ export type ActiveMission = {
   requester_name: string;
   requester_phone: string;
   detail: string;
+  business_id?: string;
+  product_id?: string;
+  product_name?: string;
+  business_name?: string;
+  product_price?: number;
+  sector?: string;
+  categoria_producto?: string;
   selected_agent_id: string;
   selected_agent_name: string;
   selected_agent_zone?: string;
