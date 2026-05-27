@@ -24,6 +24,7 @@ import {
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
+const timeOptions = buildTimeOptions();
 
 const LocationPickerMap = dynamic(
   () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
@@ -931,13 +932,19 @@ function TimeInput({
   return (
     <label className="block text-sm font-semibold text-orbi-text">
       {label}
-      <input
-        type="time"
+      <select
         value={value}
         onChange={(event) => onChange(normalizeTimeToHHmm(event.target.value))}
-        className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+        className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
         required
-      />
+      >
+        <option value="">Selecciona hora</option>
+        {timeOptions.map((time) => (
+          <option key={time} value={time}>
+            {time}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -960,6 +967,20 @@ function normalizeAvailabilityRange(value: string) {
   const start = normalizeTimeToHHmm(rawStart);
   const end = normalizeTimeToHHmm(rawEnd);
   return start && end && start < end ? `${start} - ${end}` : "";
+}
+
+function buildTimeOptions() {
+  const options: string[] = [];
+
+  for (let hour = 6; hour <= 23; hour += 1) {
+    options.push(`${String(hour).padStart(2, "0")}:00`);
+
+    if (hour !== 23) {
+      options.push(`${String(hour).padStart(2, "0")}:30`);
+    }
+  }
+
+  return options;
 }
 
 function suggestProductCategoryFromBusiness(category: BusinessSector): ProductCategory {

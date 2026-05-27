@@ -7,8 +7,8 @@ import {
   CatalogBusiness,
   CatalogProduct,
   businessSectors,
-  getCatalogBusinesses,
-  getCatalogProducts
+  getCatalogBusinessesWithOptions,
+  getCatalogProductsWithOptions
 } from "@/lib/catalog";
 
 const sectorMeta: Record<BusinessSector, { description: string; icon: typeof Coffee }> = {
@@ -59,14 +59,27 @@ export function AffiliatedBusinesses() {
   useEffect(() => {
     let isActive = true;
 
-    Promise.all([getCatalogBusinesses(), getCatalogProducts()])
+    Promise.all([
+      getCatalogBusinessesWithOptions({ includeDemo: false }),
+      getCatalogProductsWithOptions({ includeDemo: false })
+    ])
       .then(([nextBusinesses, nextProducts]) => {
         if (!isActive) {
           return;
         }
 
-        setBusinesses(nextBusinesses.filter((business) => business.status === "activo"));
-        setProducts(nextProducts.filter((product) => product.available));
+        const activeBusinesses = nextBusinesses.filter((business) => business.status === "activo");
+        const activeBusinessIds = new Set(activeBusinesses.map((business) => business.id));
+
+        setBusinesses(activeBusinesses);
+        setProducts(
+          nextProducts.filter(
+            (product) =>
+              product.available &&
+              product.status === "disponible" &&
+              activeBusinessIds.has(product.businessId)
+          )
+        );
         setError("");
       })
       .catch((caughtError: unknown) => {
@@ -101,7 +114,7 @@ export function AffiliatedBusinesses() {
         businesses: businesses.filter((business) => business.category === sector),
         products: products.filter((product) => product.sector === sector)
       }))
-      .filter(({ businesses, products }) => businesses.length || products.length);
+      .filter(({ businesses }) => businesses.length);
   }, [businesses, products]);
 
   if (isLoading) {
