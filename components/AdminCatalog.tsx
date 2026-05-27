@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { LocateFixed, MapPin, PackagePlus, Plus, Search, Store, X } from "lucide-react";
+import { Edit3, LocateFixed, MapPin, PackagePlus, Plus, RotateCcw, Search, Store, X } from "lucide-react";
 import {
   BusinessSector,
   CatalogBusiness,
@@ -10,8 +10,10 @@ import {
   businessSectors,
   createCatalogBusiness,
   createCatalogProduct,
-  getCatalogBusinesses,
-  getCatalogProducts
+  getCatalogBusinessesWithOptions,
+  getCatalogProductsWithOptions,
+  updateCatalogBusiness,
+  updateCatalogProduct
 } from "@/lib/catalog";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -49,11 +51,27 @@ export function AdminCatalog() {
   });
   const [businessMapPoint, setBusinessMapPoint] = useState(zumpahuacanCenter);
   const [isBusinessMapOpen, setIsBusinessMapOpen] = useState(false);
+  const [editingBusiness, setEditingBusiness] = useState<CatalogBusiness | null>(null);
+  const [businessName, setBusinessName] = useState("");
+  const [businessCategory, setBusinessCategory] = useState<BusinessSector>("Alimentos y bebidas");
+  const [businessPhone, setBusinessPhone] = useState("");
+  const [businessStatus, setBusinessStatus] = useState<"activo" | "inactivo">("activo");
+  const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
+  const [productName, setProductName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
+  const [productCategory, setProductCategory] = useState("");
+  const [productPrice, setProductPrice] = useState("");
+  const [productAvailability, setProductAvailability] = useState("");
+  const [productSearchTags, setProductSearchTags] = useState("");
+  const [productAvailable, setProductAvailable] = useState(true);
 
   useEffect(() => {
     let isActive = true;
 
-    Promise.allSettled([getCatalogBusinesses(), getCatalogProducts()]).then(([businessResult, productResult]) => {
+    Promise.allSettled([
+      getCatalogBusinessesWithOptions({ includeDemo: false }),
+      getCatalogProductsWithOptions({ includeUnavailable: true, includeDemo: false })
+    ]).then(([businessResult, productResult]) => {
       if (!isActive) {
         return;
       }
@@ -76,13 +94,21 @@ export function AdminCatalog() {
     () => businesses.filter((business) => business.status === "activo"),
     [businesses]
   );
+  const selectableBusinesses = useMemo(() => {
+    if (editingProduct?.businessId && !activeBusinesses.some((business) => business.id === editingProduct.businessId)) {
+      const currentBusiness = businesses.find((business) => business.id === editingProduct.businessId);
+      return currentBusiness ? [currentBusiness, ...activeBusinesses] : activeBusinesses;
+    }
+
+    return activeBusinesses;
+  }, [activeBusinesses, businesses, editingProduct]);
   const filteredBusinesses = useMemo(() => {
     const query = normalizeSearch(businessSearch);
 
-    return activeBusinesses.filter((business) =>
+    return selectableBusinesses.filter((business) =>
       normalizeSearch(`${business.name} ${business.category} ${business.zone}`).includes(query)
     );
-  }, [activeBusinesses, businessSearch]);
+  }, [businessSearch, selectableBusinesses]);
   const selectedBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
     [businesses, selectedBusinessId]
@@ -90,10 +116,7 @@ export function AdminCatalog() {
 
   async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const name = String(data.get("name") ?? "").trim();
-    const category = String(data.get("category")) as BusinessSector;
+    const name = businessName.trim();
 
     if (!name || !businessLocation.zone || !businessLocation.baseText || businessLocation.lat === null || businessLocation.lng === null) {
       setBusinessError("Completa nombre y registra la ubicación del negocio con mapa, búsqueda o ubicación actual.");
@@ -104,23 +127,39 @@ export function AdminCatalog() {
     setBusinessError("");
 
     try {
-      const business = await createCatalogBusiness({
+      const input = {
         name,
-        category,
+        category: businessCategory,
         zone: businessLocation.zone,
         baseText: businessLocation.baseText,
-        phone: String(data.get("phone") ?? "").trim(),
+        phone: businessPhone.trim(),
         lat: businessLocation.lat,
         lng: businessLocation.lng,
-        status: String(data.get("status") ?? "activo") as "activo" | "inactivo",
-        estimatedTime: "Dinámico",
-        rating: "Sin calificaciones"
-      });
-      setBusinesses((currentBusinesses) => [business, ...currentBusinesses]);
-      form.reset();
-      setBusinessLocationSearch("");
-      setBusinessLocationMessage("");
-      setBusinessLocation({ lat: null, lng: null, zone: "", baseText: "" });
+        status: businessStatus,
+        estimatedTime: editingBusiness?.estimatedTime ?? "Dinámico",
+        rating: editingBusiness?.rating ?? "Sin calificaciones"
+      };
+      const business = editingBusiness
+        ? await updateCatalogBusiness({ ...input, id: editingBusiness.id })
+        : await createCatalogBusiness(input);
+
+      setBusinesses((currentBusinesses) => upsertById(currentBusinesses, business));
+      setProducts((currentProducts) =>
+        currentProducts.map((product) =>
+          product.businessId === business.id
+            ? {
+                ...product,
+                businessName: business.name,
+                businessZone: business.zone,
+                businessBaseText: business.baseText,
+                businessLat: business.lat,
+                businessLng: business.lng,
+                sector: business.category
+              }
+            : product
+        )
+      );
+      resetBusinessForm();
     } catch (caughtError) {
       setBusinessError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el negocio."
@@ -128,6 +167,38 @@ export function AdminCatalog() {
     } finally {
       setIsSavingBusiness(false);
     }
+  }
+
+  function handleEditBusiness(business: CatalogBusiness) {
+    setEditingBusiness(business);
+    setBusinessName(business.name);
+    setBusinessCategory(business.category);
+    setBusinessPhone(business.phone);
+    setBusinessStatus(business.status);
+    setBusinessLocation({
+      lat: business.lat,
+      lng: business.lng,
+      zone: business.zone,
+      baseText: business.baseText
+    });
+    setBusinessLocationSearch(business.baseText || business.zone);
+    setBusinessLocationMessage("Editando negocio existente.");
+    setBusinessMapPoint(
+      business.lat !== null && business.lng !== null
+        ? { lat: business.lat, lng: business.lng }
+        : zumpahuacanCenter
+    );
+  }
+
+  function resetBusinessForm() {
+    setEditingBusiness(null);
+    setBusinessName("");
+    setBusinessCategory("Alimentos y bebidas");
+    setBusinessPhone("");
+    setBusinessStatus("activo");
+    setBusinessLocationSearch("");
+    setBusinessLocationMessage("");
+    setBusinessLocation({ lat: null, lng: null, zone: "", baseText: "" });
   }
 
   async function handleSearchBusinessLocation() {
@@ -198,12 +269,10 @@ export function AdminCatalog() {
 
   async function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
     const business = selectedBusiness;
-    const name = String(data.get("name") ?? "").trim();
-    const category = String(data.get("category") ?? "").trim();
-    const price = parseOptionalNumber(data.get("price"));
+    const name = productName.trim();
+    const category = productCategory.trim();
+    const price = parseOptionalNumber(productPrice);
 
     if (!business) {
       setProductError("Selecciona un negocio registrado para vincular el producto.");
@@ -219,7 +288,7 @@ export function AdminCatalog() {
     setProductError("");
 
     try {
-      const product = await createCatalogProduct({
+      const input = {
         businessId: business.id,
         businessName: business.name,
         businessZone: business.zone,
@@ -228,17 +297,19 @@ export function AdminCatalog() {
         businessLng: business.lng,
         sector: business.category,
         name,
-        description: String(data.get("description") ?? "").trim(),
+        description: productDescription.trim(),
         category,
         price,
-        available: data.get("available") === "on",
-        availability: String(data.get("availability") ?? "").trim(),
-        searchTags: String(data.get("searchTags") ?? "").trim()
-      });
-      setProducts((currentProducts) => [product, ...currentProducts]);
-      form.reset();
-      setBusinessSearch("");
-      setSelectedBusinessId("");
+        available: productAvailable,
+        availability: productAvailability.trim(),
+        searchTags: productSearchTags.trim()
+      };
+      const product = editingProduct
+        ? await updateCatalogProduct({ ...input, id: editingProduct.id })
+        : await createCatalogProduct(input);
+
+      setProducts((currentProducts) => upsertById(currentProducts, product));
+      resetProductForm();
     } catch (caughtError) {
       setProductError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el producto."
@@ -246,6 +317,32 @@ export function AdminCatalog() {
     } finally {
       setIsSavingProduct(false);
     }
+  }
+
+  function handleEditProduct(product: CatalogProduct) {
+    setEditingProduct(product);
+    setSelectedBusinessId(product.businessId);
+    setBusinessSearch(product.businessName);
+    setProductName(product.name);
+    setProductDescription(product.description);
+    setProductCategory(product.category);
+    setProductPrice(String(product.price));
+    setProductAvailability(product.availability);
+    setProductSearchTags(product.searchTags);
+    setProductAvailable(product.available);
+  }
+
+  function resetProductForm() {
+    setEditingProduct(null);
+    setBusinessSearch("");
+    setSelectedBusinessId("");
+    setProductName("");
+    setProductDescription("");
+    setProductCategory("");
+    setProductPrice("");
+    setProductAvailability("");
+    setProductSearchTags("");
+    setProductAvailable(true);
   }
 
   if (!isUnlocked) {
@@ -270,20 +367,53 @@ export function AdminCatalog() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <form onSubmit={handleSaveBusiness} className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-5 shadow-soft">
-          <h3 className="text-base font-black text-orbi-text">Alta de negocio</h3>
-          <AdminInput label="Nombre del negocio" name="name" placeholder="Regina Café" />
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-black text-orbi-text">
+              {editingBusiness ? "Editar negocio" : "Alta de negocio"}
+            </h3>
+            {editingBusiness ? (
+              <button
+                type="button"
+                onClick={resetBusinessForm}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-muted"
+              >
+                <RotateCcw aria-hidden="true" className="h-4 w-4" />
+                Nuevo
+              </button>
+            ) : null}
+          </div>
+          <AdminInput
+            label="Nombre del negocio"
+            placeholder="Regina Café"
+            value={businessName}
+            onChange={setBusinessName}
+          />
           <label className="block text-sm font-semibold text-orbi-text">
             Categoría de negocio
-            <select name="category" className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none">
+            <select
+              value={businessCategory}
+              onChange={(event) => setBusinessCategory(event.target.value as BusinessSector)}
+              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none"
+            >
               {businessSectors.map((sector) => (
                 <option key={sector} value={sector}>{sector}</option>
               ))}
             </select>
           </label>
-          <AdminInput label="Teléfono" name="phone" placeholder="5255..." required={false} />
+          <AdminInput
+            label="Teléfono"
+            placeholder="5255..."
+            value={businessPhone}
+            onChange={setBusinessPhone}
+            required={false}
+          />
           <label className="block text-sm font-semibold text-orbi-text">
             Estado
-            <select name="status" className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none">
+            <select
+              value={businessStatus}
+              onChange={(event) => setBusinessStatus(event.target.value as "activo" | "inactivo")}
+              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none"
+            >
               <option value="activo">activo</option>
               <option value="inactivo">inactivo</option>
             </select>
@@ -307,12 +437,26 @@ export function AdminCatalog() {
           {businessError ? <ErrorText>{businessError}</ErrorText> : null}
           <button type="submit" disabled={isSavingBusiness} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow">
             <Plus aria-hidden="true" className="h-5 w-5" />
-            {isSavingBusiness ? "Guardando..." : "Guardar negocio de catálogo"}
+            {isSavingBusiness ? "Guardando..." : editingBusiness ? "Guardar cambios" : "Guardar negocio"}
           </button>
         </form>
 
         <form onSubmit={handleSaveProduct} className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-5 shadow-soft">
-          <h3 className="text-base font-black text-orbi-text">Alta de producto o servicio</h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-black text-orbi-text">
+              {editingProduct ? "Editar producto o servicio" : "Alta de producto o servicio"}
+            </h3>
+            {editingProduct ? (
+              <button
+                type="button"
+                onClick={resetProductForm}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-muted"
+              >
+                <RotateCcw aria-hidden="true" className="h-4 w-4" />
+                Nuevo
+              </button>
+            ) : null}
+          </div>
           <div className="space-y-3">
             <label className="block text-sm font-semibold text-orbi-text">
               Negocio
@@ -323,7 +467,7 @@ export function AdminCatalog() {
                 className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
               />
             </label>
-            {!activeBusinesses.length ? (
+            {!selectableBusinesses.length ? (
               <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
                 Primero registra un negocio para vincular productos.
               </p>
@@ -351,20 +495,25 @@ export function AdminCatalog() {
             )}
             {selectedBusiness ? <BusinessSummary business={selectedBusiness} /> : null}
           </div>
-          <AdminInput label="Nombre del producto" name="name" placeholder="Frappe moka" />
-          <AdminInput label="Descripción" name="description" placeholder="Bebida fría preparada al momento" required={false} />
-          <AdminInput label="Categoría producto" name="category" placeholder="Bebidas frías" />
-          <AdminInput label="Precio venta" name="price" placeholder="65" />
-          <AdminInput label="Horario disponible" name="availability" placeholder="08:00 - 20:00" required={false} />
-          <AdminInput label="Etiquetas búsqueda" name="searchTags" placeholder="frappe café moka bebida" required={false} />
+          <AdminInput label="Nombre del producto" placeholder="Frappe moka" value={productName} onChange={setProductName} />
+          <AdminInput label="Descripción" placeholder="Bebida fría preparada al momento" value={productDescription} onChange={setProductDescription} required={false} />
+          <AdminInput label="Categoría producto" placeholder="Bebidas frías" value={productCategory} onChange={setProductCategory} />
+          <AdminInput label="Precio venta" placeholder="65" value={productPrice} onChange={setProductPrice} />
+          <AdminInput label="Horario disponible" placeholder="08:00 - 20:00" value={productAvailability} onChange={setProductAvailability} required={false} />
+          <AdminInput label="Etiquetas búsqueda" placeholder="frappe café moka bebida" value={productSearchTags} onChange={setProductSearchTags} required={false} />
           <label className="flex items-center gap-2 text-sm font-semibold text-orbi-text">
-            <input type="checkbox" name="available" defaultChecked className="h-4 w-4 accent-orbi-blue" />
+            <input
+              type="checkbox"
+              checked={productAvailable}
+              onChange={(event) => setProductAvailable(event.target.checked)}
+              className="h-4 w-4 accent-orbi-blue"
+            />
             Disponible
           </label>
           {productError ? <ErrorText>{productError}</ErrorText> : null}
           <button type="submit" disabled={isSavingProduct} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow">
             <Plus aria-hidden="true" className="h-5 w-5" />
-            {isSavingProduct ? "Guardando..." : "Guardar producto"}
+            {isSavingProduct ? "Guardando..." : editingProduct ? "Guardar cambios" : "Guardar producto"}
           </button>
         </form>
       </div>
@@ -379,18 +528,26 @@ export function AdminCatalog() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <CatalogList title="Negocios activos" items={businesses.map((business) => ({
-          id: business.id,
-          title: business.name,
-          meta: `${business.category} · ${business.zone}`,
-          detail: `${business.status} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`
-        }))} />
-        <CatalogList title="Productos y servicios" items={products.map((product) => ({
-          id: product.id,
-          title: product.name,
-          meta: `${product.businessName} · ${product.sector}`,
-          detail: `$${product.price} · ${product.category} · ${product.available ? "Disponible" : "No disponible"}`
-        }))} />
+        <CatalogList
+          title="Negocios activos"
+          items={businesses.map((business) => ({
+            id: business.id,
+            title: business.name,
+            meta: `${business.category} · ${business.zone}`,
+            detail: `${business.status} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`,
+            onEdit: () => handleEditBusiness(business)
+          }))}
+        />
+        <CatalogList
+          title="Productos y servicios"
+          items={products.map((product) => ({
+            id: product.id,
+            title: product.name,
+            meta: `${product.businessName} · ${product.sector}`,
+            detail: `$${product.price} · ${product.category} · ${product.available ? "Disponible" : "No disponible"}`,
+            onEdit: () => handleEditProduct(product)
+          }))}
+        />
       </div>
     </section>
   );
@@ -547,7 +704,7 @@ function CatalogList({
   items
 }: {
   title: string;
-  items: Array<{ id: string; title: string; meta: string; detail: string }>;
+  items: Array<{ id: string; title: string; meta: string; detail: string; onEdit: () => void }>;
 }) {
   return (
     <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
@@ -558,11 +715,28 @@ function CatalogList({
       <div className="space-y-2">
         {items.slice(0, 8).map((item) => (
           <article key={item.id} className="rounded-md border border-white/10 bg-orbi-black/25 p-3">
-            <p className="font-bold text-orbi-text">{item.title}</p>
-            <p className="mt-1 text-xs font-semibold text-orbi-cyan">{item.meta}</p>
-            <p className="mt-1 text-xs text-orbi-muted">{item.detail}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-bold text-orbi-text">{item.title}</p>
+                <p className="mt-1 text-xs font-semibold text-orbi-cyan">{item.meta}</p>
+                <p className="mt-1 text-xs text-orbi-muted">{item.detail}</p>
+              </div>
+              <button
+                type="button"
+                onClick={item.onEdit}
+                className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-orbi-cyan/15 bg-orbi-blue/10 px-3 text-xs font-bold text-orbi-cyan"
+              >
+                <Edit3 aria-hidden="true" className="h-3.5 w-3.5" />
+                Editar
+              </button>
+            </div>
           </article>
         ))}
+        {!items.length ? (
+          <p className="rounded-md border border-white/10 bg-orbi-black/25 p-3 text-sm text-orbi-muted">
+            Aún no hay registros guardados.
+          </p>
+        ) : null}
       </div>
     </section>
   );
@@ -596,13 +770,15 @@ function SummaryMini({ label, value }: { label: string; value: string }) {
 
 function AdminInput({
   label,
-  name,
   placeholder,
+  value,
+  onChange,
   required = true
 }: {
   label: string;
-  name: string;
   placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
   required?: boolean;
 }) {
   return (
@@ -610,8 +786,9 @@ function AdminInput({
       {label}
       <input
         className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
-        name={name}
         placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
         required={required}
       />
     </label>
@@ -626,9 +803,19 @@ function ErrorText({ children }: { children: string }) {
   );
 }
 
-function parseOptionalNumber(value: FormDataEntryValue | null) {
+function parseOptionalNumber(value: unknown) {
   const parsed = Number(String(value ?? "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
+  const exists = items.some((item) => item.id === nextItem.id);
+
+  if (!exists) {
+    return [nextItem, ...items];
+  }
+
+  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
 }
 
 async function geocodeBusinessLocation(query: string) {

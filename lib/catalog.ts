@@ -104,6 +104,14 @@ type ProductRow = {
 };
 
 export async function getCatalogBusinesses() {
+  return getCatalogBusinessesWithOptions();
+}
+
+export async function getCatalogBusinessesWithOptions({
+  includeDemo = true
+}: {
+  includeDemo?: boolean;
+} = {}) {
   const localBusinesses = readLocalCatalogBusinesses();
   const remoteBusinesses = await getRemoteCatalogBusinesses();
 
@@ -111,16 +119,26 @@ export async function getCatalogBusinesses() {
     return mergeBusinesses([...remoteBusinesses, ...localBusinesses]);
   }
 
-  return demoBusinesses;
+  return includeDemo ? demoBusinesses : [];
 }
 
 export async function getCatalogProducts() {
-  const businesses = await getCatalogBusinesses();
+  return getCatalogProductsWithOptions();
+}
+
+export async function getCatalogProductsWithOptions({
+  includeUnavailable = false,
+  includeDemo = true
+}: {
+  includeUnavailable?: boolean;
+  includeDemo?: boolean;
+} = {}) {
+  const businesses = await getCatalogBusinessesWithOptions({ includeDemo });
   const localProducts = readLocalCatalogProducts();
   const remoteProducts = await getRemoteCatalogProducts(businesses);
-  const products = mergeProducts([...remoteProducts, ...localProducts], businesses);
+  const products = mergeProducts([...remoteProducts, ...localProducts], businesses, includeUnavailable);
 
-  return products.length ? products : demoProducts;
+  return products.length || !includeDemo ? products : demoProducts;
 }
 
 export async function getCatalogItems() {
@@ -137,26 +155,7 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
     if (supabase) {
       const { data, error } = await supabase
         .from("businesses")
-        .insert({
-          nombre_negocio: business.name,
-          categoria_negocio: business.category,
-          zona: business.zone,
-          base_text: business.baseText,
-          direccion: business.baseText,
-          telefono: business.phone,
-          location_lat: business.lat,
-          location_lng: business.lng,
-          ubicacion_lat: business.lat,
-          ubicacion_lng: business.lng,
-          estado: business.status,
-          name: business.name,
-          category: business.category,
-          description: `${business.category} en ${business.zone}`,
-          estimated_time: business.estimatedTime,
-          status: business.status === "activo" ? "Disponible" : "No disponible",
-          rating: null,
-          is_active: business.status === "activo"
-        })
+        .insert(buildBusinessPayload(business))
         .select("id")
         .maybeSingle();
 
@@ -182,24 +181,7 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
     if (supabase) {
       const { data, error } = await supabase
         .from("products")
-        .insert({
-          business_id: product.businessId,
-          negocio_id: product.businessId,
-          name: product.name,
-          nombre_producto: product.name,
-          description: product.description,
-          descripcion: product.description,
-          category: product.category,
-          categoria_producto: product.category,
-          price: product.price,
-          precio_venta: product.price,
-          available: product.available,
-          disponible: product.available,
-          availability: product.availability,
-          horario_disponible: product.availability,
-          search_tags: product.searchTags,
-          etiquetas_busqueda: product.searchTags
-        })
+        .insert(buildProductPayload(product))
         .select("id")
         .maybeSingle();
 
@@ -212,6 +194,42 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
   }
 
   saveLocalCatalogProducts([product, ...readLocalCatalogProducts()]);
+  return product;
+}
+
+export async function updateCatalogBusiness(input: CatalogBusiness) {
+  const business = input;
+
+  try {
+    if (supabase) {
+      await supabase
+        .from("businesses")
+        .update(buildBusinessPayload(business))
+        .eq("id", business.id);
+    }
+  } catch {
+    // Local fallback keeps the MVP editable while Supabase schema catches up.
+  }
+
+  saveLocalCatalogBusinesses(upsertById(readLocalCatalogBusinesses(), business));
+  return business;
+}
+
+export async function updateCatalogProduct(input: CatalogProduct) {
+  const product = input;
+
+  try {
+    if (supabase) {
+      await supabase
+        .from("products")
+        .update(buildProductPayload(product))
+        .eq("id", product.id);
+    }
+  } catch {
+    // Local fallback keeps the MVP editable while Supabase schema catches up.
+  }
+
+  saveLocalCatalogProducts(upsertById(readLocalCatalogProducts(), product));
   return product;
 }
 
@@ -253,7 +271,11 @@ function mergeBusinesses(businesses: CatalogBusiness[]) {
   );
 }
 
-function mergeProducts(products: CatalogProduct[], businesses: CatalogBusiness[]) {
+function mergeProducts(
+  products: CatalogProduct[],
+  businesses: CatalogBusiness[],
+  includeUnavailable = false
+) {
   const businessesById = new Map(businesses.map((business) => [business.id, business]));
 
   return Array.from(new Map(products.map((product) => [product.id, product])).values())
@@ -272,7 +294,7 @@ function mergeProducts(products: CatalogProduct[], businesses: CatalogBusiness[]
           }
         : product;
     })
-    .filter((product) => product.available);
+    .filter((product) => includeUnavailable || product.available);
 }
 
 async function getRemoteCatalogBusinesses() {
@@ -403,6 +425,60 @@ function saveLocalCatalogBusinesses(businesses: CatalogBusiness[]) {
 
 function saveLocalCatalogProducts(products: CatalogProduct[]) {
   writeLocalArray(CATALOG_PRODUCTS_KEY, products);
+}
+
+function buildBusinessPayload(business: CatalogBusiness) {
+  return {
+    nombre_negocio: business.name,
+    categoria_negocio: business.category,
+    zona: business.zone,
+    base_text: business.baseText,
+    direccion: business.baseText,
+    telefono: business.phone,
+    location_lat: business.lat,
+    location_lng: business.lng,
+    ubicacion_lat: business.lat,
+    ubicacion_lng: business.lng,
+    estado: business.status,
+    name: business.name,
+    category: business.category,
+    description: `${business.category} en ${business.zone}`,
+    estimated_time: business.estimatedTime,
+    status: business.status === "activo" ? "Disponible" : "No disponible",
+    rating: null,
+    is_active: business.status === "activo"
+  };
+}
+
+function buildProductPayload(product: CatalogProduct) {
+  return {
+    business_id: product.businessId,
+    negocio_id: product.businessId,
+    name: product.name,
+    nombre_producto: product.name,
+    description: product.description,
+    descripcion: product.description,
+    category: product.category,
+    categoria_producto: product.category,
+    price: product.price,
+    precio_venta: product.price,
+    available: product.available,
+    disponible: product.available,
+    availability: product.availability,
+    horario_disponible: product.availability,
+    search_tags: product.searchTags,
+    etiquetas_busqueda: product.searchTags
+  };
+}
+
+function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
+  const exists = items.some((item) => item.id === nextItem.id);
+
+  if (!exists) {
+    return [nextItem, ...items];
+  }
+
+  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
 }
 
 function readLocalArray<T>(key: string) {

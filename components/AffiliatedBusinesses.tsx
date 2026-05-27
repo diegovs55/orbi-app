@@ -171,16 +171,18 @@ function BusinessRow({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-black leading-tight text-orbi-text">{business.name}</h3>
-          <p className="mt-1 text-xs leading-5 text-orbi-muted">{business.zone}</p>
+          <p className="mt-1 text-xs leading-5 text-orbi-muted">
+            {business.category} · {business.zone}
+          </p>
         </div>
         <span className="shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-bold text-emerald-200">
-          activo
+          {business.status}
         </span>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <InfoBox label="Tiempo estimado" value={business.estimatedTime} />
-        <InfoBox label="Rating" value={`⭐ ${business.rating}`} />
+        <InfoBox label="Zona" value={business.zone} />
+        <InfoBox label="Rating calculado" value={formatBusinessRating(business.rating)} />
       </div>
 
       {products.length ? (
@@ -198,6 +200,11 @@ function BusinessRow({
       ) : null}
     </div>
   );
+}
+
+function formatBusinessRating(rating: string) {
+  const numericRating = Number(rating);
+  return Number.isFinite(numericRating) ? `⭐ ${numericRating.toFixed(1)}` : rating;
 }
 
 function InfoBox({ label, value }: { label: string; value: string }) {
