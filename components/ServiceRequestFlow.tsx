@@ -262,64 +262,73 @@ export function ServiceRequestFlow() {
 
     return agents
       .map((agent) => {
-      const userHasOrigin = hasCoordinates(details.originLat, details.originLng);
-      const agentPoint = getAgentOperationalLocation(agent);
-      const agentHasCoordinates = agentPoint !== null;
-      const serviceMatches = isServiceCompatible(
-        agent.serviceType,
-        selectedService.compatibleType as AgentServiceType
-      );
-      const statusMatches = agent.status === activeAgentStatus;
-      const distance =
-        userHasOrigin && agentHasCoordinates
-          ? calculateDistanceKm(details.originLat!, details.originLng!, agentPoint!.lat, agentPoint!.lng)
-          : null;
-      const radius = agent.radiusKm || 20;
-      let exclusionReason = "";
+        const userHasOrigin = getValidCoordinatePair({
+          lat: details.originLat,
+          lng: details.originLng
+        });
+        const agentPoint = getAgentOperationalLocation(agent);
+        const validAgentPoint = agentPoint ? getValidCoordinatePair(agentPoint) : null;
+        const agentHasCoordinates = validAgentPoint !== null;
+        const serviceMatches = isServiceCompatible(
+          agent.serviceType,
+          selectedService.compatibleType as AgentServiceType
+        );
+        const statusMatches = agent.status === activeAgentStatus;
+        const distance =
+          userHasOrigin && validAgentPoint
+            ? calculateDistanceKm(
+                userHasOrigin.lat,
+                userHasOrigin.lng,
+                validAgentPoint.lat,
+                validAgentPoint.lng
+              )
+            : null;
+        const radius = agent.radiusKm || 20;
+        let exclusionReason = "";
 
-      if (!serviceMatches) {
-        exclusionReason = `Servicio no compatible: ${agent.serviceType}`;
-      } else if (!statusMatches) {
-        exclusionReason = `Estado no operativo: ${agent.status}`;
-      } else if (!agentHasCoordinates) {
-        exclusionReason = "Agente sin lat/lng operativos válidos";
-      } else if (distance !== null && distance > radius) {
-        exclusionReason = `Fuera de radio operativo: ${distance.toFixed(1)} km > ${radius} km`;
-      }
+        if (!serviceMatches) {
+          exclusionReason = `Servicio no compatible: ${agent.serviceType}`;
+        } else if (!statusMatches) {
+          exclusionReason = `Estado no operativo: ${agent.status}`;
+        } else if (!agentHasCoordinates) {
+          exclusionReason = "Agente sin lat/lng operativos válidos";
+        } else if (distance !== null && distance > radius) {
+          exclusionReason = `Fuera de radio operativo: ${distance.toFixed(1)} km > ${radius} km`;
+        }
 
-      console.info("[Orbi matching]", {
-        usuario: {
-          origin_lat: details.originLat,
-          origin_lng: details.originLng,
-          tiene_origen_preciso: userHasOrigin
-        },
-        agente: {
-          id: agent.id,
-          nombre: agent.name,
-          service_type: agent.serviceType,
-          status: agent.status,
-          lat: agent.lat,
-          lng: agent.lng,
-          current_lat: agent.currentLat,
-          current_lng: agent.currentLng,
-          operational_base_lat: agent.operationalBaseLat,
-          operational_base_lng: agent.operationalBaseLng,
-          latitude: agent.latitude,
-          longitude: agent.longitude,
-          radius_km: radius,
-          tiene_ubicacion_operativa: agentHasCoordinates
-        },
-        distancia_km: distance,
-        incluido: !exclusionReason,
-        motivo_exclusion: exclusionReason || "Incluido"
-      });
+        console.info("[Orbi matching]", {
+          usuario: {
+            origin_lat: details.originLat,
+            origin_lng: details.originLng,
+            tiene_origen_preciso: Boolean(userHasOrigin)
+          },
+          agente: {
+            id: agent.id,
+            nombre: agent.name,
+            service_type: agent.serviceType,
+            status: agent.status,
+            lat: agent.lat,
+            lng: agent.lng,
+            current_lat: agent.currentLat,
+            current_lng: agent.currentLng,
+            operational_base_lat: agent.operationalBaseLat,
+            operational_base_lng: agent.operationalBaseLng,
+            latitude: agent.latitude,
+            longitude: agent.longitude,
+            radius_km: radius,
+            tiene_ubicacion_operativa: agentHasCoordinates
+          },
+          distancia_km: distance,
+          incluido: !exclusionReason,
+          motivo_exclusion: exclusionReason || "Incluido"
+        });
 
-      if (exclusionReason) {
-        return { agent, distance, included: false };
-      }
+        if (exclusionReason) {
+          return { agent, distance, included: false };
+        }
 
-      return { agent, distance, included: true };
-    })
+        return { agent, distance, included: true };
+      })
       .filter((result) => result.included)
       .sort((a, b) => {
         if (a.distance === null && b.distance === null) {
@@ -348,7 +357,7 @@ export function ServiceRequestFlow() {
       (agent) =>
         isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType) &&
         agent.status === activeAgentStatus &&
-        !hasCoordinates(agent.lat, agent.lng)
+        !getValidCoordinatePair(getAgentOperationalLocation(agent) ?? {})
     ).length;
   }, [agents, selectedService]);
 
@@ -359,21 +368,32 @@ export function ServiceRequestFlow() {
   const cartSubtotal = useMemo(() => getCartSubtotal(cartItems), [cartItems]);
   const cartBusiness = cartItems[0]?.product ?? null;
   const isCatalogMission = cartItems.length > 0;
+  const originCoordinatePair = useMemo(
+    () => getValidCoordinatePair({ lat: details.originLat, lng: details.originLng }),
+    [details.originLat, details.originLng]
+  );
+  const destinationCoordinatePair = useMemo(
+    () => getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }),
+    [details.destinationLat, details.destinationLng]
+  );
   const routeDistance = useMemo(
     () =>
-      hasCoordinates(details.originLat, details.originLng) &&
-      hasCoordinates(details.destinationLat, details.destinationLng)
+      originCoordinatePair && destinationCoordinatePair
         ? calculateDistanceKm(
-            details.originLat!,
-            details.originLng!,
-            details.destinationLat!,
-            details.destinationLng!
+            originCoordinatePair.lat,
+            originCoordinatePair.lng,
+            destinationCoordinatePair.lat,
+            destinationCoordinatePair.lng
           )
         : null,
-    [details.destinationLat, details.destinationLng, details.originLat, details.originLng]
+    [destinationCoordinatePair, originCoordinatePair]
   );
   const serviceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : null;
-  const totalToPay = serviceFee === null ? null : cartSubtotal + serviceFee;
+  const logisticsStatusMessage = getLogisticsStatusMessage({
+    hasCatalogOrigin: Boolean(originCoordinatePair),
+    hasDestination: Boolean(destinationCoordinatePair),
+    distance: routeDistance
+  });
 
   function resetFlow() {
     setSelectedService(null);
@@ -390,8 +410,8 @@ export function ServiceRequestFlow() {
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isCatalogMission && !hasCoordinates(details.originLat, details.originLng)) {
-      setLocationError("Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.");
+    if (isCatalogMission && !originCoordinatePair) {
+      setLocationError("Completa ubicación del negocio en Admin para calcular logística.");
       return;
     }
 
@@ -404,8 +424,13 @@ export function ServiceRequestFlow() {
 
   function handleSelectProduct(product: CatalogSearchResult) {
     setCartMessage("");
-    if (!hasCoordinates(product.businessLat, product.businessLng)) {
-      setCartMessage("Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.");
+    const businessPoint = getValidCoordinatePair({
+      lat: product.businessLat,
+      lng: product.businessLng
+    });
+
+    if (!businessPoint) {
+      setCartMessage("Completa ubicación del negocio en Admin para calcular logística.");
       return;
     }
 
@@ -427,9 +452,9 @@ export function ServiceRequestFlow() {
     setDetails((currentDetails) => ({
       ...currentDetails,
       origin: product.businessBaseText || product.businessName,
-      originLat: product.businessLat,
-      originLng: product.businessLng,
-      detail: buildCartTicket(nextCart, null)
+      originLat: businessPoint.lat,
+      originLng: businessPoint.lng,
+      detail: buildCartTicket(nextCart, null, "Define destino para calcular servicio.")
     }));
     setIsRequestReady(false);
     setSelectedAgent(null);
@@ -463,12 +488,17 @@ export function ServiceRequestFlow() {
 
   function updateDetailsWithCart(nextCart: CartItem[]) {
     const business = nextCart[0]?.product;
+    const businessPoint = business
+      ? getValidCoordinatePair({ lat: business.businessLat, lng: business.businessLng })
+      : null;
     setDetails((currentDetails) => ({
       ...currentDetails,
       origin: business ? business.businessBaseText || business.businessName : "",
-      originLat: business?.businessLat ?? null,
-      originLng: business?.businessLng ?? null,
-      detail: nextCart.length ? buildCartTicket(nextCart, null) : ""
+      originLat: businessPoint?.lat ?? null,
+      originLng: businessPoint?.lng ?? null,
+      detail: nextCart.length
+        ? buildCartTicket(nextCart, null, "Define destino para calcular servicio.")
+        : ""
     }));
   }
 
@@ -554,15 +584,12 @@ export function ServiceRequestFlow() {
   function handleOpenMap(target: LocationTarget) {
     const currentLat = target === "origin" ? details.originLat : details.destinationLat;
     const currentLng = target === "origin" ? details.originLng : details.destinationLng;
+    const currentPoint = getValidCoordinatePair({ lat: currentLat, lng: currentLng });
 
-    setMapPoint(
-      hasCoordinates(currentLat, currentLng)
-        ? { lat: currentLat!, lng: currentLng! }
-        : zumpahuacanCenter
-    );
+    setMapPoint(currentPoint ?? zumpahuacanCenter);
     setMapTarget(target);
 
-    if (!hasCoordinates(currentLat, currentLng) && navigator.geolocation) {
+    if (!currentPoint && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setMapPoint({
@@ -716,18 +743,18 @@ export function ServiceRequestFlow() {
             `Productos:`,
             ...cartItems.map((item) => `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`),
             `Subtotal productos: $${cartSubtotal}`,
-            `Servicio/logística: ${currentServiceFee === null ? "Define destino para calcular servicio." : `$${currentServiceFee}`}`,
-            `Total a pagar: ${currentServiceFee === null ? "Define destino para calcular servicio." : `$${totalEstimate}`}`,
+            `Servicio/logística: ${currentServiceFee === null ? logisticsStatusMessage : `$${currentServiceFee}`}`,
+            `Total a pagar: ${currentServiceFee === null ? logisticsStatusMessage : `$${totalEstimate}`}`,
             `Sector: ${cartBusiness.sector}`
           ]
         : []),
       `Origen texto: ${details.origin}`,
-      ...(hasCoordinates(details.originLat, details.originLng)
-        ? [`Origen coordenadas: ${formatCoordinates(details.originLat, details.originLng)}`]
+      ...(originCoordinatePair
+        ? [`Origen coordenadas: ${formatCoordinates(originCoordinatePair.lat, originCoordinatePair.lng)}`]
         : []),
       `Destino texto: ${details.destination}`,
-      ...(hasCoordinates(details.destinationLat, details.destinationLng)
-        ? [`Destino coordenadas: ${formatCoordinates(details.destinationLat, details.destinationLng)}`]
+      ...(destinationCoordinatePair
+        ? [`Destino coordenadas: ${formatCoordinates(destinationCoordinatePair.lat, destinationCoordinatePair.lng)}`]
         : []),
       `Detalle: ${details.detail}`,
       `Horario: ${getDesiredTimeLabel(details)}`,
@@ -740,7 +767,10 @@ export function ServiceRequestFlow() {
       `Estado de pago: ${paymentStatus}`,
       `Método de pago: ${paymentMethod}`,
       `Órbita estimada: ${estimatedOrbit}`,
-      ...(distance === null ? [] : [`Distancia aproximada: ${distance.toFixed(1)} km`])
+      ...(routeDistance === null ? [] : [`Distancia origen-destino: ${routeDistance.toFixed(1)} km`]),
+      ...(routeDistance !== null && routeDistance > 50
+        ? ["La distancia parece fuera de zona. Revisa origen y destino."]
+        : [])
     ].join("\n");
 
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
@@ -754,9 +784,17 @@ export function ServiceRequestFlow() {
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const cost = estimateMissionCost(distance);
     const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
+
+    if (isCatalogMission && currentServiceFee === null) {
+      setLocationError(logisticsStatusMessage);
+      return;
+    }
+
     const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
     const agentLocation = getAgentOperationalLocation(selectedAgent);
-    const ticketDetail = isCatalogMission ? buildCartTicket(cartItems, currentServiceFee) : details.detail;
+    const ticketDetail = isCatalogMission
+      ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
+      : details.detail;
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -924,6 +962,8 @@ export function ServiceRequestFlow() {
               items={cartItems}
               serviceFee={serviceFee}
               distance={routeDistance}
+              hasValidDestination={Boolean(destinationCoordinatePair)}
+              logisticsStatusMessage={logisticsStatusMessage}
               onQuantityChange={updateCartQuantity}
               onRemove={removeCartItem}
             />
@@ -1102,7 +1142,7 @@ export function ServiceRequestFlow() {
               label={isCatalogMission ? "Ticket de misión" : "Detalle"}
               value={
                 isCatalogMission
-                  ? buildCartTicket(cartItems, serviceFee)
+                  ? buildCartTicket(cartItems, serviceFee, logisticsStatusMessage)
                   : details.detail
               }
               wide
@@ -1392,17 +1432,24 @@ function LocalCart({
   items,
   serviceFee,
   distance,
+  hasValidDestination,
+  logisticsStatusMessage,
   onQuantityChange,
   onRemove
 }: {
   items: CartItem[];
   serviceFee: number | null;
   distance: number | null;
+  hasValidDestination: boolean;
+  logisticsStatusMessage: string;
   onQuantityChange: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
 }) {
   const subtotal = getCartSubtotal(items);
   const business = items[0]?.product;
+  const hasValidBusinessOrigin = business
+    ? Boolean(getValidCoordinatePair({ lat: business.businessLat, lng: business.businessLng }))
+    : false;
 
   return (
     <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
@@ -1415,9 +1462,9 @@ function LocalCart({
           <p className="mt-1 text-xs text-orbi-muted">
             Origen automático: {business.businessBaseText || business.businessZone || business.businessName}
           </p>
-          {!hasCoordinates(business.businessLat, business.businessLng) ? (
+          {!hasValidBusinessOrigin ? (
             <p className="mt-2 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-2 text-xs font-semibold text-yellow-100">
-              Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.
+              Completa ubicación del negocio en Admin para calcular logística.
             </p>
           ) : null}
         </div>
@@ -1465,16 +1512,26 @@ function LocalCart({
         <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
         <InfoTile
           label="Servicio/logística"
-          value={serviceFee === null ? "Define destino para calcular servicio." : `$${serviceFee}`}
+          value={serviceFee === null ? logisticsStatusMessage : `$${serviceFee}`}
         />
         <InfoTile
           label="Total a pagar"
-          value={serviceFee === null ? "Define destino para calcular servicio." : `$${subtotal + serviceFee}`}
+          value={serviceFee === null ? logisticsStatusMessage : `$${subtotal + serviceFee}`}
         />
       </div>
       {distance !== null ? (
         <p className="mt-2 text-xs font-semibold text-orbi-muted">
           Distancia origen-destino: {distance.toFixed(1)} km · Regla {pricingRule}
+        </p>
+      ) : null}
+      {!hasValidDestination || !hasValidBusinessOrigin || (distance !== null && distance > 30) ? (
+        <p className="mt-2 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-2 text-xs font-semibold text-yellow-100">
+          {logisticsStatusMessage}
+        </p>
+      ) : null}
+      {distance !== null && distance > 50 ? (
+        <p className="mt-2 rounded-md border border-red-300/15 bg-red-400/10 p-2 text-xs font-semibold text-red-100">
+          La distancia parece fuera de zona. Revisa origen y destino.
         </p>
       ) : null}
     </div>
@@ -1818,11 +1875,13 @@ function getDesiredTimeLabel(details: RequestDetails) {
 }
 
 function formatCoordinates(lat: number | null, lng: number | null) {
-  if (!hasCoordinates(lat, lng)) {
+  const point = getValidCoordinatePair({ lat, lng });
+
+  if (!point) {
     return "No capturada";
   }
 
-  return `${lat!.toFixed(6)}, ${lng!.toFixed(6)}`;
+  return `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`;
 }
 
 function formatDistance(distance: number | null) {
@@ -1862,11 +1921,11 @@ function estimateMissionCost(distance: number | null) {
 }
 
 function calculateServiceFee(distance: number | null, subtotal: number) {
-  if (distance === null) {
+  if (distance === null || !Number.isFinite(distance) || distance < 0 || distance > 30) {
     return null;
   }
 
-  let fee = 120;
+  let fee = 25;
 
   if (distance <= 2) {
     fee = 25;
@@ -1893,7 +1952,11 @@ function getCartSubtotal(items: CartItem[]) {
   return items.reduce((total, item) => total + item.product.price * item.quantity, 0);
 }
 
-function buildCartTicket(items: CartItem[], serviceFee: number | null) {
+function buildCartTicket(
+  items: CartItem[],
+  serviceFee: number | null,
+  logisticsStatusMessage: string
+) {
   const subtotal = getCartSubtotal(items);
   const lines = items.map(
     (item) =>
@@ -1905,23 +1968,82 @@ function buildCartTicket(items: CartItem[], serviceFee: number | null) {
     "Productos:",
     ...lines,
     `Subtotal productos: $${subtotal}`,
-    `Servicio/logística: ${serviceFee === null ? "Define destino para calcular servicio." : `$${serviceFee}`}`,
-    `Total a pagar: ${serviceFee === null ? "Define destino para calcular servicio." : `$${subtotal + serviceFee}`}`
+    `Servicio/logística: ${serviceFee === null ? logisticsStatusMessage : `$${serviceFee}`}`,
+    `Total a pagar: ${serviceFee === null ? logisticsStatusMessage : `$${subtotal + serviceFee}`}`
   ].join("\n");
 }
 
-function hasCoordinates(lat: number | null, lng: number | null) {
-  return lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
+type CoordinatePairSource = {
+  lat?: unknown;
+  lng?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  location_lat?: unknown;
+  location_lng?: unknown;
+};
+
+function getValidCoordinatePair(source: CoordinatePairSource) {
+  const lat = toValidCoordinate(source.lat ?? source.latitude ?? source.location_lat);
+  const lng = toValidCoordinate(source.lng ?? source.longitude ?? source.location_lng);
+
+  if (lat === null || lng === null) {
+    return null;
+  }
+
+  if (lat === 0 && lng === 0) {
+    return null;
+  }
+
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return null;
+  }
+
+  return { lat, lng };
+}
+
+function toValidCoordinate(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const coordinate = Number(value);
+  return Number.isFinite(coordinate) ? coordinate : null;
+}
+
+function getLogisticsStatusMessage({
+  hasCatalogOrigin,
+  hasDestination,
+  distance
+}: {
+  hasCatalogOrigin: boolean;
+  hasDestination: boolean;
+  distance: number | null;
+}) {
+  if (!hasCatalogOrigin) {
+    return "Completa ubicación del negocio en Admin para calcular logística.";
+  }
+
+  if (!hasDestination || distance === null) {
+    return "Define destino para calcular servicio.";
+  }
+
+  if (distance > 30) {
+    return "Fuera de cobertura operativa. Revisa dirección o solicita cotización.";
+  }
+
+  return "Define destino para calcular servicio.";
 }
 
 function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
   const point = getAgentOperationalLocation(agent);
+  const originPoint = getValidCoordinatePair({ lat: originLat, lng: originLng });
+  const agentPoint = point ? getValidCoordinatePair(point) : null;
 
-  if (!hasCoordinates(originLat, originLng) || !point) {
+  if (!originPoint || !agentPoint) {
     return null;
   }
 
-  return calculateDistanceKm(originLat!, originLng!, point.lat, point.lng);
+  return calculateDistanceKm(originPoint.lat, originPoint.lng, agentPoint.lat, agentPoint.lng);
 }
 
 function isServiceCompatible(agentService: AgentServiceType, requestedService: AgentServiceType) {

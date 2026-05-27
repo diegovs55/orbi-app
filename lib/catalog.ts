@@ -67,6 +67,8 @@ type BusinessRow = {
   telefono?: string | null;
   lat?: number | string | null;
   lng?: number | string | null;
+  location_lat?: number | string | null;
+  location_lng?: number | string | null;
   ubicacion_lat?: number | string | null;
   ubicacion_lng?: number | string | null;
   status?: string | null;
@@ -275,7 +277,7 @@ async function getRemoteCatalogBusinesses() {
   try {
     const { data, error } = await supabase
       .from("businesses")
-      .select("id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at")
+      .select("id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,location_lat,location_lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at")
       .order("name", { ascending: true });
 
     if (error) {
@@ -321,8 +323,8 @@ function mapBusinessRow(row: BusinessRow): CatalogBusiness {
     zone: row.zona || row.zone || "Zona local",
     baseText: row.base_text || row.direccion || row.zona || row.zone || "Base operativa del negocio",
     phone: row.telefono || row.phone || "",
-    lat: toFiniteNumber(row.ubicacion_lat ?? row.lat),
-    lng: toFiniteNumber(row.ubicacion_lng ?? row.lng),
+    lat: toFiniteNumber(row.ubicacion_lat ?? row.location_lat ?? row.lat),
+    lng: toFiniteNumber(row.ubicacion_lng ?? row.location_lng ?? row.lng),
     status,
     estimatedTime: row.estimated_time || "15-25 min",
     rating: String(row.rating ?? "4.8")
