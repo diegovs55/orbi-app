@@ -58,9 +58,12 @@ export function AdminCatalog() {
     const name = String(data.get("name") ?? "").trim();
     const category = String(data.get("category")) as BusinessSector;
     const zone = String(data.get("zone") ?? "").trim();
+    const baseText = String(data.get("baseText") ?? "").trim();
+    const lat = parseOptionalNumber(data.get("lat"));
+    const lng = parseOptionalNumber(data.get("lng"));
 
-    if (!name || !zone) {
-      setBusinessError("Completa nombre del negocio y zona.");
+    if (!name || !zone || !baseText || lat === null || lng === null) {
+      setBusinessError("Completa nombre, zona, dirección/base y coordenadas del negocio.");
       return;
     }
 
@@ -72,9 +75,10 @@ export function AdminCatalog() {
         name,
         category,
         zone,
+        baseText,
         phone: String(data.get("phone") ?? "").trim(),
-        lat: parseOptionalNumber(data.get("lat")),
-        lng: parseOptionalNumber(data.get("lng")),
+        lat,
+        lng,
         status: String(data.get("status") ?? "activo") as "activo" | "inactivo",
         estimatedTime: String(data.get("estimatedTime") ?? "15-25 min").trim() || "15-25 min",
         rating: String(data.get("rating") ?? "4.8").trim() || "4.8"
@@ -111,6 +115,7 @@ export function AdminCatalog() {
         businessId: business.id,
         businessName: business.name,
         businessZone: business.zone,
+        businessBaseText: business.baseText,
         businessLat: business.lat,
         businessLng: business.lng,
         sector: business.category,
@@ -166,6 +171,7 @@ export function AdminCatalog() {
             </select>
           </label>
           <AdminInput label="Zona" name="zone" placeholder="Centro" />
+          <AdminInput label="Dirección/base" name="baseText" placeholder="Ubicación registrada del negocio" />
           <AdminInput label="Teléfono" name="phone" placeholder="5255..." required={false} />
           <div className="grid gap-3 sm:grid-cols-2">
             <AdminInput label="Ubicación lat" name="lat" placeholder="18.8349" required={false} />

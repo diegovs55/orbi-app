@@ -22,9 +22,24 @@ export type ActiveMission = {
   detail: string;
   business_id?: string;
   product_id?: string;
+  business_lat?: number | null;
+  business_lng?: number | null;
   product_name?: string;
   business_name?: string;
   product_price?: number;
+  items?: Array<{
+    product_id: string;
+    product_name: string;
+    business_id: string;
+    business_name: string;
+    quantity: number;
+    price: number;
+    subtotal: number;
+  }>;
+  subtotal_productos?: number;
+  service_fee?: number;
+  total_estimado?: number;
+  product_ids?: string[];
   sector?: string;
   categoria_producto?: string;
   selected_agent_id: string;

@@ -80,6 +80,11 @@ const services = [
 
 type ServiceOption = (typeof services)[number];
 
+type CartItem = {
+  product: CatalogSearchResult;
+  quantity: number;
+};
+
 type RequestDetails = {
   origin: string;
   originLat: number | null;
@@ -149,7 +154,8 @@ export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
-  const [selectedCatalogItem, setSelectedCatalogItem] = useState<CatalogSearchResult | null>(null);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartMessage, setCartMessage] = useState("");
   const [catalogError, setCatalogError] = useState("");
   const [details, setDetails] = useState<RequestDetails>(emptyDetails);
   const [isRequestReady, setIsRequestReady] = useState(false);
@@ -349,11 +355,15 @@ export function ServiceRequestFlow() {
     catalogItems,
     searchQuery
   ]);
+  const cartSubtotal = useMemo(() => getCartSubtotal(cartItems), [cartItems]);
+  const cartBusiness = cartItems[0]?.product ?? null;
+  const isCatalogMission = cartItems.length > 0;
 
   function resetFlow() {
     setSelectedService(null);
     setSearchQuery("");
-    setSelectedCatalogItem(null);
+    setCartItems([]);
+    setCartMessage("");
     setDetails(emptyDetails);
     setIsRequestReady(false);
     setSelectedAgent(null);
@@ -364,6 +374,11 @@ export function ServiceRequestFlow() {
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isCatalogMission && !hasCoordinates(details.originLat, details.originLng)) {
+      setLocationError("Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.");
+      return;
+    }
+
     setIsRequestReady(true);
   }
 
@@ -372,15 +387,33 @@ export function ServiceRequestFlow() {
   }
 
   function handleSelectProduct(product: CatalogSearchResult) {
+    setCartMessage("");
+    if (!hasCoordinates(product.businessLat, product.businessLng)) {
+      setCartMessage("Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.");
+      return;
+    }
+
+    const existingBusinessId = cartItems[0]?.product.businessId;
+    if (existingBusinessId && existingBusinessId !== product.businessId) {
+      setCartMessage("Para esta versión, agrega productos de un mismo negocio por misión.");
+      return;
+    }
+
     const service = services.find((item) => item.label === "Compra local") ?? services[0];
+    const existingItem = cartItems.find((item) => item.product.id === product.id);
+    const nextCart = existingItem
+      ? cartItems.map((item) =>
+          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        )
+      : [...cartItems, { product, quantity: 1 }];
     setSelectedService(service);
-    setSelectedCatalogItem(product);
+    setCartItems(nextCart);
     setDetails((currentDetails) => ({
       ...currentDetails,
-      origin: product.businessName,
+      origin: product.businessBaseText || product.businessName,
       originLat: product.businessLat,
       originLng: product.businessLng,
-      detail: `${product.name}${product.price ? ` · $${product.price}` : ""}. ${product.description}`.trim()
+      detail: buildCartTicket(nextCart, 0)
     }));
     setIsRequestReady(false);
     setSelectedAgent(null);
@@ -390,10 +423,36 @@ export function ServiceRequestFlow() {
     const serviceLabel = label === "Servicio personalizado" ? "Mandado" : label;
     const service = services.find((item) => item.label === serviceLabel) ?? services[0];
     setSelectedService(service);
-    setSelectedCatalogItem(null);
+    setCartItems([]);
+    setCartMessage("");
     setDetails((currentDetails) => ({
       ...currentDetails,
       detail: searchQuery ? `Necesidad buscada: ${searchQuery}` : currentDetails.detail
+    }));
+  }
+
+  function updateCartQuantity(productId: string, quantity: number) {
+    const nextCart = cartItems.map((item) =>
+      item.product.id === productId ? { ...item, quantity: Math.max(1, quantity) } : item
+    );
+    setCartItems(nextCart);
+    updateDetailsWithCart(nextCart);
+  }
+
+  function removeCartItem(productId: string) {
+    const nextCart = cartItems.filter((item) => item.product.id !== productId);
+    setCartItems(nextCart);
+    updateDetailsWithCart(nextCart);
+  }
+
+  function updateDetailsWithCart(nextCart: CartItem[]) {
+    const business = nextCart[0]?.product;
+    setDetails((currentDetails) => ({
+      ...currentDetails,
+      origin: business ? business.businessBaseText || business.businessName : "",
+      originLat: business?.businessLat ?? null,
+      originLng: business?.businessLng ?? null,
+      detail: nextCart.length ? buildCartTicket(nextCart, 0) : ""
     }));
   }
 
@@ -629,16 +688,21 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const estimatedOrbit = getEstimatedOrbit(distance);
+    const serviceFee = estimateMissionCost(distance).price;
+    const totalEstimate = cartSubtotal + serviceFee;
 
     const message = [
       "Solicitud Orbi",
       `Servicio: ${selectedService.label}`,
-      ...(selectedCatalogItem
+      ...(isCatalogMission && cartBusiness
         ? [
-            `Negocio: ${selectedCatalogItem.businessName}`,
-            `Producto: ${selectedCatalogItem.name}`,
-            `Precio producto: $${selectedCatalogItem.price}`,
-            `Sector: ${selectedCatalogItem.sector}`
+            `Negocio: ${cartBusiness.businessName}`,
+            `Productos:`,
+            ...cartItems.map((item) => `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`),
+            `Subtotal productos: $${cartSubtotal}`,
+            `Costo estimado de servicio/logística: $${serviceFee}`,
+            `Total estimado: $${totalEstimate}`,
+            `Sector: ${cartBusiness.sector}`
           ]
         : []),
       `Origen texto: ${details.origin}`,
@@ -673,9 +737,9 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const cost = estimateMissionCost(distance);
-    const productPrice = selectedCatalogItem?.price ?? 0;
-    const servicePrice = productPrice ? productPrice + cost.price : cost.price;
+    const servicePrice = isCatalogMission ? cartSubtotal + cost.price : cost.price;
     const agentLocation = getAgentOperationalLocation(selectedAgent);
+    const ticketDetail = isCatalogMission ? buildCartTicket(cartItems, cost.price) : details.detail;
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -686,14 +750,29 @@ export function ServiceRequestFlow() {
       destination_lng: details.destinationLng,
       requester_name: details.requesterName,
       requester_phone: details.requesterPhone,
-      detail: details.detail,
-      business_id: selectedCatalogItem?.businessId,
-      product_id: selectedCatalogItem?.id,
-      product_name: selectedCatalogItem?.name,
-      business_name: selectedCatalogItem?.businessName,
-      product_price: selectedCatalogItem?.price,
-      sector: selectedCatalogItem?.sector,
-      categoria_producto: selectedCatalogItem?.category,
+      detail: ticketDetail,
+      business_id: cartBusiness?.businessId,
+      product_id: cartItems[0]?.product.id,
+      business_lat: cartBusiness?.businessLat,
+      business_lng: cartBusiness?.businessLng,
+      product_name: cartItems.map((item) => item.product.name).join(", ") || undefined,
+      business_name: cartBusiness?.businessName,
+      product_price: cartSubtotal || undefined,
+      items: cartItems.map((item) => ({
+        product_id: item.product.id,
+        product_name: item.product.name,
+        business_id: item.product.businessId,
+        business_name: item.product.businessName,
+        quantity: item.quantity,
+        price: item.product.price,
+        subtotal: item.product.price * item.quantity
+      })),
+      subtotal_productos: cartSubtotal || undefined,
+      service_fee: cost.price,
+      total_estimado: servicePrice,
+      product_ids: cartItems.map((item) => item.product.id),
+      sector: cartBusiness?.sector,
+      categoria_producto: cartItems[0]?.product.category,
       selected_agent_id: selectedAgent.id,
       selected_agent_name: selectedAgent.name,
       selected_agent_zone: selectedAgent.zone,
@@ -728,7 +807,7 @@ export function ServiceRequestFlow() {
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
               Red Orbi
             </p>
-            <h2 className="mt-2 text-3xl font-black text-orbi-text">¿Qué necesitas?</h2>
+            <h2 className="mt-2 text-3xl font-black text-orbi-text">Búscalo y ponlo en órbita</h2>
             <div className="mt-5 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
               <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
               <input
@@ -747,6 +826,8 @@ export function ServiceRequestFlow() {
               <CatalogSuggestions
                 query={searchQuery}
                 results={catalogResults}
+                cartItems={cartItems}
+                message={cartMessage}
                 onSelectProduct={handleSelectProduct}
                 onSelectCustomMission={handleSelectCustomMission}
               />
@@ -792,21 +873,29 @@ export function ServiceRequestFlow() {
           className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:grid-cols-2 sm:p-6"
         >
           <SelectedService service={selectedService} onReset={resetFlow} />
-          {selectedCatalogItem ? <SelectedCatalogItem item={selectedCatalogItem} /> : null}
-          <LocationField
-            label="Punto de origen"
-            value={details.origin}
-            placeholder="Dirección o referencia de salida"
-            lat={details.originLat}
-            lng={details.originLng}
-            buttonLabel="Usar mi ubicación"
-            geocodeLabel="Buscar ubicación"
-            geocodeState={geocodeState.origin}
-            onChange={(value) => updateLocationText("origin", value)}
-            onUseLocation={() => handleUseCurrentLocation("origin")}
-            onGeocode={() => handleGeocodeLocation("origin")}
-            onOpenMap={() => handleOpenMap("origin")}
-          />
+          {isCatalogMission ? (
+            <LocalCart
+              items={cartItems}
+              serviceFee={0}
+              onQuantityChange={updateCartQuantity}
+              onRemove={removeCartItem}
+            />
+          ) : (
+            <LocationField
+              label="Punto de origen"
+              value={details.origin}
+              placeholder="Dirección o referencia de salida"
+              lat={details.originLat}
+              lng={details.originLng}
+              buttonLabel="Usar mi ubicación"
+              geocodeLabel="Buscar ubicación"
+              geocodeState={geocodeState.origin}
+              onChange={(value) => updateLocationText("origin", value)}
+              onUseLocation={() => handleUseCurrentLocation("origin")}
+              onGeocode={() => handleGeocodeLocation("origin")}
+              onOpenMap={() => handleOpenMap("origin")}
+            />
+          )}
           <LocationField
             label="Punto de destino"
             value={details.destination}
@@ -847,16 +936,18 @@ export function ServiceRequestFlow() {
               {locationError}
             </p>
           ) : null}
-          <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
-            Detalle de la solicitud
-            <textarea
-              className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
-              value={details.detail}
-              placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
-              onChange={(event) => updateDetails("detail", event.target.value)}
-              required
-            />
-          </label>
+          {isCatalogMission ? null : (
+            <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
+              Detalle de la solicitud
+              <textarea
+                className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+                value={details.detail}
+                placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
+                onChange={(event) => updateDetails("detail", event.target.value)}
+                required
+              />
+            </label>
+          )}
           <button
             type="submit"
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
@@ -931,12 +1022,12 @@ export function ServiceRequestFlow() {
           <h2 className="mt-2 text-2xl font-black text-orbi-text">Misión lista para enviar</h2>
           <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Resumen de servicio" value={selectedService.label} />
-            {selectedCatalogItem ? (
+            {isCatalogMission && cartBusiness ? (
               <>
-                <SummaryItem label="Negocio" value={selectedCatalogItem.businessName} />
-                <SummaryItem label="Producto" value={selectedCatalogItem.name} />
-                <SummaryItem label="Precio de venta" value={`$${selectedCatalogItem.price}`} />
-                <SummaryItem label="Sector" value={selectedCatalogItem.sector} />
+                <SummaryItem label="Negocio" value={cartBusiness.businessName} />
+                <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} />
+                <SummaryItem label="Subtotal productos" value={`$${cartSubtotal}`} />
+                <SummaryItem label="Sector" value={cartBusiness.sector} />
               </>
             ) : null}
             <SummaryItem label="Origen" value={details.origin} />
@@ -960,7 +1051,15 @@ export function ServiceRequestFlow() {
               label="Órbita estimada"
               value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
             />
-            <SummaryItem label="Detalle" value={details.detail} wide />
+            <SummaryItem
+              label={isCatalogMission ? "Ticket de misión" : "Detalle"}
+              value={
+                isCatalogMission
+                  ? buildCartTicket(cartItems, estimateMissionCost(getAgentDistance(details.originLat, details.originLng, selectedAgent)).price)
+                  : details.detail
+              }
+              wide
+            />
           </div>
 
           <div className="mt-5 rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-blue/[0.14] to-white/[0.04] p-4 shadow-[0_0_28px_rgba(31,139,255,0.1)]">
@@ -1162,11 +1261,15 @@ function SelectedService({
 function CatalogSuggestions({
   query,
   results,
+  cartItems,
+  message,
   onSelectProduct,
   onSelectCustomMission
 }: {
   query: string;
   results: CatalogSearchResult[];
+  cartItems: CartItem[];
+  message: string;
   onSelectProduct: (product: CatalogSearchResult) => void;
   onSelectCustomMission: (label: "Mandado" | "Compra local" | "Servicio personalizado") => void;
 }) {
@@ -1196,6 +1299,11 @@ function CatalogSuggestions({
 
   return (
     <div className="mt-4 space-y-3">
+      {message ? (
+        <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
+          {message}
+        </p>
+      ) : null}
       <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-orbi-cyan">
           Categoría: Compra local
@@ -1223,7 +1331,7 @@ function CatalogSuggestions({
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">{result.description}</p>
               </div>
               <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
-                ${result.price}
+                {cartItems.some((item) => item.product.id === result.id) ? "Agregado" : `$${result.price}`}
               </span>
             </div>
           </button>
@@ -1233,22 +1341,81 @@ function CatalogSuggestions({
   );
 }
 
-function SelectedCatalogItem({ item }: { item: CatalogSearchResult }) {
+function LocalCart({
+  items,
+  serviceFee,
+  onQuantityChange,
+  onRemove
+}: {
+  items: CartItem[];
+  serviceFee: number;
+  onQuantityChange: (productId: string, quantity: number) => void;
+  onRemove: (productId: string) => void;
+}) {
+  const subtotal = getCartSubtotal(items);
+  const business = items[0]?.product;
+
   return (
     <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-        Producto seleccionado
+        Ticket de misión
       </p>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-black text-orbi-text">{item.name}</p>
-          <p className="mt-1 text-sm text-orbi-muted">
-            {item.businessName} · {item.sector} · {item.category}
+      {business ? (
+        <div className="mt-3 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
+          <p className="font-black text-orbi-text">{business.businessName}</p>
+          <p className="mt-1 text-xs text-orbi-muted">
+            Origen automático: {business.businessBaseText || business.businessZone || business.businessName}
           </p>
+          {!hasCoordinates(business.businessLat, business.businessLng) ? (
+            <p className="mt-2 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-2 text-xs font-semibold text-yellow-100">
+              Este negocio aún no tiene ubicación registrada. Completa ubicación en Admin.
+            </p>
+          ) : null}
         </div>
-        <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
-          ${item.price}
-        </span>
+      ) : null}
+      <div className="mt-3 space-y-2">
+        {items.map((item) => {
+          const subtotalItem = item.product.price * item.quantity;
+          return (
+            <div key={item.product.id} className="rounded-md border border-white/10 bg-orbi-black/25 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-orbi-text">{item.product.name}</p>
+                  <p className="mt-1 text-xs text-orbi-muted">
+                    {item.product.businessName} · ${item.product.price} c/u
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.product.id)}
+                  className="rounded-md border border-red-300/15 bg-red-400/10 px-2 py-1 text-xs font-bold text-red-200"
+                >
+                  Quitar
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
+                <label className="text-xs font-semibold text-orbi-muted">
+                  Cantidad
+                  <input
+                    min={1}
+                    type="number"
+                    value={item.quantity}
+                    onChange={(event) => onQuantityChange(item.product.id, Number(event.target.value))}
+                    className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text outline-none"
+                  />
+                </label>
+                <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-sm font-black text-orbi-cyan">
+                  ${subtotalItem}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+        <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
+        <InfoTile label="Servicio/logística" value={serviceFee ? `$${serviceFee}` : "Por estimar"} />
+        <InfoTile label="Total estimado" value={serviceFee ? `$${subtotal + serviceFee}` : `$${subtotal} + servicio`} />
       </div>
     </div>
   );
@@ -1632,6 +1799,27 @@ function estimateMissionCost(distance: number | null) {
     agentCost,
     orbiProfit: price - agentCost
   };
+}
+
+function getCartSubtotal(items: CartItem[]) {
+  return items.reduce((total, item) => total + item.product.price * item.quantity, 0);
+}
+
+function buildCartTicket(items: CartItem[], serviceFee: number) {
+  const subtotal = getCartSubtotal(items);
+  const lines = items.map(
+    (item) =>
+      `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`
+  );
+
+  return [
+    "Ticket de misión:",
+    "Productos:",
+    ...lines,
+    `Subtotal productos: $${subtotal}`,
+    `Costo estimado de servicio/logística: ${serviceFee ? `$${serviceFee}` : "Por estimar"}`,
+    `Total estimado: ${serviceFee ? `$${subtotal + serviceFee}` : `$${subtotal} + servicio`}`
+  ].join("\n");
 }
 
 function hasCoordinates(lat: number | null, lng: number | null) {

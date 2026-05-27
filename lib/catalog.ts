@@ -22,6 +22,7 @@ export type CatalogBusiness = {
   name: string;
   category: BusinessSector;
   zone: string;
+  baseText: string;
   phone: string;
   lat: number | null;
   lng: number | null;
@@ -35,6 +36,7 @@ export type CatalogProduct = {
   businessId: string;
   businessName: string;
   businessZone: string;
+  businessBaseText: string;
   businessLat: number | null;
   businessLng: number | null;
   sector: BusinessSector;
@@ -59,6 +61,8 @@ type BusinessRow = {
   categoria_negocio?: string | null;
   zone?: string | null;
   zona?: string | null;
+  base_text?: string | null;
+  direccion?: string | null;
   phone?: string | null;
   telefono?: string | null;
   lat?: number | string | null;
@@ -131,6 +135,8 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
           nombre_negocio: business.name,
           categoria_negocio: business.category,
           zona: business.zone,
+          base_text: business.baseText,
+          direccion: business.baseText,
           telefono: business.phone,
           ubicacion_lat: business.lat,
           ubicacion_lng: business.lng,
@@ -251,6 +257,7 @@ function mergeProducts(products: CatalogProduct[], businesses: CatalogBusiness[]
             ...product,
             businessName: business.name,
             businessZone: business.zone,
+            businessBaseText: business.baseText,
             businessLat: business.lat,
             businessLng: business.lng,
             sector: business.category
@@ -268,7 +275,7 @@ async function getRemoteCatalogBusinesses() {
   try {
     const { data, error } = await supabase
       .from("businesses")
-      .select("id,name,nombre_negocio,category,categoria_negocio,zone,zona,phone,telefono,lat,lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at")
+      .select("id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at")
       .order("name", { ascending: true });
 
     if (error) {
@@ -312,6 +319,7 @@ function mapBusinessRow(row: BusinessRow): CatalogBusiness {
     name: row.nombre_negocio || row.name || "Negocio local",
     category: normalizeSector(row.categoria_negocio || row.category),
     zone: row.zona || row.zone || "Zona local",
+    baseText: row.base_text || row.direccion || row.zona || row.zone || "Base operativa del negocio",
     phone: row.telefono || row.phone || "",
     lat: toFiniteNumber(row.ubicacion_lat ?? row.lat),
     lng: toFiniteNumber(row.ubicacion_lng ?? row.lng),
@@ -330,6 +338,7 @@ function mapProductRow(row: ProductRow, businessesById: Map<string, CatalogBusin
     businessId,
     businessName: business?.name || "Negocio local",
     businessZone: business?.zone || "",
+    businessBaseText: business?.baseText || business?.zone || "",
     businessLat: business?.lat ?? null,
     businessLng: business?.lng ?? null,
     sector: business?.category || "Otro",
@@ -414,9 +423,10 @@ const demoBusinesses: CatalogBusiness[] = [
     name: "Regina Café",
     category: "Alimentos y bebidas",
     zone: "Centro",
+    baseText: "Centro de Zumpahuacán",
     phone: "",
-    lat: null,
-    lng: null,
+    lat: 18.8349,
+    lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
     rating: "4.8"
@@ -426,9 +436,10 @@ const demoBusinesses: CatalogBusiness[] = [
     name: "Farmacia San Antonio",
     category: "Farmacia",
     zone: "Centro",
+    baseText: "Centro de Zumpahuacán",
     phone: "",
-    lat: null,
-    lng: null,
+    lat: 18.8349,
+    lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
     rating: "4.7"
@@ -438,9 +449,10 @@ const demoBusinesses: CatalogBusiness[] = [
     name: "Papelería Centro",
     category: "Papelería",
     zone: "Centro",
+    baseText: "Centro de Zumpahuacán",
     phone: "",
-    lat: null,
-    lng: null,
+    lat: 18.8349,
+    lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
     rating: "4.8"
@@ -453,8 +465,9 @@ const demoProducts: CatalogProduct[] = [
     businessId: "demo-regina-cafe",
     businessName: "Regina Café",
     businessZone: "Centro",
-    businessLat: null,
-    businessLng: null,
+    businessBaseText: "Centro de Zumpahuacán",
+    businessLat: 18.8349,
+    businessLng: -99.5818,
     sector: "Alimentos y bebidas",
     name: "Frappe moka",
     description: "Bebida fría preparada al momento.",
@@ -469,8 +482,9 @@ const demoProducts: CatalogProduct[] = [
     businessId: "demo-regina-cafe",
     businessName: "Regina Café",
     businessZone: "Centro",
-    businessLat: null,
-    businessLng: null,
+    businessBaseText: "Centro de Zumpahuacán",
+    businessLat: 18.8349,
+    businessLng: -99.5818,
     sector: "Alimentos y bebidas",
     name: "Frappe oreo",
     description: "Frappe dulce con galleta.",
@@ -485,8 +499,9 @@ const demoProducts: CatalogProduct[] = [
     businessId: "demo-farmacia-san-antonio",
     businessName: "Farmacia San Antonio",
     businessZone: "Centro",
-    businessLat: null,
-    businessLng: null,
+    businessBaseText: "Centro de Zumpahuacán",
+    businessLat: 18.8349,
+    businessLng: -99.5818,
     sector: "Farmacia",
     name: "Medicamento general",
     description: "Compra asistida de medicamento sujeto a disponibilidad.",
@@ -501,8 +516,9 @@ const demoProducts: CatalogProduct[] = [
     businessId: "demo-papeleria-centro",
     businessName: "Papelería Centro",
     businessZone: "Centro",
-    businessLat: null,
-    businessLng: null,
+    businessBaseText: "Centro de Zumpahuacán",
+    businessLat: 18.8349,
+    businessLng: -99.5818,
     sector: "Papelería",
     name: "Impresiones",
     description: "Impresiones y copias para entrega local.",
