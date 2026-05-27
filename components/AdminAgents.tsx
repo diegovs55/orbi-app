@@ -910,21 +910,63 @@ function formatAvailability(start: string, end: string) {
     return "";
   }
 
-  return [normalizeTimeValue(start), normalizeTimeValue(end)].filter(Boolean).join(" - ");
+  return [normalizeTimeToHHmm(start), normalizeTimeToHHmm(end)].filter(Boolean).join(" - ");
 }
 
 function getAvailabilityParts(availability: string) {
-  const [start = "", end = ""] = availability.split(" - ");
+  const [start = "", end = ""] = splitAvailability(availability);
 
   return {
-    start: normalizeTimeValue(start),
-    end: normalizeTimeValue(end)
+    start: normalizeTimeToHHmm(start),
+    end: normalizeTimeToHHmm(end)
   };
 }
 
-function normalizeTimeValue(value: string) {
-  const match = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  return match ? match[0] : "";
+function normalizeTimeToHHmm(value: string) {
+  const rawValue = value.trim().toLowerCase();
+  if (!rawValue) {
+    return "";
+  }
+
+  const normalizedMeridiem = rawValue
+    .replace(/\s+/g, " ")
+    .replace(/(^|\s)a\.?\s*m\.?(?=\s|$)/g, "$1am")
+    .replace(/(^|\s)p\.?\s*m\.?(?=\s|$)/g, "$1pm");
+  const meridiemMatch = normalizedMeridiem.match(/^(\d{1,2}):([0-5]\d)\s*(am|pm)$/);
+
+  if (meridiemMatch) {
+    let hours = Number(meridiemMatch[1]);
+    const minutes = meridiemMatch[2];
+    const meridiem = meridiemMatch[3];
+
+    if (hours < 1 || hours > 12) {
+      return "";
+    }
+
+    if (meridiem === "am" && hours === 12) {
+      hours = 0;
+    } else if (meridiem === "pm" && hours !== 12) {
+      hours += 12;
+    }
+
+    return `${String(hours).padStart(2, "0")}:${minutes}`;
+  }
+
+  const cleanMatch = normalizedMeridiem.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!cleanMatch) {
+    return "";
+  }
+
+  return `${cleanMatch[1].padStart(2, "0")}:${cleanMatch[2]}`;
+}
+
+function splitAvailability(availability: string) {
+  const rangeMatch = availability.match(/(.+?)\s+-\s+(.+)/);
+  if (rangeMatch) {
+    return [rangeMatch[1], rangeMatch[2]];
+  }
+
+  return [availability, ""];
 }
 
 function getCurrentPosition() {
@@ -948,5 +990,5 @@ function getCurrentPosition() {
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {
-  return hasValidCoordinates(agent.lat ?? agent.operationalBaseLat, agent.lng ?? agent.operationalBaseLng);
+  return hasValidCoordinates(agent.operationalBaseLat ?? agent.lat, agent.operationalBaseLng ?? agent.lng);
 }

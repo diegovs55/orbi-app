@@ -189,6 +189,10 @@ export async function createAgent(agent: CreateAgentInput) {
       throw new Error(fallback.error.message);
     }
 
+    if (!fallback.data) {
+      throw new Error("No encontramos un agente único con ese id para actualizar órbita.");
+    }
+
     return mapAgentRow(fallback.data);
   }
 
@@ -251,7 +255,7 @@ export async function updateAgentOrbit(
     .update(payload)
     .eq("id", id)
     .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text")
-    .single();
+    .maybeSingle();
 
   if (isMissingCoordinateColumnError(error)) {
     const fallback = await client
@@ -263,17 +267,25 @@ export async function updateAgentOrbit(
       })
       .eq("id", id)
       .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
-      .single();
+      .maybeSingle();
 
     if (fallback.error) {
       throw new Error(fallback.error.message);
+    }
+
+    if (!fallback.data) {
+      throw new Error("No encontramos un agente único con ese id para guardar cambios.");
     }
 
     return mapAgentRow(fallback.data);
   }
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(getAgentUpdateErrorMessage(error));
+  }
+
+  if (!data) {
+    throw new Error("No encontramos un agente único con ese id para actualizar órbita.");
   }
 
   return mapAgentRow(data);
@@ -306,7 +318,7 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
     .update(payload)
     .eq("id", id)
     .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text")
-    .single();
+    .maybeSingle();
 
   if (isMissingCoordinateColumnError(error)) {
     const fallback = await client
@@ -326,17 +338,25 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
       })
       .eq("id", id)
       .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
-      .single();
+      .maybeSingle();
 
     if (fallback.error) {
       throw new Error(fallback.error.message);
+    }
+
+    if (!fallback.data) {
+      throw new Error("No encontramos un agente único con ese id para guardar cambios.");
     }
 
     return mapAgentRow(fallback.data);
   }
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(getAgentUpdateErrorMessage(error));
+  }
+
+  if (!data) {
+    throw new Error("No encontramos un agente único con ese id para guardar cambios.");
   }
 
   return mapAgentRow(data);
@@ -436,6 +456,16 @@ function isMissingCoordinateColumnError(error: { message?: string; code?: string
     error.code === "42703" ||
     /lat|lng|radius_km|operational_base|is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
   );
+}
+
+function getAgentUpdateErrorMessage(error: { message?: string; code?: string }) {
+  const message = error.message ?? "No fue posible actualizar el agente.";
+
+  if (/multiple|single json object|coerce/i.test(message)) {
+    return "Supabase devolvió más de un registro al actualizar el agente. Revisa que el filtro sea por id único.";
+  }
+
+  return message;
 }
 
 function getSupabaseClient() {
