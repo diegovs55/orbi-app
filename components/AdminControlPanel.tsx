@@ -129,7 +129,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "Tesorería",
     paymentMethod: "Transferencia",
     paymentStatus: "Esta misión requiere pago al inicio",
-    missionStatus: "Cancelar misión",
+    missionStatus: "Misión cancelada",
     rating: null,
     ratingComment: "Cancelada por cambio de horario.",
     detail: "Pago de servicio",
@@ -494,10 +494,11 @@ function DateInput({ label, value, onChange }: { label: string; value: string; o
 type Analytics = ReturnType<typeof buildAnalytics>;
 
 function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], businesses: AffiliateBusiness[]) {
-  const totalAgents = agents.length || 6;
-  const agentsInOrbit = agents.filter((agent) => agent.status === "En órbita").length || 3;
+  const totalAgents = agents.length;
+  const agentsInOrbit = agents.filter((agent) => agent.status === "En órbita").length;
   const agentsOutOrbit = Math.max(0, totalAgents - agentsInOrbit);
-  const topBusiness = rankByBusiness(missions)[0] ?? {
+  const businessRanking = rankByBusiness(missions, businesses);
+  const topBusiness = businessRanking[0] ?? {
     name: businesses[0]?.name ?? "Orbi directo",
     missions: 0,
     product: "Sin datos",
@@ -508,7 +509,7 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     totalMissions: missions.length,
     todayMissions: missions.filter((mission) => isSameDay(new Date(mission.date), new Date())).length,
     completedMissions: missions.filter((mission) => mission.missionStatus === "Misión cumplida").length,
-    cancelledMissions: missions.filter((mission) => mission.missionStatus === "Cancelar misión").length,
+    cancelledMissions: missions.filter((mission) => mission.missionStatus === "Misión cancelada").length,
     categoryBars: buildCountBars(missions, ["Mandado", "Entrega", "Traslado", "Compra local", "Pago o trámite"], "service"),
     paymentBars: buildCountBars(missions, ["Efectivo", "Transferencia", "Tarjeta"], "paymentMethod"),
     totalAgents,
@@ -516,7 +517,7 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     agentsOutOrbit,
     agentRanking: rankByAgent(missions, agents),
     topBusiness,
-    businessRanking: rankByBusiness(missions)
+    businessRanking
   };
 }
 
@@ -532,8 +533,9 @@ function buildCountBars(
 }
 
 function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
-  const knownAgents = agents.map((agent) => agent.name);
-  const names = Array.from(new Set([...knownAgents, ...missions.map((mission) => mission.agent)])).filter(Boolean);
+  const names = agents.length
+    ? agents.map((agent) => agent.name)
+    : Array.from(new Set(missions.map((mission) => mission.agent))).filter(Boolean);
 
   return names
     .map((name) => {
@@ -555,8 +557,10 @@ function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
     .slice(0, 5);
 }
 
-function rankByBusiness(missions: MissionRecord[]) {
-  const names = Array.from(new Set(missions.map((mission) => mission.business))).filter(Boolean);
+function rankByBusiness(missions: MissionRecord[], businesses: AffiliateBusiness[]) {
+  const names = businesses.length
+    ? businesses.map((business) => business.name)
+    : Array.from(new Set(missions.map((mission) => mission.business))).filter(Boolean);
 
   return names
     .map((name) => {

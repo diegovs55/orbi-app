@@ -16,7 +16,13 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
-import { ActiveMission, createMission, getActiveMission, subscribeToMission } from "@/lib/missions";
+import {
+  ActiveMission,
+  createMission,
+  getActiveMission,
+  isMissionActive,
+  subscribeToMission
+} from "@/lib/missions";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 const LocationPickerMap = dynamic(
@@ -883,7 +889,7 @@ export function ServiceRequestFlow() {
                   La solicitud ya está en la red. El agente seleccionado puede tomarla desde Orbi.
                 </p>
               ) : null}
-              {activeMission.mission_status === "Misión aceptada" ? (
+              {isMissionActive(activeMission) ? (
                 <Link
                   href="/orbita"
                   className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"

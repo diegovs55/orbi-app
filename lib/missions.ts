@@ -3,7 +3,7 @@ export const missionStatuses = [
   "Misión aceptada",
   "En misión",
   "Misión cumplida",
-  "Cancelar misión"
+  "Misión cancelada"
 ] as const;
 
 export type MissionStatus = (typeof missionStatuses)[number];
@@ -35,6 +35,25 @@ export type ActiveMission = {
   mission_status: MissionStatus;
   last_updated_at: string;
 };
+
+export const missionProgressStatuses: MissionStatus[] = [
+  "Misión por tomar",
+  "Misión aceptada",
+  "En misión",
+  "Misión cumplida"
+];
+
+export function isMissionPending(mission: ActiveMission | null) {
+  return mission?.mission_status === "Misión por tomar";
+}
+
+export function isMissionActive(mission: ActiveMission | null) {
+  return mission?.mission_status === "Misión aceptada" || mission?.mission_status === "En misión";
+}
+
+export function isMissionClosed(mission: ActiveMission | null) {
+  return mission?.mission_status === "Misión cumplida" || mission?.mission_status === "Misión cancelada";
+}
 
 const ACTIVE_MISSION_KEY = "orbi_active_mission";
 const MISSION_CHANGE_EVENT = "orbi-mission-change";

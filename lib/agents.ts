@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
+const DELETED_AGENTS_KEY = "orbi_deleted_agent_ids";
+
 export const agentServiceTypes = [
   "Todos los servicios",
   "Mandados",
@@ -51,6 +53,8 @@ type AgentRow = {
   lat?: number | null;
   lng?: number | null;
   radius_km?: number | null;
+  is_active?: boolean | null;
+  deleted_at?: string | null;
 };
 
 type AgentUpdate = {
@@ -84,7 +88,7 @@ export async function getAgents() {
 
   const { data, error } = await client
     .from("agents")
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,is_active,deleted_at")
     .order("status", { ascending: true })
     .order("name", { ascending: true });
 
@@ -99,14 +103,14 @@ export async function getAgents() {
       throw new Error(fallback.error.message);
     }
 
-    return (fallback.data ?? []).map(mapAgentRow);
+    return (fallback.data ?? []).filter(isNotLocallyDeleted).map(mapAgentRow);
   }
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data ?? []).map(mapAgentRow);
+  return (data ?? []).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
 }
 
 export async function createAgent(agent: CreateAgentInput) {
@@ -172,11 +176,23 @@ export async function createAgent(agent: CreateAgentInput) {
 
 export async function deleteAgent(id: string) {
   const client = getSupabaseClient();
+  markAgentDeletedLocally(id);
 
   const { error } = await client.from("agents").delete().eq("id", id);
 
   if (error) {
-    throw new Error(error.message);
+    const softDelete = await client
+      .from("agents")
+      .update({ is_active: false, deleted_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (softDelete.error) {
+      const inactiveFallback = await client.from("agents").update({ status: "Fuera de órbita" }).eq("id", id);
+
+      if (inactiveFallback.error) {
+        throw new Error(error.message);
+      }
+    }
   }
 }
 
@@ -263,6 +279,37 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
   };
 }
 
+function isActiveAgentRow(row: AgentRow) {
+  return row.deleted_at === null && row.is_active !== false;
+}
+
+function isNotLocallyDeleted(row: AgentRow) {
+  return !getLocallyDeletedAgentIds().includes(row.id);
+}
+
+function markAgentDeletedLocally(id: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const deletedIds = new Set(getLocallyDeletedAgentIds());
+  deletedIds.add(id);
+  window.localStorage.setItem(DELETED_AGENTS_KEY, JSON.stringify(Array.from(deletedIds)));
+}
+
+function getLocallyDeletedAgentIds() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const value = JSON.parse(window.localStorage.getItem(DELETED_AGENTS_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeAgentStatus(status: AgentRow["status"]): AgentStatus {
   return status === "En órbita" ? "En órbita" : "Fuera de órbita";
 }
@@ -274,7 +321,7 @@ function isMissingCoordinateColumnError(error: { message?: string; code?: string
 
   return (
     error.code === "42703" ||
-    /lat|lng|radius_km|column|schema cache/i.test(error.message ?? "")
+    /lat|lng|radius_km|is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
   );
 }
 

@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
-import { ActiveMission, getActiveMission, subscribeToMission, updateActiveMission } from "@/lib/missions";
+import {
+  ActiveMission,
+  getActiveMission,
+  isMissionActive,
+  isMissionClosed,
+  isMissionPending,
+  subscribeToMission,
+  updateActiveMission
+} from "@/lib/missions";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
   "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
@@ -81,7 +89,25 @@ export function AgentCards() {
       return [];
     }
 
-    return sortedAgents.filter((agent) => canAgentSeeMission(agent, mission));
+    return sortedAgents
+      .map((agent) => ({ agent, distance: getAgentDistanceFromMission(agent, mission) }))
+      .filter(({ agent, distance }) => canAgentSeeMission(agent, mission, distance))
+      .sort((a, b) => {
+        if (a.distance === null && b.distance === null) {
+          return a.agent.name.localeCompare(b.agent.name);
+        }
+
+        if (a.distance === null) {
+          return 1;
+        }
+
+        if (b.distance === null) {
+          return -1;
+        }
+
+        return a.distance - b.distance;
+      })
+      .map(({ agent }) => agent);
   }, [mission, sortedAgents]);
 
   function handleAcceptMission(agent: OrbiAgent) {
@@ -108,16 +134,16 @@ export function AgentCards() {
   }
 
   function handleCancelMission(agent: OrbiAgent) {
-    if (!mission || !canAgentSeeMission(agent, mission)) {
+    if (!mission || !canAgentSeeMission(agent, mission, getAgentDistanceFromMission(agent, mission))) {
       return;
     }
 
     const nextMission = updateActiveMission({
-      mission_status: "Cancelar misión",
+      mission_status: "Misión cancelada",
       active_agent_id: mission.active_agent_id || agent.id
     });
     setMission(nextMission);
-    setMissionMessage("Misión cancelada. La red Orbi queda actualizada.");
+    setMissionMessage("Misión cancelada y archivada en historial.");
   }
 
   if (isLoading) {
@@ -263,10 +289,15 @@ function AgentMissionBoard({
         <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
           No hay misiones pendientes en la red local.
         </p>
+      ) : isMissionClosed(mission) ? (
+        <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+          La última misión ya fue cerrada y quedó archivada en historial.
+        </p>
       ) : hasMissionForAgents ? (
         <div className="grid gap-4">
           {agents.map((agent) => {
-            const isAssigned = mission.active_agent_id === agent.id;
+            const isAssigned = isMissionActive(mission) && mission.active_agent_id === agent.id;
+            const distance = getAgentDistanceFromMission(agent, mission);
             return (
               <article
                 key={`${mission.id}-${agent.id}`}
@@ -275,7 +306,7 @@ function AgentMissionBoard({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-                      {isAssigned ? "Misión asignada a este agente" : "Misión compatible"}
+                      {isAssigned ? "Misión asignada a este agente" : "Agente sugerido"}
                     </p>
                     <h3 className="mt-1 text-xl font-black text-orbi-text">{mission.service_type}</h3>
                     <p className="mt-2 text-sm leading-6 text-orbi-muted">{mission.detail}</p>
@@ -288,6 +319,10 @@ function AgentMissionBoard({
                 <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
                   <InfoTile label="Agente" value={agent.name} />
                   <InfoTile label="Agente seleccionado" value={mission.selected_agent_name} />
+                  <InfoTile
+                    label="Cercanía al origen"
+                    value={distance === null ? "Sin distancia calculada" : `${distance.toFixed(1)} km`}
+                  />
                   <InfoTile label="Origen" value={mission.origin_text} />
                   <InfoTile label="Destino" value={mission.destination_text} />
                   <InfoTile label="Solicitante" value={mission.requester_name} />
@@ -298,7 +333,7 @@ function AgentMissionBoard({
                 </div>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {mission.mission_status === "Misión por tomar" ? (
+                  {isMissionPending(mission) ? (
                     <button
                       type="button"
                       onClick={() => onAccept(agent)}
@@ -308,20 +343,24 @@ function AgentMissionBoard({
                       Aceptar misión
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => onCancel(agent)}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-300/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
-                  >
-                    <XCircle aria-hidden="true" className="h-4 w-4" />
-                    Cancelar misión
-                  </button>
-                  <Link
-                    href="/orbita"
-                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-                  >
-                    Ver misión en órbita
-                  </Link>
+                  {!isMissionClosed(mission) ? (
+                    <button
+                      type="button"
+                      onClick={() => onCancel(agent)}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-300/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+                    >
+                      <XCircle aria-hidden="true" className="h-4 w-4" />
+                      Cancelar misión
+                    </button>
+                  ) : null}
+                  {isMissionActive(mission) ? (
+                    <Link
+                      href="/orbita"
+                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+                    >
+                      Ver misión en órbita
+                    </Link>
+                  ) : null}
                 </div>
               </article>
             );
@@ -329,7 +368,7 @@ function AgentMissionBoard({
         </div>
       ) : (
         <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
-          Hay misión activa, pero ningún agente visible coincide por servicio o asignación.
+          Hay una misión pendiente, pero ningún agente activo coincide por servicio, ubicación operativa y radio.
         </p>
       )}
     </section>
@@ -412,16 +451,27 @@ function InfoTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission) {
-  const isAssigned = mission.active_agent_id === agent.id || mission.selected_agent_id === agent.id;
-  const isPending = mission.mission_status === "Misión por tomar";
+function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: number | null) {
+  if (isMissionClosed(mission)) {
+    return false;
+  }
+
+  const isAssigned = isMissionActive(mission) && mission.active_agent_id === agent.id;
   const isAgentActive = agent.status === "En órbita";
 
   if (isAssigned) {
     return true;
   }
 
-  return isPending && isAgentActive && isServiceCompatible(agent.serviceType, mission.service_type);
+  return (
+    isMissionPending(mission) &&
+    isAgentActive &&
+    isServiceCompatible(agent.serviceType, mission.service_type) &&
+    hasValidAgentCoordinates(agent) &&
+    hasMissionOriginCoordinates(mission) &&
+    distance !== null &&
+    distance <= (agent.radiusKm || 20)
+  );
 }
 
 function isServiceCompatible(agentService: AgentServiceType, missionService: string) {
@@ -452,6 +502,44 @@ function hasValidAgentCoordinates(agent: OrbiAgent) {
     Number.isFinite(agent.lat) &&
     Number.isFinite(agent.lng)
   );
+}
+
+function hasMissionOriginCoordinates(mission: ActiveMission) {
+  return (
+    mission.origin_lat !== null &&
+    mission.origin_lng !== null &&
+    Number.isFinite(mission.origin_lat) &&
+    Number.isFinite(mission.origin_lng)
+  );
+}
+
+function getAgentDistanceFromMission(agent: OrbiAgent, mission: ActiveMission) {
+  if (!hasValidAgentCoordinates(agent) || !hasMissionOriginCoordinates(mission)) {
+    return null;
+  }
+
+  return calculateDistanceKm(mission.origin_lat!, mission.origin_lng!, agent.lat!, agent.lng!);
+}
+
+function calculateDistanceKm(originLat: number, originLng: number, agentLat: number, agentLng: number) {
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(agentLat - originLat);
+  const lngDelta = toRadians(agentLng - originLng);
+  const originLatRad = toRadians(originLat);
+  const agentLatRad = toRadians(agentLat);
+  const haversine =
+    Math.sin(latDelta / 2) * Math.sin(latDelta / 2) +
+    Math.cos(originLatRad) *
+      Math.cos(agentLatRad) *
+      Math.sin(lngDelta / 2) *
+      Math.sin(lngDelta / 2);
+  const angle = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+
+  return earthRadiusKm * angle;
+}
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
 }
 
 function StateCard({

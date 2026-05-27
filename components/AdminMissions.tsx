@@ -40,7 +40,7 @@ export function AdminMissions() {
   }
 
   function handleRejectMission() {
-    const nextMission = updateActiveMission({ mission_status: "Cancelar misión" });
+    const nextMission = updateActiveMission({ mission_status: "Misión cancelada" });
     setMission(nextMission);
     setMessage("Misión rechazada. La solicitud queda fuera de órbita.");
   }

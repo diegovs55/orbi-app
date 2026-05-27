@@ -8,7 +8,8 @@ import type { MissionPoint } from "@/components/MissionOrbitMap";
 import {
   ActiveMission,
   getActiveMission,
-  missionStatuses,
+  isMissionActive,
+  missionProgressStatuses,
   subscribeToMission,
   updateActiveMission
 } from "@/lib/missions";
@@ -54,27 +55,17 @@ export function MissionOrbitTracker() {
     });
   }, []);
 
-  const currentStateIndex = useMemo(() => {
-    if (!mission) {
-      return -1;
-    }
-
-    return missionStatuses.indexOf(mission.mission_status);
-  }, [mission]);
-
   function refreshAgentLocation() {
-    if (!mission) {
+    if (!isMissionActive(mission)) {
       return;
     }
 
     const nextIndex = Math.min(trackIndex + 1, agentTrack.length - 1);
-    const nextStatus = getMissionStateFromTrack(nextIndex);
 
     setTrackIndex(nextIndex);
     const nextMission = updateActiveMission({
       selected_agent_lat: agentTrack[nextIndex].lat,
-      selected_agent_lng: agentTrack[nextIndex].lng,
-      mission_status: nextStatus
+      selected_agent_lng: agentTrack[nextIndex].lng
     });
     setMission(nextMission);
     if (nextMission?.last_updated_at) {
@@ -83,7 +74,7 @@ export function MissionOrbitTracker() {
   }
 
   function handleMissionStatusChange(status: ActiveMission["mission_status"]) {
-    if (!mission) {
+    if (!mission || !canMoveToStatus(mission.mission_status, status)) {
       return;
     }
 
@@ -93,6 +84,8 @@ export function MissionOrbitTracker() {
       setLastUpdated(new Date(nextMission.last_updated_at));
     }
   }
+
+  const nextStatus = mission ? getNextMissionStatus(mission.mission_status) : null;
 
   if (!mission) {
     return (
@@ -114,36 +107,49 @@ export function MissionOrbitTracker() {
     );
   }
 
+  if (mission.mission_status === "Misión por tomar") {
+    return (
+      <MissionClosedState
+        tone="waiting"
+        title="Misión esperando agente"
+        body="La solicitud ya está en Red Orbi. Cuando un agente la acepte, podrás seguirla aquí en órbita."
+        primaryHref="/agentes"
+        primaryLabel="Ver agentes"
+      />
+    );
+  }
+
+  if (mission.mission_status === "Misión cancelada") {
+    return (
+      <MissionClosedState
+        tone="cancelled"
+        title="Misión cancelada"
+        body="Esta misión fue cancelada y quedó archivada en historial. Puedes volver al inicio o crear una nueva misión."
+        primaryHref="/pedir"
+        primaryLabel="Pedir otra misión"
+      />
+    );
+  }
+
+  if (mission.mission_status === "Misión cumplida") {
+    return (
+      <section className="space-y-5">
+        <MissionSummary mission={mission} title="Misión cumplida" />
+        <MissionTimeline status={mission.mission_status} />
+        <Link
+          href="/pedir"
+          className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
+        >
+          Crear nueva misión
+        </Link>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-5">
-      <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-              Misión activa
-            </p>
-            <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service_type}</h2>
-            <p className="mt-2 text-sm leading-6 text-orbi-muted">
-              {mission.detail || "Misión activa"} en seguimiento por Red Orbi.
-            </p>
-          </div>
-          <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-            {mission.mission_status}
-          </span>
-        </div>
-
-        <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
-          <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
-          <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
-          <MissionTile icon={Radar} label="Estado de misión" value={mission.mission_status} />
-          <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
-          <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
-          <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
-          <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
-          <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
-        </div>
-      </article>
+      <MissionSummary mission={mission} title="Misión activa" />
+      <MissionTimeline status={mission.mission_status} />
 
       <article className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -163,23 +169,23 @@ export function MissionOrbitTracker() {
             </p>
           ) : null}
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-4">
-          {(["Misión aceptada", "En misión", "Misión cumplida", "Cancelar misión"] as const).map(
-            (status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => handleMissionStatusChange(status)}
-                className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
-                  mission.mission_status === status
-                    ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan"
-                    : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
-                }`}
-              >
-                {status}
-              </button>
-            )
-          )}
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {nextStatus ? (
+            <button
+              type="button"
+              onClick={() => handleMissionStatusChange(nextStatus)}
+              className="min-h-11 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+            >
+              Avanzar a {nextStatus}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => handleMissionStatusChange("Misión cancelada")}
+            className="min-h-11 rounded-md border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/15"
+          >
+            Cancelar misión
+          </button>
         </div>
       </article>
 
@@ -228,19 +234,117 @@ export function MissionOrbitTracker() {
         </div>
       </article>
 
-      <div className="grid gap-2">
-        {missionStatuses.map((state, index) => (
-          <div
-            key={state}
-            className={`rounded-md border px-4 py-3 text-sm font-bold ${
-              index <= currentStateIndex
-                ? "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan"
-                : "border-white/10 bg-white/[0.03] text-orbi-muted"
-            }`}
-          >
-            {state}
-          </div>
-        ))}
+    </section>
+  );
+}
+
+function MissionSummary({ mission, title }: { mission: ActiveMission; title: string }) {
+  return (
+    <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+            {title}
+          </p>
+          <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service_type}</h2>
+          <p className="mt-2 text-sm leading-6 text-orbi-muted">
+            {mission.detail || "Misión activa"} en seguimiento por Red Orbi.
+          </p>
+        </div>
+        <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
+          {mission.mission_status}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+        <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
+        <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
+        <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
+        <MissionTile icon={Radar} label="Estado de misión" value={mission.mission_status} />
+        <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
+        <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
+        <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
+        <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
+        <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
+      </div>
+    </article>
+  );
+}
+
+function MissionTimeline({ status }: { status: ActiveMission["mission_status"] }) {
+  const currentIndex = missionProgressStatuses.indexOf(status);
+  const isCancelled = status === "Misión cancelada";
+
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+        Progreso de misión
+      </p>
+      {isCancelled ? (
+        <div className="mt-3 rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-bold text-red-100">
+          Misión cancelada
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+          {missionProgressStatuses.map((state, index) => (
+            <div
+              key={state}
+              className={`rounded-md border px-3 py-3 text-xs font-bold ${
+                index <= currentIndex
+                  ? "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan"
+                  : "border-white/10 bg-white/[0.03] text-orbi-muted"
+              }`}
+            >
+              {state}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MissionClosedState({
+  title,
+  body,
+  primaryHref,
+  primaryLabel,
+  tone
+}: {
+  title: string;
+  body: string;
+  primaryHref: string;
+  primaryLabel: string;
+  tone: "waiting" | "cancelled";
+}) {
+  return (
+    <section className={`rounded-md border p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-10 ${
+      tone === "cancelled"
+        ? "border-red-300/20 bg-red-400/10"
+        : "border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82"
+    }`}>
+      <div className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border ${
+        tone === "cancelled"
+          ? "border-red-300/20 bg-red-400/10 text-red-100"
+          : "border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan"
+      }`}>
+        <Radar aria-hidden="true" className="h-7 w-7" />
+      </div>
+      <h2 className="text-2xl font-black text-orbi-text">{title}</h2>
+      <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">{body}</p>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <Link
+          href={primaryHref}
+          className="inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+        >
+          {primaryLabel}
+        </Link>
+        <Link
+          href="/"
+          className="inline-flex min-h-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+        >
+          Volver a inicio
+        </Link>
       </div>
     </section>
   );
@@ -266,20 +370,27 @@ function MissionTile({
   );
 }
 
-function getMissionStateFromTrack(index: number): ActiveMission["mission_status"] {
-  if (index <= 0) {
-    return "Misión aceptada";
-  }
-
-  if (index === 1) {
-    return "Misión aceptada";
-  }
-
-  if (index <= 3) {
+function getNextMissionStatus(status: ActiveMission["mission_status"]) {
+  if (status === "Misión aceptada") {
     return "En misión";
   }
 
-  return "Misión cumplida";
+  if (status === "En misión") {
+    return "Misión cumplida";
+  }
+
+  return null;
+}
+
+function canMoveToStatus(
+  currentStatus: ActiveMission["mission_status"],
+  nextStatus: ActiveMission["mission_status"]
+) {
+  if (nextStatus === "Misión cancelada") {
+    return currentStatus !== "Misión cumplida" && currentStatus !== "Misión cancelada";
+  }
+
+  return getNextMissionStatus(currentStatus) === nextStatus;
 }
 
 function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {
