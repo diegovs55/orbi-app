@@ -2,16 +2,22 @@
 
 import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { Edit3, LocateFixed, MapPin, PackagePlus, Plus, RotateCcw, Search, Store, X } from "lucide-react";
+import { Edit3, LocateFixed, MapPin, PackagePlus, Plus, RotateCcw, Search, Store, Trash2, X } from "lucide-react";
 import {
   BusinessSector,
   CatalogBusiness,
   CatalogProduct,
+  CatalogProductStatus,
+  ProductCategory,
   businessSectors,
   createCatalogBusiness,
   createCatalogProduct,
+  deleteCatalogBusiness,
+  deleteCatalogProduct,
   getCatalogBusinessesWithOptions,
   getCatalogProductsWithOptions,
+  normalizeTimeToHHmm,
+  productCategories,
   updateCatalogBusiness,
   updateCatalogProduct
 } from "@/lib/catalog";
@@ -56,6 +62,8 @@ export function AdminCatalog() {
   const [businessCategory, setBusinessCategory] = useState<BusinessSector>("Alimentos y bebidas");
   const [businessPhone, setBusinessPhone] = useState("");
   const [businessStatus, setBusinessStatus] = useState<"activo" | "inactivo">("activo");
+  const [businessStart, setBusinessStart] = useState("");
+  const [businessEnd, setBusinessEnd] = useState("");
   const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
@@ -64,6 +72,9 @@ export function AdminCatalog() {
   const [productAvailability, setProductAvailability] = useState("");
   const [productSearchTags, setProductSearchTags] = useState("");
   const [productAvailable, setProductAvailable] = useState(true);
+  const [productStatus, setProductStatus] = useState<CatalogProductStatus>("disponible");
+  const [productAvailabilityInherited, setProductAvailabilityInherited] = useState(true);
+  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -113,13 +124,21 @@ export function AdminCatalog() {
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
     [businesses, selectedBusinessId]
   );
+  const inheritedAvailability = selectedBusiness?.availability ?? "";
 
   async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = businessName.trim();
+    const availabilityStart = normalizeTimeToHHmm(businessStart);
+    const availabilityEnd = normalizeTimeToHHmm(businessEnd);
 
     if (!name || !businessLocation.zone || !businessLocation.baseText || businessLocation.lat === null || businessLocation.lng === null) {
       setBusinessError("Completa nombre y registra la ubicación del negocio con mapa, búsqueda o ubicación actual.");
+      return;
+    }
+
+    if (!availabilityStart || !availabilityEnd || availabilityStart >= availabilityEnd) {
+      setBusinessError("Captura un horario operativo válido en formato 24h.");
       return;
     }
 
@@ -136,6 +155,9 @@ export function AdminCatalog() {
         lat: businessLocation.lat,
         lng: businessLocation.lng,
         status: businessStatus,
+        availability: `${availabilityStart} - ${availabilityEnd}`,
+        availabilityStart,
+        availabilityEnd,
         estimatedTime: editingBusiness?.estimatedTime ?? "Dinámico",
         rating: editingBusiness?.rating ?? "Sin calificaciones"
       };
@@ -160,6 +182,7 @@ export function AdminCatalog() {
         )
       );
       resetBusinessForm();
+      setSaveMessage(editingBusiness ? "Negocio actualizado." : "Negocio guardado.");
     } catch (caughtError) {
       setBusinessError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el negocio."
@@ -175,6 +198,8 @@ export function AdminCatalog() {
     setBusinessCategory(business.category);
     setBusinessPhone(business.phone);
     setBusinessStatus(business.status);
+    setBusinessStart(business.availabilityStart);
+    setBusinessEnd(business.availabilityEnd);
     setBusinessLocation({
       lat: business.lat,
       lng: business.lng,
@@ -196,6 +221,8 @@ export function AdminCatalog() {
     setBusinessCategory("Alimentos y bebidas");
     setBusinessPhone("");
     setBusinessStatus("activo");
+    setBusinessStart("");
+    setBusinessEnd("");
     setBusinessLocationSearch("");
     setBusinessLocationMessage("");
     setBusinessLocation({ lat: null, lng: null, zone: "", baseText: "" });
@@ -273,14 +300,20 @@ export function AdminCatalog() {
     const name = productName.trim();
     const category = productCategory.trim();
     const price = parseOptionalNumber(productPrice);
+    const customAvailability = normalizeAvailabilityRange(productAvailability);
 
     if (!business) {
       setProductError("Selecciona un negocio registrado para vincular el producto.");
       return;
     }
 
-    if (!name || !category || price === null) {
+    if (!name || !category || price === null || price < 0) {
       setProductError("Completa nombre del producto, categoría del producto y precio de venta.");
+      return;
+    }
+
+    if (!productAvailabilityInherited && !customAvailability) {
+      setProductError("Captura un horario personalizado válido en formato 24h.");
       return;
     }
 
@@ -298,10 +331,12 @@ export function AdminCatalog() {
         sector: business.category,
         name,
         description: productDescription.trim(),
-        category,
+        category: category as ProductCategory,
         price,
-        available: productAvailable,
-        availability: productAvailability.trim(),
+        available: productStatus === "disponible",
+        status: productStatus,
+        availability: productAvailabilityInherited ? inheritedAvailability : customAvailability,
+        availabilityInherited: productAvailabilityInherited,
         searchTags: productSearchTags.trim()
       };
       const product = editingProduct
@@ -310,6 +345,7 @@ export function AdminCatalog() {
 
       setProducts((currentProducts) => upsertById(currentProducts, product));
       resetProductForm();
+      setSaveMessage(editingProduct ? "Producto actualizado." : "Producto guardado.");
     } catch (caughtError) {
       setProductError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el producto."
@@ -330,6 +366,8 @@ export function AdminCatalog() {
     setProductAvailability(product.availability);
     setProductSearchTags(product.searchTags);
     setProductAvailable(product.available);
+    setProductStatus(product.status);
+    setProductAvailabilityInherited(product.availabilityInherited);
   }
 
   function resetProductForm() {
@@ -343,6 +381,21 @@ export function AdminCatalog() {
     setProductAvailability("");
     setProductSearchTags("");
     setProductAvailable(true);
+    setProductStatus("disponible");
+    setProductAvailabilityInherited(true);
+  }
+
+  async function handleDeleteBusiness(business: CatalogBusiness) {
+    await deleteCatalogBusiness(business.id);
+    setBusinesses((currentBusinesses) => currentBusinesses.filter((item) => item.id !== business.id));
+    setProducts((currentProducts) => currentProducts.filter((item) => item.businessId !== business.id));
+    setSaveMessage("Negocio eliminado de activos y conservado para historial.");
+  }
+
+  async function handleDeleteProduct(product: CatalogProduct) {
+    await deleteCatalogProduct(product.id);
+    setProducts((currentProducts) => currentProducts.filter((item) => item.id !== product.id));
+    setSaveMessage("Producto eliminado de activos y conservado para historial.");
   }
 
   if (!isUnlocked) {
@@ -407,6 +460,10 @@ export function AdminCatalog() {
             onChange={setBusinessPhone}
             required={false}
           />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TimeInput label="Horario operativo inicio" value={businessStart} onChange={setBusinessStart} />
+            <TimeInput label="Horario operativo fin" value={businessEnd} onChange={setBusinessEnd} />
+          </div>
           <label className="block text-sm font-semibold text-orbi-text">
             Estado
             <select
@@ -480,6 +537,13 @@ export function AdminCatalog() {
                     onClick={() => {
                       setSelectedBusinessId(business.id);
                       setBusinessSearch(business.name);
+                      if (!editingProduct || productAvailabilityInherited) {
+                        setProductAvailability(business.availability);
+                        setProductAvailabilityInherited(true);
+                      }
+                      if (!editingProduct) {
+                        setProductCategory(suggestProductCategoryFromBusiness(business.category));
+                      }
                     }}
                     className={`w-full rounded-md border px-3 py-2 text-left transition ${
                       selectedBusinessId === business.id
@@ -497,18 +561,63 @@ export function AdminCatalog() {
           </div>
           <AdminInput label="Nombre del producto" placeholder="Frappe moka" value={productName} onChange={setProductName} />
           <AdminInput label="Descripción" placeholder="Bebida fría preparada al momento" value={productDescription} onChange={setProductDescription} required={false} />
-          <AdminInput label="Categoría producto" placeholder="Bebidas frías" value={productCategory} onChange={setProductCategory} />
+          <label className="block text-sm font-semibold text-orbi-text">
+            Categoría producto
+            <select
+              value={productCategory}
+              onChange={(event) => setProductCategory(event.target.value)}
+              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none"
+              required
+            >
+              <option value="">Selecciona categoría</option>
+              {productCategories.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </label>
           <AdminInput label="Precio venta" placeholder="65" value={productPrice} onChange={setProductPrice} />
-          <AdminInput label="Horario disponible" placeholder="08:00 - 20:00" value={productAvailability} onChange={setProductAvailability} required={false} />
-          <AdminInput label="Etiquetas búsqueda" placeholder="frappe café moka bebida" value={productSearchTags} onChange={setProductSearchTags} required={false} />
-          <label className="flex items-center gap-2 text-sm font-semibold text-orbi-text">
-            <input
-              type="checkbox"
-              checked={productAvailable}
-              onChange={(event) => setProductAvailable(event.target.checked)}
-              className="h-4 w-4 accent-orbi-blue"
+          <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-orbi-text">
+              <input
+                type="checkbox"
+                checked={productAvailabilityInherited}
+                onChange={(event) => {
+                  setProductAvailabilityInherited(event.target.checked);
+                  if (event.target.checked) {
+                    setProductAvailability(inheritedAvailability);
+                  }
+                }}
+                className="h-4 w-4 accent-orbi-blue"
+              />
+              Heredado del negocio
+            </label>
+            <AdminInput
+              label={productAvailabilityInherited ? "Horario heredado" : "Horario personalizado"}
+              placeholder="08:00 - 20:00"
+              value={productAvailabilityInherited ? inheritedAvailability : productAvailability}
+              onChange={(value) => {
+                setProductAvailabilityInherited(false);
+                setProductAvailability(value);
+              }}
+              required={!productAvailabilityInherited}
             />
-            Disponible
+          </div>
+          <AdminInput label="Etiquetas búsqueda" placeholder="frappe café moka bebida" value={productSearchTags} onChange={setProductSearchTags} required={false} />
+          <label className="block text-sm font-semibold text-orbi-text">
+            Estado de producto
+            <select
+              value={productStatus}
+              onChange={(event) => {
+                const status = event.target.value as CatalogProductStatus;
+                setProductStatus(status);
+                setProductAvailable(status === "disponible");
+              }}
+              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none"
+            >
+              <option value="disponible">Producto disponible</option>
+              <option value="agotado">Agotado temporalmente</option>
+              <option value="pausado">Pausado</option>
+            </select>
           </label>
           {productError ? <ErrorText>{productError}</ErrorText> : null}
           <button type="submit" disabled={isSavingProduct} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow">
@@ -528,14 +637,20 @@ export function AdminCatalog() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {saveMessage ? (
+          <p className="rounded-md border border-emerald-300/15 bg-emerald-400/10 p-3 text-sm font-semibold text-emerald-100 lg:col-span-2">
+            {saveMessage}
+          </p>
+        ) : null}
         <CatalogList
           title="Negocios activos"
           items={businesses.map((business) => ({
             id: business.id,
             title: business.name,
             meta: `${business.category} · ${business.zone}`,
-            detail: `${business.status} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`,
-            onEdit: () => handleEditBusiness(business)
+            detail: `${business.status} · ${business.availability || "Sin horario"} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`,
+            onEdit: () => handleEditBusiness(business),
+            onDelete: () => handleDeleteBusiness(business)
           }))}
         />
         <CatalogList
@@ -544,8 +659,9 @@ export function AdminCatalog() {
             id: product.id,
             title: product.name,
             meta: `${product.businessName} · ${product.sector}`,
-            detail: `$${product.price} · ${product.category} · ${product.available ? "Disponible" : "No disponible"}`,
-            onEdit: () => handleEditProduct(product)
+            detail: `$${product.price} · ${product.category} · ${formatProductStatus(product.status)} · ${product.availabilityInherited ? "Heredado del negocio" : "Horario personalizado"}`,
+            onEdit: () => handleEditProduct(product),
+            onDelete: () => handleDeleteProduct(product)
           }))}
         />
       </div>
@@ -704,7 +820,7 @@ function CatalogList({
   items
 }: {
   title: string;
-  items: Array<{ id: string; title: string; meta: string; detail: string; onEdit: () => void }>;
+  items: Array<{ id: string; title: string; meta: string; detail: string; onEdit: () => void; onDelete: () => void }>;
 }) {
   return (
     <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
@@ -728,6 +844,14 @@ function CatalogList({
               >
                 <Edit3 aria-hidden="true" className="h-3.5 w-3.5" />
                 Editar
+              </button>
+              <button
+                type="button"
+                onClick={item.onDelete}
+                className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-red-300/15 bg-red-400/10 px-3 text-xs font-bold text-red-200"
+              >
+                <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+                Eliminar
               </button>
             </div>
           </article>
@@ -795,6 +919,29 @@ function AdminInput({
   );
 }
 
+function TimeInput({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-orbi-text">
+      {label}
+      <input
+        type="time"
+        value={value}
+        onChange={(event) => onChange(normalizeTimeToHHmm(event.target.value))}
+        className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+        required
+      />
+    </label>
+  );
+}
+
 function ErrorText({ children }: { children: string }) {
   return (
     <p className="rounded-md border border-red-300/15 bg-red-400/10 p-3 text-sm font-semibold text-red-200">
@@ -806,6 +953,32 @@ function ErrorText({ children }: { children: string }) {
 function parseOptionalNumber(value: unknown) {
   const parsed = Number(String(value ?? "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeAvailabilityRange(value: string) {
+  const [rawStart, rawEnd] = value.split("-").map((part) => part.trim());
+  const start = normalizeTimeToHHmm(rawStart);
+  const end = normalizeTimeToHHmm(rawEnd);
+  return start && end && start < end ? `${start} - ${end}` : "";
+}
+
+function suggestProductCategoryFromBusiness(category: BusinessSector): ProductCategory {
+  const mapping: Partial<Record<BusinessSector, ProductCategory>> = {
+    "Alimentos y bebidas": "Comida",
+    Farmacia: "Medicamento",
+    Papelería: "Papelería",
+    Servicios: "Servicio",
+    Mandados: "Mandado",
+    Transporte: "Traslado"
+  };
+
+  return mapping[category] ?? "Otro";
+}
+
+function formatProductStatus(status: CatalogProductStatus) {
+  if (status === "agotado") return "Agotado temporalmente";
+  if (status === "pausado") return "Pausado";
+  return "Producto disponible";
 }
 
 function upsertById<T extends { id: string }>(items: T[], nextItem: T) {

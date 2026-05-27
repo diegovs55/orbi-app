@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase";
 const CATALOG_BUSINESSES_KEY = "orbi_catalog_businesses";
 const CATALOG_PRODUCTS_KEY = "orbi_catalog_products";
 const businessSelectWithLocation =
-  "id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,location_lat,location_lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at";
+  "id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,location_lat,location_lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at,availability,horario_disponible,horario_operativo_inicio,horario_operativo_fin";
 const businessSelectFallback =
   "id,name,nombre_negocio,category,categoria_negocio,zone,zona,base_text,direccion,phone,telefono,lat,lng,ubicacion_lat,ubicacion_lng,status,estado,estimated_time,rating,is_active,deleted_at";
 
@@ -12,14 +12,32 @@ export const businessSectors = [
   "Farmacia",
   "Papelería",
   "Ferretería",
-  "Abarrotes",
+  "Tecnología",
   "Servicios",
-  "Trámites",
+  "Mandados",
+  "Transporte",
+  "Otro"
+] as const;
+
+export const productCategories = [
+  "Bebida fría",
+  "Bebida caliente",
+  "Comida",
+  "Snack",
+  "Postre",
+  "Medicamento",
+  "Papelería",
+  "Trámite",
+  "Mandado",
+  "Traslado",
+  "Servicio",
   "Otro"
 ] as const;
 
 export type BusinessSector = (typeof businessSectors)[number];
+export type ProductCategory = (typeof productCategories)[number];
 export type CatalogBusinessStatus = "activo" | "inactivo";
+export type CatalogProductStatus = "disponible" | "agotado" | "pausado";
 
 export type CatalogBusiness = {
   id: string;
@@ -33,6 +51,9 @@ export type CatalogBusiness = {
   status: CatalogBusinessStatus;
   estimatedTime: string;
   rating: string;
+  availability: string;
+  availabilityStart: string;
+  availabilityEnd: string;
 };
 
 export type CatalogProduct = {
@@ -46,10 +67,12 @@ export type CatalogProduct = {
   sector: BusinessSector;
   name: string;
   description: string;
-  category: string;
+  category: ProductCategory;
   price: number;
   available: boolean;
+  status: CatalogProductStatus;
   availability: string;
+  availabilityInherited: boolean;
   searchTags: string;
 };
 
@@ -79,6 +102,10 @@ type BusinessRow = {
   estado?: string | null;
   estimated_time?: string | null;
   rating?: string | number | null;
+  availability?: string | null;
+  horario_disponible?: string | null;
+  horario_operativo_inicio?: string | null;
+  horario_operativo_fin?: string | null;
   is_active?: boolean | null;
   deleted_at?: string | null;
 };
@@ -97,10 +124,16 @@ type ProductRow = {
   precio_venta?: number | string | null;
   available?: boolean | null;
   disponible?: boolean | null;
+  is_available?: boolean | null;
+  status?: string | null;
+  estado?: string | null;
+  availability_status?: string | null;
   availability?: string | null;
   horario_disponible?: string | null;
+  availability_inherited?: boolean | null;
   search_tags?: string | null;
   etiquetas_busqueda?: string | null;
+  deleted_at?: string | null;
 };
 
 export async function getCatalogBusinesses() {
@@ -233,6 +266,45 @@ export async function updateCatalogProduct(input: CatalogProduct) {
   return product;
 }
 
+export async function deleteCatalogBusiness(id: string) {
+  try {
+    if (supabase) {
+      await supabase
+        .from("businesses")
+        .update({ is_active: false, deleted_at: new Date().toISOString(), estado: "inactivo" })
+        .eq("id", id);
+    }
+  } catch {
+    // Local fallback keeps deleted records out of active operations.
+  }
+
+  saveLocalCatalogBusinesses(readLocalCatalogBusinesses().filter((business) => business.id !== id));
+  saveLocalCatalogProducts(readLocalCatalogProducts().filter((product) => product.businessId !== id));
+}
+
+export async function deleteCatalogProduct(id: string) {
+  try {
+    if (supabase) {
+      await supabase
+        .from("products")
+        .update({
+          is_available: false,
+          available: false,
+          disponible: false,
+          status: "pausado",
+          estado: "pausado",
+          availability_status: "pausado",
+          deleted_at: new Date().toISOString()
+        })
+        .eq("id", id);
+    }
+  } catch {
+    // Local fallback keeps deleted records out of active operations.
+  }
+
+  saveLocalCatalogProducts(readLocalCatalogProducts().filter((product) => product.id !== id));
+}
+
 export function searchCatalog(items: CatalogProduct[], query: string) {
   const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
 
@@ -290,11 +362,12 @@ function mergeProducts(
             businessBaseText: business.baseText,
             businessLat: business.lat,
             businessLng: business.lng,
-            sector: business.category
+            sector: business.category,
+            availability: product.availabilityInherited ? business.availability : product.availability
           }
         : product;
     })
-    .filter((product) => includeUnavailable || product.available);
+    .filter((product) => includeUnavailable || (product.available && product.status === "disponible"));
 }
 
 async function getRemoteCatalogBusinesses() {
@@ -341,14 +414,14 @@ async function getRemoteCatalogProducts(businesses: CatalogBusiness[]) {
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("id,business_id,negocio_id,name,nombre_producto,description,descripcion,category,categoria_producto,price,precio_venta,available,disponible,availability,horario_disponible,search_tags,etiquetas_busqueda")
+      .select("id,business_id,negocio_id,name,nombre_producto,description,descripcion,category,categoria_producto,price,precio_venta,available,disponible,is_available,status,estado,availability_status,availability,horario_disponible,availability_inherited,search_tags,etiquetas_busqueda,deleted_at")
       .order("name", { ascending: true });
 
     if (error) {
       return [];
     }
 
-    return (data ?? []).map((row) => mapProductRow(row, businessesById));
+    return (data ?? []).filter(isActiveProductRow).map((row) => mapProductRow(row, businessesById));
   } catch {
     return [];
   }
@@ -368,7 +441,10 @@ function mapBusinessRow(row: BusinessRow): CatalogBusiness {
     lng: toFiniteNumber(row.ubicacion_lng ?? row.location_lng ?? row.lng),
     status,
     estimatedTime: row.estimated_time || "15-25 min",
-    rating: String(row.rating ?? "4.8")
+    rating: String(row.rating ?? "Sin calificación todavía"),
+    availability: row.availability || row.horario_disponible || buildAvailability(row.horario_operativo_inicio, row.horario_operativo_fin),
+    availabilityStart: normalizeTimeToHHmm(row.horario_operativo_inicio) || "",
+    availabilityEnd: normalizeTimeToHHmm(row.horario_operativo_fin) || ""
   };
 }
 
@@ -376,6 +452,8 @@ function mapProductRow(row: ProductRow, businessesById: Map<string, CatalogBusin
   const businessId = row.negocio_id || row.business_id || "";
   const business = businessesById.get(businessId);
 
+  const customAvailability = row.horario_disponible || row.availability || "";
+  const status = normalizeProductStatus(row.availability_status || row.estado || row.status);
   return {
     id: row.id,
     businessId,
@@ -387,16 +465,22 @@ function mapProductRow(row: ProductRow, businessesById: Map<string, CatalogBusin
     sector: business?.category || "Otro",
     name: row.nombre_producto || row.name || "Producto local",
     description: row.descripcion || row.description || "",
-    category: row.categoria_producto || row.category || "General",
+    category: normalizeProductCategory(row.categoria_producto || row.category),
     price: toFiniteNumber(row.precio_venta ?? row.price) ?? 0,
-    available: row.disponible ?? row.available ?? true,
-    availability: row.horario_disponible || row.availability || "",
+    available: status === "disponible" && (row.is_available ?? row.disponible ?? row.available ?? true),
+    status,
+    availability: customAvailability || business?.availability || "",
+    availabilityInherited: row.availability_inherited ?? !customAvailability,
     searchTags: row.etiquetas_busqueda || row.search_tags || ""
   };
 }
 
 function isActiveBusinessRow(row: BusinessRow) {
   return row.deleted_at == null && row.is_active !== false && row.estado !== "inactivo";
+}
+
+function isActiveProductRow(row: ProductRow) {
+  return row.deleted_at == null;
 }
 
 function isMissingLocationColumnError(error: { message?: string; code?: string } | null) {
@@ -408,7 +492,57 @@ function isMissingLocationColumnError(error: { message?: string; code?: string }
 }
 
 function normalizeSector(value: string | null | undefined): BusinessSector {
+  if (value === "Abarrotes") return "Mandados";
+  if (value === "Trámites") return "Servicios";
   return businessSectors.includes(value as BusinessSector) ? (value as BusinessSector) : "Otro";
+}
+
+function normalizeProductCategory(value: string | null | undefined): ProductCategory {
+  return productCategories.includes(value as ProductCategory) ? (value as ProductCategory) : "Otro";
+}
+
+function normalizeProductStatus(value: string | null | undefined): CatalogProductStatus {
+  if (value === "agotado" || value === "pausado") {
+    return value;
+  }
+
+  return "disponible";
+}
+
+function buildAvailability(start?: string | null, end?: string | null) {
+  const safeStart = normalizeTimeToHHmm(start);
+  const safeEnd = normalizeTimeToHHmm(end);
+  return safeStart && safeEnd ? `${safeStart} - ${safeEnd}` : "";
+}
+
+export function normalizeTimeToHHmm(value?: string | null) {
+  const rawValue = String(value ?? "").trim().toLowerCase();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const directMatch = rawValue.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (directMatch) {
+    return `${directMatch[1].padStart(2, "0")}:${directMatch[2]}`;
+  }
+
+  const meridiemMatch = rawValue.match(/^(\d{1,2}):([0-5]\d)\s*([ap])\.?\s*m\.?$/);
+  if (!meridiemMatch) {
+    return "";
+  }
+
+  let hours = Number(meridiemMatch[1]);
+  const minutes = meridiemMatch[2];
+  const meridiem = meridiemMatch[3];
+
+  if (meridiem === "a" && hours === 12) {
+    hours = 0;
+  } else if (meridiem === "p" && hours !== 12) {
+    hours += 12;
+  }
+
+  return `${String(hours).padStart(2, "0")}:${minutes}`;
 }
 
 function readLocalCatalogBusinesses() {
@@ -444,6 +578,10 @@ function buildBusinessPayload(business: CatalogBusiness) {
     category: business.category,
     description: `${business.category} en ${business.zone}`,
     estimated_time: business.estimatedTime,
+    availability: business.availability,
+    horario_disponible: business.availability,
+    horario_operativo_inicio: business.availabilityStart,
+    horario_operativo_fin: business.availabilityEnd,
     status: business.status === "activo" ? "Disponible" : "No disponible",
     rating: null,
     is_active: business.status === "activo"
@@ -464,8 +602,13 @@ function buildProductPayload(product: CatalogProduct) {
     precio_venta: product.price,
     available: product.available,
     disponible: product.available,
-    availability: product.availability,
-    horario_disponible: product.availability,
+    is_available: product.available,
+    status: product.status,
+    estado: product.status,
+    availability_status: product.status,
+    availability: product.availabilityInherited ? "" : product.availability,
+    horario_disponible: product.availabilityInherited ? "" : product.availability,
+    availability_inherited: product.availabilityInherited,
     search_tags: product.searchTags,
     etiquetas_busqueda: product.searchTags
   };
@@ -534,7 +677,10 @@ const demoBusinesses: CatalogBusiness[] = [
     lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
-    rating: "4.8"
+    rating: "Sin calificación todavía",
+    availability: "08:00 - 20:00",
+    availabilityStart: "08:00",
+    availabilityEnd: "20:00"
   },
   {
     id: "demo-farmacia-san-antonio",
@@ -547,7 +693,10 @@ const demoBusinesses: CatalogBusiness[] = [
     lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
-    rating: "4.7"
+    rating: "Sin calificación todavía",
+    availability: "09:00 - 21:00",
+    availabilityStart: "09:00",
+    availabilityEnd: "21:00"
   },
   {
     id: "demo-papeleria-centro",
@@ -560,7 +709,10 @@ const demoBusinesses: CatalogBusiness[] = [
     lng: -99.5818,
     status: "activo",
     estimatedTime: "15-25 min",
-    rating: "4.8"
+    rating: "Sin calificación todavía",
+    availability: "09:00 - 19:00",
+    availabilityStart: "09:00",
+    availabilityEnd: "19:00"
   }
 ];
 
@@ -576,10 +728,12 @@ const demoProducts: CatalogProduct[] = [
     sector: "Alimentos y bebidas",
     name: "Frappe moka",
     description: "Bebida fría preparada al momento.",
-    category: "Bebidas frías",
+    category: "Bebida fría",
     price: 65,
     available: true,
+    status: "disponible",
     availability: "08:00 - 20:00",
+    availabilityInherited: true,
     searchTags: "frappe café cafe moka bebida desayuno snacks"
   },
   {
@@ -593,10 +747,12 @@ const demoProducts: CatalogProduct[] = [
     sector: "Alimentos y bebidas",
     name: "Frappe oreo",
     description: "Frappe dulce con galleta.",
-    category: "Bebidas frías",
+    category: "Bebida fría",
     price: 70,
     available: true,
+    status: "disponible",
     availability: "08:00 - 20:00",
+    availabilityInherited: true,
     searchTags: "frappe oreo café cafe bebida"
   },
   {
@@ -610,10 +766,12 @@ const demoProducts: CatalogProduct[] = [
     sector: "Farmacia",
     name: "Medicamento general",
     description: "Compra asistida de medicamento sujeto a disponibilidad.",
-    category: "Medicamentos",
+    category: "Medicamento",
     price: 0,
     available: true,
+    status: "disponible",
     availability: "09:00 - 21:00",
+    availabilityInherited: true,
     searchTags: "medicina medicamento farmacia dolor urgente"
   },
   {
@@ -627,10 +785,12 @@ const demoProducts: CatalogProduct[] = [
     sector: "Papelería",
     name: "Impresiones",
     description: "Impresiones y copias para entrega local.",
-    category: "Copias e impresiones",
+    category: "Papelería",
     price: 5,
     available: true,
+    status: "disponible",
     availability: "09:00 - 19:00",
+    availabilityInherited: true,
     searchTags: "impresiones copias papelería papeleria útiles utiles"
   }
 ];

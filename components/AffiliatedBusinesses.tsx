@@ -28,17 +28,21 @@ const sectorMeta: Record<BusinessSector, { description: string; icon: typeof Cof
     description: "Herramientas, refacciones y soluciones rápidas de casa.",
     icon: Hammer
   },
-  Abarrotes: {
-    description: "Compras de tienda y productos cotidianos cerca de ti.",
+  Tecnología: {
+    description: "Accesorios, soporte y soluciones digitales locales.",
     icon: ShoppingBag
   },
   Servicios: {
     description: "Servicios locales conectados a la red Orbi.",
     icon: Package
   },
-  Trámites: {
-    description: "Pagos, vueltas y gestiones coordinadas por Orbi.",
+  Mandados: {
+    description: "Compras, vueltas y gestiones coordinadas por Orbi.",
     icon: ScrollText
+  },
+  Transporte: {
+    description: "Traslados y movilidad local conectada a la red.",
+    icon: Package
   },
   Otro: {
     description: "Aliados locales que amplían la red.",
@@ -183,6 +187,7 @@ function BusinessRow({
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <InfoBox label="Zona" value={business.zone} />
         <InfoBox label="Rating calculado" value={formatBusinessRating(business.rating)} />
+        <InfoBox label="Horario" value={business.availability || "Por confirmar"} />
       </div>
 
       {products.length ? (
