@@ -3,8 +3,15 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Clock3, LocateFixed, PackageCheck, Radar, Route, ShieldCheck, UserRound } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MissionPoint } from "@/components/MissionOrbitMap";
+import {
+  ActiveMission,
+  getActiveMission,
+  missionStatuses,
+  subscribeToMission,
+  updateActiveMission
+} from "@/lib/missions";
 
 const MissionOrbitMap = dynamic(
   () => import("@/components/MissionOrbitMap").then((mod) => mod.MissionOrbitMap),
@@ -18,50 +25,7 @@ const MissionOrbitMap = dynamic(
   }
 );
 
-const missionStates = [
-  "Esperando confirmación",
-  "Misión aceptada",
-  "En camino al origen",
-  "En misión",
-  "Llegando al destino",
-  "Finalizada"
-] as const;
-
-type MissionState = (typeof missionStates)[number];
-
-type ActiveMission = {
-  service: string;
-  payload: string;
-  agentName: string;
-  agentVehicle: string;
-  agentTrust: string;
-  state: MissionState;
-  originLabel: string;
-  destinationLabel: string;
-  estimatedOrbit: string;
-  paymentMethod: string;
-  paymentStatus: string;
-  origin: MissionPoint;
-  destination: MissionPoint;
-  agent: MissionPoint;
-};
-
-const mockMission: ActiveMission = {
-  service: "Entrega local",
-  payload: "Paquete/documento",
-  agentName: "Agente Orbi Centro",
-  agentVehicle: "Moto azul",
-  agentTrust: "Verificado",
-  state: "En camino al origen",
-  originLabel: "Centro de Zumpahuacán",
-  destinationLabel: "La Ascensión, Zumpahuacán",
-  estimatedOrbit: "10-20 min",
-  paymentMethod: "Transferencia",
-  paymentStatus: "Pago al finalizar la misión",
-  origin: { lat: 18.8349, lng: -99.5818 },
-  destination: { lat: 18.8245, lng: -99.5742 },
-  agent: { lat: 18.8316, lng: -99.5796 }
-};
+const fallbackPoint: MissionPoint = { lat: 18.8349, lng: -99.5818 };
 
 const agentTrack: MissionPoint[] = [
   { lat: 18.8316, lng: -99.5796 },
@@ -73,16 +37,29 @@ const agentTrack: MissionPoint[] = [
 ];
 
 export function MissionOrbitTracker() {
-  const [mission, setMission] = useState<ActiveMission | null>(mockMission);
+  const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
   const [trackIndex, setTrackIndex] = useState(0);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState(() => {
+    const currentMission = getActiveMission();
+    return currentMission?.last_updated_at ? new Date(currentMission.last_updated_at) : new Date();
+  });
+
+  useEffect(() => {
+    return subscribeToMission(() => {
+      const nextMission = getActiveMission();
+      setMission(nextMission);
+      if (nextMission?.last_updated_at) {
+        setLastUpdated(new Date(nextMission.last_updated_at));
+      }
+    });
+  }, []);
 
   const currentStateIndex = useMemo(() => {
     if (!mission) {
       return -1;
     }
 
-    return missionStates.indexOf(mission.state);
+    return missionStatuses.indexOf(mission.mission_status);
   }, [mission]);
 
   function refreshAgentLocation() {
@@ -91,15 +68,16 @@ export function MissionOrbitTracker() {
     }
 
     const nextIndex = Math.min(trackIndex + 1, agentTrack.length - 1);
-    const nextState = getMissionStateFromTrack(nextIndex);
+    const nextStatus = getMissionStateFromTrack(nextIndex);
 
     setTrackIndex(nextIndex);
-    setMission({
-      ...mission,
-      agent: agentTrack[nextIndex],
-      state: nextState
+    const nextMission = updateActiveMission({
+      selected_agent_lat: agentTrack[nextIndex].lat,
+      selected_agent_lng: agentTrack[nextIndex].lng,
+      mission_status: nextStatus
     });
-    setLastUpdated(new Date());
+    setMission(nextMission);
+    setLastUpdated(new Date(nextMission?.last_updated_at ?? Date.now()));
   }
 
   if (!mission) {
@@ -130,25 +108,25 @@ export function MissionOrbitTracker() {
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
               Misión activa
             </p>
-            <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service}</h2>
+            <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service_type}</h2>
             <p className="mt-2 text-sm leading-6 text-orbi-muted">
-              {mission.payload} en seguimiento por Red Orbi.
+              {mission.detail || "Misión activa"} en seguimiento por Red Orbi.
             </p>
           </div>
           <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-            {mission.state}
+            {mission.mission_status}
           </span>
         </div>
 
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <MissionTile icon={PackageCheck} label="Servicio" value={mission.service} />
-          <MissionTile icon={UserRound} label="Agente asignado" value={mission.agentName} />
-          <MissionTile icon={Radar} label="Estado de misión" value={mission.state} />
-          <MissionTile icon={Route} label="Origen" value={mission.originLabel} />
-          <MissionTile icon={Route} label="Destino" value={mission.destinationLabel} />
-          <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimatedOrbit} />
-          <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.paymentMethod} />
-          <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.paymentStatus} />
+          <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
+          <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
+          <MissionTile icon={Radar} label="Estado de misión" value={mission.mission_status} />
+          <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
+          <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
+          <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
+          <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
+          <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
         </div>
       </article>
 
@@ -170,7 +148,11 @@ export function MissionOrbitTracker() {
           </button>
         </div>
         <div className="h-[58vh] min-h-[330px] w-full">
-          <MissionOrbitMap origin={mission.origin} destination={mission.destination} agent={mission.agent} />
+          <MissionOrbitMap
+            origin={getMissionPoint(mission.origin_lat, mission.origin_lng)}
+            destination={getMissionPoint(mission.destination_lat, mission.destination_lng)}
+            agent={getMissionPoint(mission.selected_agent_lat, mission.selected_agent_lng)}
+          />
         </div>
       </article>
 
@@ -194,7 +176,7 @@ export function MissionOrbitTracker() {
       </article>
 
       <div className="grid gap-2">
-        {missionStates.map((state, index) => (
+        {missionStatuses.map((state, index) => (
           <div
             key={state}
             className={`rounded-md border px-4 py-3 text-sm font-bold ${
@@ -231,9 +213,9 @@ function MissionTile({
   );
 }
 
-function getMissionStateFromTrack(index: number): MissionState {
+function getMissionStateFromTrack(index: number): ActiveMission["mission_status"] {
   if (index <= 0) {
-    return "En camino al origen";
+    return "Esperando confirmación del agente";
   }
 
   if (index === 1) {
@@ -253,4 +235,12 @@ function getMissionStateFromTrack(index: number): MissionState {
   }
 
   return "Finalizada";
+}
+
+function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {
+  if (lat === null || lng === null || lat === undefined || lng === undefined) {
+    return fallbackPoint;
+  }
+
+  return { lat, lng };
 }

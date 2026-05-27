@@ -13,8 +13,10 @@ import {
   UserRound
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
+import { ActiveMission, createMission, getActiveMission, subscribeToMission } from "@/lib/missions";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 const LocationPickerMap = dynamic(
@@ -151,6 +153,7 @@ export function ServiceRequestFlow() {
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Pago al finalizar la misión");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
+  const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
 
   useEffect(() => {
     let isActive = true;
@@ -197,6 +200,10 @@ export function ServiceRequestFlow() {
       isActive = false;
       window.clearTimeout(timeoutId);
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeToMission(() => setActiveMission(getActiveMission()));
   }, []);
 
   const compatibleAgents = useMemo(() => {
@@ -567,7 +574,40 @@ export function ServiceRequestFlow() {
     ].join("\n");
 
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
-    setRequestStatusMessage("Esperando confirmación del agente");
+  }
+
+  function handleSendMissionToAgent() {
+    if (!selectedService || !selectedAgent) {
+      return;
+    }
+
+    const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
+    const mission = createMission({
+      service_type: selectedService.label,
+      origin_text: details.origin,
+      origin_lat: details.originLat,
+      origin_lng: details.originLng,
+      destination_text: details.destination,
+      destination_lat: details.destinationLat,
+      destination_lng: details.destinationLng,
+      requester_name: details.requesterName,
+      requester_phone: details.requesterPhone,
+      detail: details.detail,
+      selected_agent_id: selectedAgent.id,
+      selected_agent_name: selectedAgent.name,
+      selected_agent_zone: selectedAgent.zone,
+      selected_agent_vehicle: selectedAgent.vehicle,
+      selected_agent_trust: selectedAgent.trustLevel,
+      selected_agent_lat: selectedAgent.lat,
+      selected_agent_lng: selectedAgent.lng,
+      payment_status: paymentStatus,
+      payment_method: paymentMethod,
+      estimated_orbit: getEstimatedOrbit(distance),
+      mission_status: "Esperando confirmación del agente"
+    });
+
+    setActiveMission(mission);
+    setRequestStatusMessage("Solicitud enviada. Esperando confirmación del agente.");
   }
 
   return (
@@ -829,6 +869,20 @@ export function ServiceRequestFlow() {
             </p>
           ) : null}
 
+          {activeMission?.mission_status === "Misión aceptada" ? (
+            <div className="mt-5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] p-4">
+              <p className="text-sm font-bold text-orbi-cyan">
+                Misión aceptada por {activeMission.selected_agent_name}
+              </p>
+              <Link
+                href="/orbita"
+                className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
+              >
+                Ver misión en órbita
+              </Link>
+            </div>
+          ) : null}
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
@@ -839,11 +893,18 @@ export function ServiceRequestFlow() {
             </button>
             <button
               type="button"
-              onClick={sendWhatsApp}
+              onClick={handleSendMissionToAgent}
               className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
             >
               <Send aria-hidden="true" className="h-5 w-5" />
               Enviar solicitud al agente
+            </button>
+            <button
+              type="button"
+              onClick={sendWhatsApp}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 sm:col-span-2"
+            >
+              Enviar respaldo por WhatsApp
             </button>
           </div>
         </section>

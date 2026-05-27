@@ -1,6 +1,7 @@
 import { PageShell } from "@/components/PageShell";
 import { AdminBusinesses } from "@/components/AdminBusinesses";
 import { AdminAgents } from "@/components/AdminAgents";
+import { AdminMissions } from "@/components/AdminMissions";
 
 export default function AdminPage() {
   return (
@@ -10,6 +11,7 @@ export default function AdminPage() {
       description="Acceso privado básico para dar de alta aliados y validar operación antes de conectar Supabase."
     >
       <div className="space-y-8">
+        <AdminMissions />
         <AdminBusinesses />
         <AdminAgents />
       </div>
