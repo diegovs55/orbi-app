@@ -23,6 +23,8 @@ export function AdminCatalog() {
   const [productError, setProductError] = useState("");
   const [isSavingBusiness, setIsSavingBusiness] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [businessSearch, setBusinessSearch] = useState("");
+  const [selectedBusinessId, setSelectedBusinessId] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -49,6 +51,17 @@ export function AdminCatalog() {
   const activeBusinesses = useMemo(
     () => businesses.filter((business) => business.status === "activo"),
     [businesses]
+  );
+  const filteredBusinesses = useMemo(() => {
+    const query = normalizeSearch(businessSearch);
+
+    return activeBusinesses.filter((business) =>
+      normalizeSearch(`${business.name} ${business.category} ${business.zone}`).includes(query)
+    );
+  }, [activeBusinesses, businessSearch]);
+  const selectedBusiness = useMemo(
+    () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
+    [businesses, selectedBusinessId]
   );
 
   async function handleSaveBusiness(event: FormEvent<HTMLFormElement>) {
@@ -98,12 +111,18 @@ export function AdminCatalog() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const businessId = String(data.get("businessId") ?? "");
-    const business = businesses.find((item) => item.id === businessId);
+    const business = selectedBusiness;
     const name = String(data.get("name") ?? "").trim();
+    const category = String(data.get("category") ?? "").trim();
+    const price = parseOptionalNumber(data.get("price"));
 
-    if (!business || !name) {
-      setProductError("Selecciona un negocio y escribe el producto o servicio.");
+    if (!business) {
+      setProductError("Selecciona un negocio registrado para vincular el producto.");
+      return;
+    }
+
+    if (!name || !category || price === null) {
+      setProductError("Completa nombre del producto, categoría del producto y precio de venta.");
       return;
     }
 
@@ -121,14 +140,16 @@ export function AdminCatalog() {
         sector: business.category,
         name,
         description: String(data.get("description") ?? "").trim(),
-        category: String(data.get("category") ?? "").trim() || business.category,
-        price: parseOptionalNumber(data.get("price")) ?? 0,
+        category,
+        price,
         available: data.get("available") === "on",
         availability: String(data.get("availability") ?? "").trim(),
         searchTags: String(data.get("searchTags") ?? "").trim()
       });
       setProducts((currentProducts) => [product, ...currentProducts]);
       form.reset();
+      setBusinessSearch("");
+      setSelectedBusinessId("");
     } catch (caughtError) {
       setProductError(
         caughtError instanceof Error ? caughtError.message : "No fue posible guardar el producto."
@@ -197,19 +218,48 @@ export function AdminCatalog() {
 
         <form onSubmit={handleSaveProduct} className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-5 shadow-soft">
           <h3 className="text-base font-black text-orbi-text">Alta de producto o servicio</h3>
-          <label className="block text-sm font-semibold text-orbi-text">
-            Negocio
-            <select name="businessId" className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none">
-              <option value="">Selecciona negocio</option>
-              {activeBusinesses.map((business) => (
-                <option key={business.id} value={business.id}>{business.name}</option>
-              ))}
-            </select>
-          </label>
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold text-orbi-text">
+              Negocio
+              <input
+                value={businessSearch}
+                onChange={(event) => setBusinessSearch(event.target.value)}
+                placeholder="Buscar negocio registrado..."
+                className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+              />
+            </label>
+            {!activeBusinesses.length ? (
+              <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
+                Primero registra un negocio para vincular productos.
+              </p>
+            ) : (
+              <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-white/10 bg-orbi-black/25 p-2">
+                {filteredBusinesses.map((business) => (
+                  <button
+                    key={business.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBusinessId(business.id);
+                      setBusinessSearch(business.name);
+                    }}
+                    className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                      selectedBusinessId === business.id
+                        ? "border-orbi-cyan/45 bg-orbi-blue/20"
+                        : "border-white/10 bg-white/[0.04] hover:border-orbi-cyan/30"
+                    }`}
+                  >
+                    <p className="text-sm font-black text-orbi-text">{business.name}</p>
+                    <p className="mt-1 text-xs text-orbi-muted">{business.category} · {business.zone}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {selectedBusiness ? <BusinessSummary business={selectedBusiness} /> : null}
+          </div>
           <AdminInput label="Nombre del producto" name="name" placeholder="Frappe moka" />
           <AdminInput label="Descripción" name="description" placeholder="Bebida fría preparada al momento" required={false} />
-          <AdminInput label="Categoría producto" name="category" placeholder="Bebidas frías" required={false} />
-          <AdminInput label="Precio venta" name="price" placeholder="65" required={false} />
+          <AdminInput label="Categoría producto" name="category" placeholder="Bebidas frías" />
+          <AdminInput label="Precio venta" name="price" placeholder="65" />
           <AdminInput label="Horario disponible" name="availability" placeholder="08:00 - 20:00" required={false} />
           <AdminInput label="Etiquetas búsqueda" name="searchTags" placeholder="frappe café moka bebida" required={false} />
           <label className="flex items-center gap-2 text-sm font-semibold text-orbi-text">
@@ -268,6 +318,32 @@ function CatalogList({
   );
 }
 
+function BusinessSummary({ business }: { business: CatalogBusiness }) {
+  return (
+    <article className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">
+        Negocio seleccionado
+      </p>
+      <p className="mt-2 font-black text-orbi-text">{business.name}</p>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+        <SummaryMini label="Categoría" value={business.category} />
+        <SummaryMini label="Zona" value={business.zone} />
+        <SummaryMini label="Ubicación registrada" value={business.baseText || `${business.lat}, ${business.lng}`} />
+        <SummaryMini label="Estado" value={business.status} />
+      </div>
+    </article>
+  );
+}
+
+function SummaryMini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-white/10 bg-orbi-black/25 px-3 py-2">
+      <p className="font-semibold text-orbi-muted">{label}</p>
+      <p className="mt-1 font-black text-orbi-text">{value}</p>
+    </div>
+  );
+}
+
 function AdminInput({
   label,
   name,
@@ -303,6 +379,14 @@ function ErrorText({ children }: { children: string }) {
 function parseOptionalNumber(value: FormDataEntryValue | null) {
   const parsed = Number(String(value ?? "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function readAdminSession() {

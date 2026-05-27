@@ -34,8 +34,19 @@ type MissionRecord = {
   rating: number | null;
   ratingComment: string;
   detail: string;
+  businessId?: string;
+  productId?: string;
   business: string;
   product: string;
+  items?: Array<{
+    product_id: string;
+    product_name: string;
+    business_id: string;
+    business_name: string;
+    quantity: number;
+    price: number;
+    subtotal: number;
+  }>;
   businessCategory: string;
   productPrice?: number;
   sector?: string;
@@ -73,6 +84,8 @@ const fallbackMissions: MissionRecord[] = [
     rating: 5,
     ratingComment: "Entrega rápida y clara.",
     detail: "Compra de café y pan dulce",
+    businessId: "fallback-regina-cafe",
+    productId: "fallback-cafe-snacks",
     business: "Regina Café",
     product: "Café y snacks",
     businessCategory: "Café y comida"
@@ -95,6 +108,8 @@ const fallbackMissions: MissionRecord[] = [
     rating: null,
     ratingComment: "",
     detail: "Impresiones urgentes",
+    businessId: "fallback-papeleria-centro",
+    productId: "fallback-impresiones",
     business: "Papelería Centro",
     product: "Impresiones",
     businessCategory: "Papelería"
@@ -117,6 +132,8 @@ const fallbackMissions: MissionRecord[] = [
     rating: 4.6,
     ratingComment: "Buen seguimiento.",
     detail: "Traslado local",
+    businessId: "fallback-orbi-directo",
+    productId: "fallback-traslado-local",
     business: "Orbi directo",
     product: "Traslado local",
     businessCategory: "Traslados"
@@ -139,6 +156,8 @@ const fallbackMissions: MissionRecord[] = [
     rating: 4.8,
     ratingComment: "Muy atento.",
     detail: "Medicamento y artículos urgentes",
+    businessId: "fallback-farmacia-san-antonio",
+    productId: "fallback-medicamento",
     business: "Farmacia San Antonio",
     product: "Medicamento",
     businessCategory: "Farmacia"
@@ -161,6 +180,8 @@ const fallbackMissions: MissionRecord[] = [
     rating: null,
     ratingComment: "Cancelada por cambio de horario.",
     detail: "Pago de servicio",
+    businessId: "fallback-orbi-directo",
+    productId: "fallback-tramite",
     business: "Orbi directo",
     product: "Trámite",
     businessCategory: "Trámites"
@@ -634,7 +655,7 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     businessRanking,
     productRevenue: missions.reduce((total, mission) => total + (mission.productPrice ?? 0), 0),
     logisticsProfit: missions.reduce((total, mission) => total + mission.orbiProfit, 0),
-    productRanking: rankByLabel(missions, "product"),
+    productRanking: rankProductsById(missions),
     requesterRanking: rankByLabel(missions, "requester"),
     averageTicketByBusiness: averageByLabel(missions, "business", "price"),
     salesByCategoryBars: sumBars(missions, "businessCategory", "price"),
@@ -667,7 +688,7 @@ function sumBars(missions: MissionRecord[], key: "businessCategory" | "zone", va
     .slice(0, 6);
 }
 
-function rankByLabel(missions: MissionRecord[], key: "product" | "requester") {
+function rankByLabel(missions: MissionRecord[], key: "requester") {
   const counts = new Map<string, { value: number; revenue: number }>();
 
   missions.forEach((mission) => {
@@ -694,22 +715,63 @@ function averageByLabel(
   labelKey: "business",
   valueKey: "price"
 ) {
-  const groups = new Map<string, { total: number; count: number }>();
+  const groups = new Map<string, { label: string; total: number; count: number }>();
 
   missions.forEach((mission) => {
+    const key = mission.businessId || mission[labelKey] || "Sin datos";
     const label = mission[labelKey] || "Sin datos";
-    const current = groups.get(label) ?? { total: 0, count: 0 };
-    groups.set(label, {
+    const current = groups.get(key) ?? { label, total: 0, count: 0 };
+    groups.set(key, {
+      label,
       total: current.total + mission[valueKey],
       count: current.count + 1
     });
   });
 
-  return Array.from(groups.entries())
-    .map(([label, data]) => ({
-      label,
+  return Array.from(groups.values())
+    .map((data) => ({
+      label: data.label,
       value: data.count ? data.total / data.count : 0,
       detail: `${data.count} misión(es)`
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}
+
+function rankProductsById(missions: MissionRecord[]) {
+  const counts = new Map<string, { label: string; value: number; revenue: number }>();
+
+  missions.forEach((mission) => {
+    if (mission.items?.length) {
+      mission.items.forEach((item) => {
+        const current = counts.get(item.product_id) ?? {
+          label: item.product_name,
+          value: 0,
+          revenue: 0
+        };
+        counts.set(item.product_id, {
+          label: item.product_name,
+          value: current.value + item.quantity,
+          revenue: current.revenue + item.subtotal
+        });
+      });
+      return;
+    }
+
+    const productId = mission.productId || mission.product;
+    const current = counts.get(productId) ?? { label: mission.product, value: 0, revenue: 0 };
+    counts.set(productId, {
+      label: mission.product,
+      value: current.value + 1,
+      revenue: current.revenue + (mission.productPrice ?? 0)
+    });
+  });
+
+  return Array.from(counts.values())
+    .map((item) => ({
+      label: item.label,
+      value: item.value,
+      detail: `$${item.revenue} en productos`
     }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
@@ -743,15 +805,28 @@ function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
 }
 
 function rankByBusiness(missions: MissionRecord[], businesses: AffiliateBusiness[]) {
-  const names = businesses.length
-    ? businesses.map((business) => business.name)
-    : Array.from(new Set(missions.map((mission) => mission.business))).filter(Boolean);
+  const registeredBusinesses = businesses.map((business) => ({
+    id: business.id,
+    name: business.name
+  }));
+  const businessKeys = registeredBusinesses.length
+    ? registeredBusinesses
+    : Array.from(
+        new Map(
+          missions.map((mission) => [
+            mission.businessId || mission.business,
+            { id: mission.businessId || mission.business, name: mission.business }
+          ])
+        ).values()
+      );
 
-  return names
-    .map((name) => {
-      const businessMissions = missions.filter((mission) => mission.business === name);
+  return businessKeys
+    .map((business) => {
+      const businessMissions = missions.filter(
+        (mission) => (mission.businessId || mission.business) === business.id
+      );
       return {
-        name,
+        name: business.name,
         missions: businessMissions.length,
         product: mostFrequent(businessMissions.map((mission) => mission.product)),
         category: mostFrequent(businessMissions.map((mission) => mission.businessCategory))
@@ -801,8 +876,11 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     rating: mission.rating ?? null,
     ratingComment: mission.rating_comment ?? "",
     detail: mission.detail,
+    businessId: mission.business_id,
+    productId: mission.product_id,
     business: mission.business_name || "Orbi directo",
     product: mission.product_name || mission.service_type,
+    items: mission.items,
     businessCategory: mission.sector || (mission.service_type === "Pago o trámite" ? "Trámites" : mission.service_type),
     productPrice: mission.product_price ?? 0,
     sector: mission.sector,
