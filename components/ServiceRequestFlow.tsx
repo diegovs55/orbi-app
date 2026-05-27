@@ -84,7 +84,8 @@ type RequestDetails = {
   requesterPhone: string;
 };
 
-type PaymentMethod = "Efectivo" | "Transferencia" | "Pago contra entrega";
+type PaymentStatus = "Pago al finalizar la misión" | "Esta misión requiere pago al inicio";
+type PaymentMethod = "Efectivo" | "Transferencia" | "Tarjeta";
 
 const emptyDetails: RequestDetails = {
   origin: "",
@@ -128,7 +129,11 @@ const initialGeocodeState: GeocodeState = {
 
 const activeAgentStatus: OrbiAgent["status"] = "En órbita";
 const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
-const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Pago contra entrega"];
+const paymentStatuses: PaymentStatus[] = [
+  "Pago al finalizar la misión",
+  "Esta misión requiere pago al inicio"
+];
+const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"];
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -143,6 +148,7 @@ export function ServiceRequestFlow() {
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Pago al finalizar la misión");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
 
@@ -288,6 +294,7 @@ export function ServiceRequestFlow() {
     setDetails(emptyDetails);
     setIsRequestReady(false);
     setSelectedAgent(null);
+    setPaymentStatus("Pago al finalizar la misión");
     setPaymentMethod("Efectivo");
     setRequestStatusMessage("");
   }
@@ -553,6 +560,7 @@ export function ServiceRequestFlow() {
       `Zona del agente: ${selectedAgent.zone}`,
       `Vehículo: ${selectedAgent.vehicle || "No especificado"}`,
       `Nivel de confianza: ${selectedAgent.trustLevel}`,
+      `Estado de pago: ${paymentStatus}`,
       `Método de pago: ${paymentMethod}`,
       `Órbita estimada: ${estimatedOrbit}`,
       ...(distance === null ? [] : [`Distancia aproximada: ${distance.toFixed(1)} km`])
@@ -753,6 +761,8 @@ export function ServiceRequestFlow() {
             />
             <SummaryItem label="Vehículo" value={selectedAgent.vehicle || "No especificado"} />
             <SummaryItem label="Nivel de confianza" value={selectedAgent.trustLevel} />
+            <SummaryItem label="Estado de pago" value={paymentStatus} />
+            <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem
               label="Órbita estimada"
               value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
@@ -773,11 +783,29 @@ export function ServiceRequestFlow() {
           </div>
 
           <div className="mt-5 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4">
-            <h3 className="text-lg font-black text-orbi-text">¿Cómo quieres continuar?</h3>
+            <h3 className="text-lg font-black text-orbi-text">Coordinación de pago</h3>
             <p className="mt-1 text-sm leading-6 text-orbi-muted">
-              Elige un método simple para coordinar la misión. Aún no hay pasarela integrada.
+              Define cómo se coordinará la misión con el agente. No hay pasarela integrada todavía.
             </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <p className="mt-4 text-sm font-semibold text-orbi-text">Estado de pago</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {paymentStatuses.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setPaymentStatus(status)}
+                  className={`min-h-11 rounded-md border px-3 py-2 text-sm font-bold transition ${
+                    paymentStatus === status
+                      ? "border-orbi-cyan/45 bg-orbi-blue/25 text-orbi-cyan"
+                      : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 text-sm font-semibold text-orbi-text">Método de pago</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
               {paymentMethods.map((method) => (
                 <button
                   key={method}
