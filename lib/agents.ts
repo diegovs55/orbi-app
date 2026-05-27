@@ -655,14 +655,14 @@ export function getAgentOperationalLocation(
     source: AgentOperationalLocation["source"];
   }> = [
     {
-      lat: agent.operationalBaseLat ?? agent.operational_base_lat,
-      lng: agent.operationalBaseLng ?? agent.operational_base_lng,
-      source: "base"
-    },
-    {
       lat: agent.currentLat ?? agent.current_lat,
       lng: agent.currentLng ?? agent.current_lng,
       source: "current"
+    },
+    {
+      lat: agent.operationalBaseLat ?? agent.operational_base_lat,
+      lng: agent.operationalBaseLng ?? agent.operational_base_lng,
+      source: "base"
     },
     { lat: agent.lat, lng: agent.lng, source: "legacy" },
     { lat: agent.latitude, lng: agent.longitude, source: "coordinates" }
@@ -672,13 +672,15 @@ export function getAgentOperationalLocation(
     const lat = toFiniteNumber(pair.lat);
     const lng = toFiniteNumber(pair.lng);
 
-    if (lat !== null && lng !== null) {
-      return { lat, lng, source: pair.source };
+    if (isValidCoordinatePair(lat, lng)) {
+      return { lat, lng: lng as number, source: pair.source };
     }
   }
 
   return null;
 }
+
+export const getAgentLocation = getAgentOperationalLocation;
 
 export function hasValidAgentId(agent: Pick<OrbiAgent, "id"> | { id?: unknown }) {
   const id = typeof agent.id === "string" ? agent.id.trim() : "";
@@ -732,6 +734,25 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     radiusKm,
     isDemo: !hasValidAgentId({ id: row.id })
   };
+}
+
+function isValidCoordinatePair(
+  lat: number | null,
+  lng: number | null
+): lat is number {
+  if (lat === null || lng === null) {
+    return false;
+  }
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return false;
+  }
+
+  if (lat === 0 && lng === 0) {
+    return false;
+  }
+
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
 function isActiveAgentRow(row: AgentRow) {

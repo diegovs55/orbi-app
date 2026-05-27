@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgentOperationalLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import { AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import {
   ActiveMission,
   getActiveMission,
@@ -116,7 +116,7 @@ export function AgentCards() {
       return;
     }
 
-    const operationalLocation = getAgentOperationalLocation(agent);
+    const operationalLocation = getAgentLocation(agent);
     const nextMission = updateActiveMission({
       mission_status: "Misión aceptada",
       selected_agent_id: agent.id,
@@ -421,8 +421,8 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
           <InfoTile
             label="Ubicación operativa"
             value={
-              getAgentOperationalLocation(agent)
-                ? `${getAgentOperationalLocation(agent)!.lat.toFixed(6)}, ${getAgentOperationalLocation(agent)!.lng.toFixed(6)}`
+              getAgentLocation(agent)
+                ? `${getAgentLocation(agent)!.lat.toFixed(6)}, ${getAgentLocation(agent)!.lng.toFixed(6)}`
                 : "Sin ubicación registrada"
             }
           />
@@ -517,7 +517,7 @@ function getCompatibleServiceType(missionService: string): AgentServiceType {
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {
-  const point = getAgentOperationalLocation(agent);
+  const point = getAgentLocation(agent);
   return point !== null;
 }
 
@@ -531,7 +531,7 @@ function hasMissionOriginCoordinates(mission: ActiveMission) {
 }
 
 function getAgentDistanceFromMission(agent: OrbiAgent, mission: ActiveMission) {
-  const point = getAgentOperationalLocation(agent);
+  const point = getAgentLocation(agent);
 
   if (!point || !hasMissionOriginCoordinates(mission)) {
     return null;

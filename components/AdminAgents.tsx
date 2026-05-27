@@ -13,7 +13,7 @@ import {
   createAgent,
   deleteAgent,
   getAgentInitials,
-  getAgentOperationalLocation,
+  getAgentLocation,
   getAgents,
   hasValidAgentId,
   updateAgent,
@@ -216,8 +216,9 @@ export function AdminAgents() {
         availability: agent.availability,
         operationalBaseText: "Ubicación actual del agente"
       });
-      setAgents((currentAgents) =>
-        currentAgents.map((currentAgent) =>
+      const refreshedAgents = await getAgents();
+      setAgents(
+        refreshedAgents.map((currentAgent) =>
           currentAgent.id === agent.id ? updatedAgent : currentAgent
         )
       );
@@ -240,7 +241,7 @@ export function AdminAgents() {
     }
 
     try {
-      const operationalLocation = getAgentOperationalLocation(agent);
+      const operationalLocation = getAgentLocation(agent);
       const updatedAgent = await updateAgentOrbit(agent.id, {
         status: "Fuera de órbita",
         lat: operationalLocation?.lat ?? agent.lat,
@@ -531,7 +532,7 @@ export function AdminAgents() {
                       {agent.vehicle}
                     </span>
                   ) : null}
-                  {getAgentOperationalLocation(agent) ? (
+                  {getAgentLocation(agent) ? (
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                       {getAgentLocationBadge(agent)}
                     </span>
@@ -663,7 +664,7 @@ function AgentEditDialog({
   onClose: () => void;
   onSaved: (agent: OrbiAgent) => void;
 }) {
-  const initialLocation = getAgentOperationalLocation(agent);
+  const initialLocation = getAgentLocation(agent);
   const [name, setName] = useState(agent.name);
   const [photoUrl, setPhotoUrl] = useState(agent.photoUrl);
   const [serviceType, setServiceType] = useState<AgentServiceType>(agent.serviceType);
@@ -983,7 +984,15 @@ function parseOptionalNumber(value: FormDataEntryValue | string | null) {
 }
 
 function hasValidCoordinates(lat: number | null, lng: number | null) {
-  return lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
+  if (lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return false;
+  }
+
+  if (lat === 0 && lng === 0) {
+    return false;
+  }
+
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
 function formatAvailability(start: string, end: string) {
@@ -1085,7 +1094,7 @@ function getCurrentPosition() {
 }
 
 function getAgentLocationBadge(agent: OrbiAgent) {
-  const location = getAgentOperationalLocation(agent);
+  const location = getAgentLocation(agent);
   const label = location?.source === "current" ? "Ubicación actual" : "Base operativa";
 
   return `${label} · ${agent.radiusKm || 20} km`;

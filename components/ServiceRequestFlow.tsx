@@ -16,7 +16,7 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgentOperationalLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import { AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   ActiveMission,
@@ -266,7 +266,7 @@ export function ServiceRequestFlow() {
           lat: details.originLat,
           lng: details.originLng
         });
-        const agentPoint = getAgentOperationalLocation(agent);
+        const agentPoint = getAgentLocation(agent);
         const validAgentPoint = agentPoint ? getValidCoordinatePair(agentPoint) : null;
         const agentHasCoordinates = validAgentPoint !== null;
         const serviceMatches = isServiceCompatible(
@@ -357,8 +357,29 @@ export function ServiceRequestFlow() {
       (agent) =>
         isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType) &&
         agent.status === activeAgentStatus &&
-        !getValidCoordinatePair(getAgentOperationalLocation(agent) ?? {})
+        !getValidCoordinatePair(getAgentLocation(agent) ?? {})
     ).length;
+  }, [agents, selectedService]);
+
+  const matchingStats = useMemo(() => {
+    if (!selectedService) {
+      return null;
+    }
+
+    const activeAgents = agents.filter((agent) => agent.status === activeAgentStatus);
+    const serviceCompatibleAgents = activeAgents.filter((agent) =>
+      isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType)
+    );
+    const locatedAgents = serviceCompatibleAgents.filter((agent) =>
+      getValidCoordinatePair(getAgentLocation(agent) ?? {})
+    );
+
+    return {
+      total: agents.length,
+      active: activeAgents.length,
+      serviceCompatible: serviceCompatibleAgents.length,
+      located: locatedAgents.length
+    };
   }, [agents, selectedService]);
 
   const catalogResults = useMemo(() => searchCatalog(catalogItems, searchQuery), [
@@ -791,7 +812,7 @@ export function ServiceRequestFlow() {
     }
 
     const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
-    const agentLocation = getAgentOperationalLocation(selectedAgent);
+    const agentLocation = getAgentLocation(selectedAgent);
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
@@ -1071,6 +1092,7 @@ export function ServiceRequestFlow() {
                   {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
                 </p>
               ) : null}
+              {matchingStats ? <MatchingDebug stats={matchingStats} /> : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 {compatibleAgents.map((agent) => (
                   <AgentOptionCard
@@ -1084,19 +1106,22 @@ export function ServiceRequestFlow() {
               </div>
             </>
           ) : (
-            <StateCard
-              title="No hay agentes disponibles para este servicio o zona."
-              body={
-                invalidOperationalLocationCount
-                  ? `${invalidOperationalLocationCount} agente(s) coinciden por servicio y estado, pero fueron excluidos por no tener lat/lng válidos.`
-                  : "Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
-              }
-              actionLabel="Cambiar servicio o ajustar ubicación"
-              onAction={() => {
-                setSelectedAgent(null);
-                setIsRequestReady(false);
-              }}
-            />
+            <>
+              {matchingStats ? <MatchingDebug stats={matchingStats} /> : null}
+              <StateCard
+                title="No hay agentes disponibles para este servicio o zona."
+                body={
+                  invalidOperationalLocationCount
+                    ? `${invalidOperationalLocationCount} agente(s) coinciden por servicio y estado, pero fueron excluidos por no tener lat/lng válidos.`
+                    : "Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
+                }
+                actionLabel="Cambiar servicio o ajustar ubicación"
+                onAction={() => {
+                  setSelectedAgent(null);
+                  setIsRequestReady(false);
+                }}
+              />
+            </>
           )}
         </section>
       ) : null}
@@ -1592,6 +1617,26 @@ function AgentOptionCard({
   );
 }
 
+function MatchingDebug({
+  stats
+}: {
+  stats: {
+    total: number;
+    active: number;
+    serviceCompatible: number;
+    located: number;
+  };
+}) {
+  return (
+    <div className="grid gap-2 rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted sm:grid-cols-4">
+      <span>Agentes totales: {stats.total}</span>
+      <span>En órbita: {stats.active}</span>
+      <span>Servicio compatible: {stats.serviceCompatible}</span>
+      <span>Ubicación válida: {stats.located}</span>
+    </div>
+  );
+}
+
 function AgentAvatar({ agent }: { agent: OrbiAgent }) {
   if (agent.photoUrl) {
     return (
@@ -2035,7 +2080,7 @@ function getLogisticsStatusMessage({
 }
 
 function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
-  const point = getAgentOperationalLocation(agent);
+  const point = getAgentLocation(agent);
   const originPoint = getValidCoordinatePair({ lat: originLat, lng: originLng });
   const agentPoint = point ? getValidCoordinatePair(point) : null;
 
