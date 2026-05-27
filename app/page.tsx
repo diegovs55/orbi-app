@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, PackagePlus, Route } from "lucide-react";
+import { PackagePlus } from "lucide-react";
 import Image from "next/image";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
@@ -36,32 +36,26 @@ export default function HomePage() {
             Lo que necesitas, en órbita.
           </h1>
           <p className="mt-5 text-lg font-semibold text-orbi-cyan sm:text-xl">
-            Conectamos • Movemos • Llegamos
+            Conectamos · Movemos · Entregamos
           </p>
           <p className="mt-5 max-w-xl text-base leading-7 text-orbi-muted sm:text-lg">
-            Una red logística y de movilidad local para pedir productos, resolver mandados
-            y coordinar traslados sin instalar una app nativa.
+            Solo dime qué necesitas. Red Orbi coordina la ruta local para mover personas,
+            productos o pendientes con claridad y seguimiento.
           </p>
         </div>
 
-        <div className="relative mt-10 grid gap-3 sm:max-w-xl sm:grid-cols-2">
-          <OrbiButton href="/pedir" icon={PackagePlus} className="w-full">
+        <div className="relative mt-10 max-w-sm">
+          <OrbiButton href="/pedir" icon={PackagePlus} className="w-full text-base">
             Pedir algo
-          </OrbiButton>
-          <OrbiButton href="/orbita" icon={Route} variant="secondary" className="w-full">
-            Ponerme en órbita
-          </OrbiButton>
-          <OrbiButton href="/negocios" icon={Building2} variant="secondary" className="w-full sm:col-span-2">
-            Negocios afiliados
           </OrbiButton>
         </div>
 
-        <div className="mt-10 grid gap-3 text-sm text-orbi-muted sm:max-w-2xl sm:grid-cols-3">
-          {["Necesidades locales", "Movilidad cercana", "Entrega coordinada"].map((item) => (
-            <div key={item} className="flex items-center gap-2 border-l border-orbi-cyan/35 pl-3">
-              <ArrowRight aria-hidden="true" className="h-4 w-4 text-orbi-cyan" />
+        <div className="mt-6 flex max-w-2xl flex-wrap gap-x-3 gap-y-2 text-sm font-semibold text-orbi-muted">
+          {["Traslados", "Entregas", "Compras", "Mandados", "Trámites"].map((item, index) => (
+            <span key={item} className="inline-flex items-center gap-3">
               <span>{item}</span>
-            </div>
+              {index < 4 ? <span className="text-orbi-cyan/60">·</span> : null}
+            </span>
           ))}
         </div>
       </section>
