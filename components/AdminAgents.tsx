@@ -13,7 +13,9 @@ import {
   createAgent,
   deleteAgent,
   getAgentInitials,
+  getAgentOperationalLocation,
   getAgents,
+  hasValidAgentId,
   updateAgent,
   updateAgentOrbit
 } from "@/lib/agents";
@@ -125,6 +127,10 @@ export function AdminAgents() {
       availability: formatAvailability(availabilityStart, availabilityEnd),
       lat: parseOptionalNumber(data.get("lat")),
       lng: parseOptionalNumber(data.get("lng")),
+      currentLat: parseOptionalNumber(data.get("lat")),
+      currentLng: parseOptionalNumber(data.get("lng")),
+      latitude: null,
+      longitude: null,
       operationalBaseLat: parseOptionalNumber(data.get("lat")),
       operationalBaseLng: parseOptionalNumber(data.get("lng")),
       operationalBaseText: operationalBaseText || String(data.get("zone") ?? "").trim(),
@@ -188,6 +194,11 @@ export function AdminAgents() {
   async function handleTakeOrbitAgent(agent: OrbiAgent) {
     setAgentError("");
 
+    if (!hasValidAgentId(agent)) {
+      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      return;
+    }
+
     try {
       const position = await getCurrentPosition();
       const updatedAgent = await updateAgentOrbit(agent.id, {
@@ -217,14 +228,21 @@ export function AdminAgents() {
   async function handleExitOrbitAgent(agent: OrbiAgent) {
     setAgentError("");
 
+    if (!hasValidAgentId(agent)) {
+      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      return;
+    }
+
     try {
+      const operationalLocation = getAgentOperationalLocation(agent);
       const updatedAgent = await updateAgentOrbit(agent.id, {
         status: "Fuera de órbita",
-        lat: agent.lat,
-        lng: agent.lng,
+        lat: operationalLocation?.lat ?? agent.lat,
+        lng: operationalLocation?.lng ?? agent.lng,
         radiusKm: agent.radiusKm,
         serviceType: agent.serviceType,
-        availability: agent.availability
+        availability: agent.availability,
+        operationalBaseText: agent.operationalBaseText || agent.zone
       });
       setAgents((currentAgents) =>
         currentAgents.map((currentAgent) =>
@@ -244,6 +262,11 @@ export function AdminAgents() {
   async function handleDeleteAgent(id: string) {
     setAgentError("");
 
+    if (!hasValidAgentId({ id })) {
+      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      return;
+    }
+
     try {
       await deleteAgent(id);
       setAgents((currentAgents) => currentAgents.filter((agent) => agent.id !== id));
@@ -257,8 +280,19 @@ export function AdminAgents() {
   async function handleConfirmBasePoint() {
     setAgentLat(mapPoint.lat.toFixed(6));
     setAgentLng(mapPoint.lng.toFixed(6));
-    setOperationalBaseText(`Base marcada en mapa: ${mapPoint.lat.toFixed(5)}, ${mapPoint.lng.toFixed(5)}`);
+    setOperationalBaseText("Base marcada en mapa");
     setIsMapOpen(false);
+  }
+
+  function handleEditAgent(agent: OrbiAgent) {
+    setAgentError("");
+
+    if (!hasValidAgentId(agent)) {
+      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      return;
+    }
+
+    setEditingAgent(agent);
   }
 
   if (!isUnlocked) {
@@ -469,8 +503,9 @@ export function AdminAgents() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setEditingAgent(agent)}
+                    onClick={() => handleEditAgent(agent)}
                     aria-label={`Editar ${agent.name}`}
+                    disabled={!hasValidAgentId(agent)}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] text-orbi-cyan transition hover:bg-orbi-blue/15"
                   >
                     <Edit3 aria-hidden="true" className="h-5 w-5" />
@@ -479,6 +514,7 @@ export function AdminAgents() {
                     type="button"
                     onClick={() => handleDeleteAgent(agent.id)}
                     aria-label={`Eliminar ${agent.name}`}
+                    disabled={!hasValidAgentId(agent)}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-red-300/15 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
                   >
                     <Trash2 aria-hidden="true" className="h-5 w-5" />
@@ -496,9 +532,9 @@ export function AdminAgents() {
                       {agent.vehicle}
                     </span>
                   ) : null}
-                  {hasValidAgentCoordinates(agent) ? (
+                  {getAgentOperationalLocation(agent) ? (
                     <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
-                      Base operativa · {agent.radiusKm} km
+                      {getAgentLocationBadge(agent)}
                     </span>
                   ) : (
                     <span className="rounded-full border border-red-300/15 bg-red-400/10 px-3 py-1 text-red-200">
@@ -628,12 +664,13 @@ function AgentEditDialog({
   onClose: () => void;
   onSaved: (agent: OrbiAgent) => void;
 }) {
+  const initialLocation = getAgentOperationalLocation(agent);
   const [name, setName] = useState(agent.name);
   const [photoUrl, setPhotoUrl] = useState(agent.photoUrl);
   const [serviceType, setServiceType] = useState<AgentServiceType>(agent.serviceType);
   const [zone, setZone] = useState(agent.operationalBaseText || agent.zone);
-  const [lat, setLat] = useState(String(agent.operationalBaseLat ?? agent.lat ?? ""));
-  const [lng, setLng] = useState(String(agent.operationalBaseLng ?? agent.lng ?? ""));
+  const [lat, setLat] = useState(initialLocation ? String(initialLocation.lat) : "");
+  const [lng, setLng] = useState(initialLocation ? String(initialLocation.lng) : "");
   const [radius, setRadius] = useState(String(agent.radiusKm || 20));
   const [phone, setPhone] = useState(agent.phone);
   const [vehicle, setVehicle] = useState(agent.vehicle);
@@ -643,8 +680,8 @@ function AgentEditDialog({
   const [trustLevel, setTrustLevel] = useState<AgentTrustLevel>(agent.trustLevel);
   const [status, setStatus] = useState<AgentStatus>(agent.status);
   const [mapPoint, setMapPoint] = useState({
-    lat: agent.operationalBaseLat ?? agent.lat ?? zumpahuacanCenter.lat,
-    lng: agent.operationalBaseLng ?? agent.lng ?? zumpahuacanCenter.lng
+    lat: initialLocation?.lat ?? zumpahuacanCenter.lat,
+    lng: initialLocation?.lng ?? zumpahuacanCenter.lng
   });
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [error, setError] = useState("");
@@ -670,6 +707,11 @@ function AgentEditDialog({
     const parsedLat = parseOptionalNumber(lat);
     const parsedLng = parseOptionalNumber(lng);
 
+    if (!hasValidAgentId(agent)) {
+      setError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      return;
+    }
+
     if (status === "En órbita" && !hasValidCoordinates(parsedLat, parsedLng)) {
       setError("No puedes dejar al agente en órbita sin una ubicación operativa válida.");
       return;
@@ -694,6 +736,10 @@ function AgentEditDialog({
         availability: formatAvailability(availabilityStart, availabilityEnd),
         lat: parsedLat,
         lng: parsedLng,
+        currentLat: status === "En órbita" ? parsedLat : agent.currentLat,
+        currentLng: status === "En órbita" ? parsedLng : agent.currentLng,
+        latitude: agent.latitude,
+        longitude: agent.longitude,
         operationalBaseLat: parsedLat,
         operationalBaseLng: parsedLng,
         operationalBaseText: zone,
@@ -781,7 +827,7 @@ function AgentEditDialog({
             onConfirm={() => {
               setLat(mapPoint.lat.toFixed(6));
               setLng(mapPoint.lng.toFixed(6));
-              setZone(`Base marcada en mapa: ${mapPoint.lat.toFixed(5)}, ${mapPoint.lng.toFixed(5)}`);
+              setZone("Base marcada en mapa");
               setIsMapOpen(false);
             }}
           />
@@ -989,6 +1035,9 @@ function getCurrentPosition() {
   });
 }
 
-function hasValidAgentCoordinates(agent: OrbiAgent) {
-  return hasValidCoordinates(agent.operationalBaseLat ?? agent.lat, agent.operationalBaseLng ?? agent.lng);
+function getAgentLocationBadge(agent: OrbiAgent) {
+  const location = getAgentOperationalLocation(agent);
+  const label = location?.source === "current" ? "Ubicación actual" : "Base operativa";
+
+  return `${label} · ${agent.radiusKm || 20} km`;
 }

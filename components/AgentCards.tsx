@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
+import { AgentServiceType, getAgentOperationalLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import {
   ActiveMission,
   getActiveMission,
@@ -116,6 +116,7 @@ export function AgentCards() {
       return;
     }
 
+    const operationalLocation = getAgentOperationalLocation(agent);
     const nextMission = updateActiveMission({
       mission_status: "Misión aceptada",
       selected_agent_id: agent.id,
@@ -123,8 +124,8 @@ export function AgentCards() {
       selected_agent_zone: agent.zone,
       selected_agent_vehicle: agent.vehicle,
       selected_agent_trust: agent.trustLevel,
-      selected_agent_lat: agent.lat,
-      selected_agent_lng: agent.lng,
+      selected_agent_lat: operationalLocation?.lat ?? agent.lat,
+      selected_agent_lng: operationalLocation?.lng ?? agent.lng,
       active_agent_id: agent.id,
       accepted_at: new Date().toISOString()
     });
@@ -420,8 +421,8 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
           <InfoTile
             label="Ubicación operativa"
             value={
-              getAgentOperationalPoint(agent)
-                ? `${getAgentOperationalPoint(agent)!.lat.toFixed(6)}, ${getAgentOperationalPoint(agent)!.lng.toFixed(6)}`
+              getAgentOperationalLocation(agent)
+                ? `${getAgentOperationalLocation(agent)!.lat.toFixed(6)}, ${getAgentOperationalLocation(agent)!.lng.toFixed(6)}`
                 : "Sin ubicación registrada"
             }
           />
@@ -516,7 +517,7 @@ function getCompatibleServiceType(missionService: string): AgentServiceType {
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {
-  const point = getAgentOperationalPoint(agent);
+  const point = getAgentOperationalLocation(agent);
   return point !== null;
 }
 
@@ -530,24 +531,13 @@ function hasMissionOriginCoordinates(mission: ActiveMission) {
 }
 
 function getAgentDistanceFromMission(agent: OrbiAgent, mission: ActiveMission) {
-  const point = getAgentOperationalPoint(agent);
+  const point = getAgentOperationalLocation(agent);
 
   if (!point || !hasMissionOriginCoordinates(mission)) {
     return null;
   }
 
   return calculateDistanceKm(mission.origin_lat!, mission.origin_lng!, point.lat, point.lng);
-}
-
-function getAgentOperationalPoint(agent: OrbiAgent) {
-  const lat = agent.lat ?? agent.operationalBaseLat;
-  const lng = agent.lng ?? agent.operationalBaseLng;
-
-  if (lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return null;
-  }
-
-  return { lat, lng };
 }
 
 function calculateDistanceKm(originLat: number, originLng: number, agentLat: number, agentLng: number) {

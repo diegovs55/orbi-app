@@ -15,7 +15,7 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
+import { AgentServiceType, getAgentOperationalLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import {
   ActiveMission,
   createMission,
@@ -220,7 +220,7 @@ export function ServiceRequestFlow() {
     return agents
       .map((agent) => {
       const userHasOrigin = hasCoordinates(details.originLat, details.originLng);
-      const agentPoint = getAgentOperationalPoint(agent);
+      const agentPoint = getAgentOperationalLocation(agent);
       const agentHasCoordinates = agentPoint !== null;
       const serviceMatches = isServiceCompatible(
         agent.serviceType,
@@ -257,8 +257,12 @@ export function ServiceRequestFlow() {
           status: agent.status,
           lat: agent.lat,
           lng: agent.lng,
+          current_lat: agent.currentLat,
+          current_lng: agent.currentLng,
           operational_base_lat: agent.operationalBaseLat,
           operational_base_lng: agent.operationalBaseLng,
+          latitude: agent.latitude,
+          longitude: agent.longitude,
           radius_km: radius,
           tiene_ubicacion_operativa: agentHasCoordinates
         },
@@ -1404,24 +1408,13 @@ function hasCoordinates(lat: number | null, lng: number | null) {
 }
 
 function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
-  const point = getAgentOperationalPoint(agent);
+  const point = getAgentOperationalLocation(agent);
 
   if (!hasCoordinates(originLat, originLng) || !point) {
     return null;
   }
 
   return calculateDistanceKm(originLat!, originLng!, point.lat, point.lng);
-}
-
-function getAgentOperationalPoint(agent: OrbiAgent) {
-  const lat = agent.lat ?? agent.operationalBaseLat;
-  const lng = agent.lng ?? agent.operationalBaseLng;
-
-  if (!hasCoordinates(lat, lng)) {
-    return null;
-  }
-
-  return { lat: lat!, lng: lng! };
 }
 
 function isServiceCompatible(agentService: AgentServiceType, requestedService: AgentServiceType) {
