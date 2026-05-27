@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { CheckCircle2, LocateFixed } from "lucide-react";
+import { CheckCircle2, LocateFixed, XCircle } from "lucide-react";
 import {
   ActiveMission,
   getActiveMission,
@@ -14,6 +15,7 @@ import {
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
 export function AdminMissions() {
+  const router = useRouter();
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
   const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
   const [message, setMessage] = useState("");
@@ -28,10 +30,19 @@ export function AdminMissions() {
     }
 
     const nextMission = updateActiveMission({
-      mission_status: "Misión aceptada"
+      mission_status: "Misión aceptada",
+      active_agent_id: mission.selected_agent_id,
+      accepted_at: new Date().toISOString()
     });
     setMission(nextMission);
-    setMessage("Misión aceptada. El usuario ya puede verla en órbita.");
+    setMessage("Misión aceptada. Ya estás en órbita.");
+    router.push("/orbita");
+  }
+
+  function handleRejectMission() {
+    const nextMission = updateActiveMission({ mission_status: "Cancelada" });
+    setMission(nextMission);
+    setMessage("Misión rechazada. La solicitud queda fuera de órbita.");
   }
 
   function handleMissionStatusChange(status: ActiveMission["mission_status"]) {
@@ -52,7 +63,7 @@ export function AdminMissions() {
             <LocateFixed aria-hidden="true" className="h-6 w-6" />
           </span>
           <div>
-            <h2 className="text-lg font-black text-orbi-text">Solicitudes pendientes</h2>
+            <h2 className="text-lg font-black text-orbi-text">Misiones para tomar</h2>
             <p className="mt-1 text-xs text-orbi-muted">
               Acepta misiones y avanza su estado dentro de Red Orbi.
             </p>
@@ -85,6 +96,7 @@ export function AdminMissions() {
             <Info label="Teléfono" value={mission.requester_phone} />
             <Info label="Método de pago" value={mission.payment_method} />
             <Info label="Estado de pago" value={mission.payment_status} />
+            <Info label="Agente seleccionado" value={mission.selected_agent_name} />
             <Info label="Detalle" value={mission.detail} wide />
           </div>
 
@@ -94,15 +106,27 @@ export function AdminMissions() {
             </p>
           ) : null}
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={handleAcceptMission}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-            >
-              <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-              Aceptar misión
-            </button>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {mission.mission_status === "Esperando confirmación del agente" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAcceptMission}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+                >
+                  <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+                  Aceptar misión
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectMission}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-300/20 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+                >
+                  <XCircle aria-hidden="true" className="h-4 w-4" />
+                  Rechazar misión
+                </button>
+              </>
+            ) : null}
             <Link
               href="/orbita"
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"

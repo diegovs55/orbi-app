@@ -29,6 +29,8 @@ export type ActiveMission = {
   selected_agent_trust?: string;
   selected_agent_lat?: number | null;
   selected_agent_lng?: number | null;
+  active_agent_id?: string;
+  accepted_at?: string;
   payment_status: string;
   payment_method: string;
   estimated_orbit: string;

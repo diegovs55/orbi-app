@@ -77,7 +77,21 @@ export function MissionOrbitTracker() {
       mission_status: nextStatus
     });
     setMission(nextMission);
-    setLastUpdated(new Date(nextMission?.last_updated_at ?? Date.now()));
+    if (nextMission?.last_updated_at) {
+      setLastUpdated(new Date(nextMission.last_updated_at));
+    }
+  }
+
+  function handleMissionStatusChange(status: ActiveMission["mission_status"]) {
+    if (!mission) {
+      return;
+    }
+
+    const nextMission = updateActiveMission({ mission_status: status });
+    setMission(nextMission);
+    if (nextMission?.last_updated_at) {
+      setLastUpdated(new Date(nextMission.last_updated_at));
+    }
   }
 
   if (!mission) {
@@ -121,12 +135,51 @@ export function MissionOrbitTracker() {
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
           <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
           <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
+          <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
           <MissionTile icon={Radar} label="Estado de misión" value={mission.mission_status} />
           <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
           <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
           <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
           <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
           <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
+        </div>
+      </article>
+
+      <article className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+              Control del agente
+            </p>
+            <h3 className="mt-1 text-lg font-black text-orbi-text">Avanzar misión</h3>
+          </div>
+          {mission.accepted_at ? (
+            <p className="text-xs font-semibold text-orbi-muted">
+              Aceptada:{" "}
+              {new Date(mission.accepted_at).toLocaleString("es-MX", {
+                dateStyle: "medium",
+                timeStyle: "short"
+              })}
+            </p>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+          {(["En camino al origen", "En misión", "Llegando al destino", "Finalizada"] as const).map(
+            (status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => handleMissionStatusChange(status)}
+                className={`min-h-11 rounded-md border px-3 py-2 text-xs font-bold transition ${
+                  mission.mission_status === status
+                    ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan"
+                    : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
+                }`}
+              >
+                {status}
+              </button>
+            )
+          )}
         </div>
       </article>
 

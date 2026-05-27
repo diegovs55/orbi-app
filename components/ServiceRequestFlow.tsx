@@ -869,17 +869,28 @@ export function ServiceRequestFlow() {
             </p>
           ) : null}
 
-          {activeMission?.mission_status === "Misión aceptada" ? (
+          {activeMission && activeMission.selected_agent_id === selectedAgent.id ? (
             <div className="mt-5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] p-4">
               <p className="text-sm font-bold text-orbi-cyan">
-                Misión aceptada por {activeMission.selected_agent_name}
+                {activeMission.mission_status === "Misión aceptada"
+                  ? `Misión aceptada por ${activeMission.selected_agent_name}`
+                  : activeMission.mission_status === "Esperando confirmación del agente"
+                    ? "Esperando confirmación del agente"
+                    : activeMission.mission_status}
               </p>
-              <Link
-                href="/orbita"
-                className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
-              >
-                Ver misión en órbita
-              </Link>
+              {activeMission.mission_status === "Esperando confirmación del agente" ? (
+                <p className="mt-2 text-sm leading-6 text-orbi-muted">
+                  La solicitud ya está en la red. El agente seleccionado puede tomarla desde Orbi.
+                </p>
+              ) : null}
+              {activeMission.mission_status === "Misión aceptada" ? (
+                <Link
+                  href="/orbita"
+                  className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
+                >
+                  Ver misión en órbita
+                </Link>
+              ) : null}
             </div>
           ) : null}
 
