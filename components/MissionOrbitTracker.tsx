@@ -44,6 +44,9 @@ export function MissionOrbitTracker() {
     const currentMission = getActiveMission();
     return currentMission?.last_updated_at ? new Date(currentMission.last_updated_at) : new Date();
   });
+  const [rating, setRating] = useState(5);
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingMessage, setRatingMessage] = useState("");
 
   useEffect(() => {
     return subscribeToMission(() => {
@@ -83,6 +86,22 @@ export function MissionOrbitTracker() {
     if (nextMission?.last_updated_at) {
       setLastUpdated(new Date(nextMission.last_updated_at));
     }
+  }
+
+  function handleSaveRating() {
+    if (!mission || mission.mission_status !== "Misión cumplida") {
+      return;
+    }
+
+    const nextMission = updateActiveMission({
+      rating,
+      rating_comment: ratingComment,
+      rated_agent_id: mission.active_agent_id || mission.selected_agent_id,
+      rated_requester: mission.requester_name,
+      rated_at: new Date().toISOString()
+    });
+    setMission(nextMission);
+    setRatingMessage("Calificación guardada para el agente.");
   }
 
   const nextStatus = mission ? getNextMissionStatus(mission.mission_status) : null;
@@ -136,6 +155,15 @@ export function MissionOrbitTracker() {
       <section className="space-y-5">
         <MissionSummary mission={mission} title="Misión cumplida" />
         <MissionTimeline status={mission.mission_status} />
+        <RatingPanel
+          comment={ratingComment}
+          message={ratingMessage}
+          rating={rating}
+          savedRating={mission.rating ?? null}
+          onCommentChange={setRatingComment}
+          onRatingChange={setRating}
+          onSave={handleSaveRating}
+        />
         <Link
           href="/pedir"
           className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
@@ -301,6 +329,69 @@ function MissionTimeline({ status }: { status: ActiveMission["mission_status"] }
         </div>
       )}
     </div>
+  );
+}
+
+function RatingPanel({
+  rating,
+  comment,
+  savedRating,
+  message,
+  onRatingChange,
+  onCommentChange,
+  onSave
+}: {
+  rating: number;
+  comment: string;
+  savedRating: number | null;
+  message: string;
+  onRatingChange: (rating: number) => void;
+  onCommentChange: (comment: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+        Calificar misión
+      </p>
+      <h3 className="mt-1 text-lg font-black text-orbi-text">
+        {savedRating ? `Calificación guardada: ${savedRating}/5` : "¿Cómo estuvo el agente?"}
+      </h3>
+      <div className="mt-4 flex gap-2">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            onClick={() => onRatingChange(star)}
+            className={`flex h-10 w-10 items-center justify-center rounded-md border text-sm font-black ${
+              star <= rating
+                ? "border-orbi-cyan/40 bg-orbi-blue/20 text-orbi-cyan"
+                : "border-white/10 bg-white/[0.04] text-orbi-muted"
+            }`}
+          >
+            {star}
+          </button>
+        ))}
+      </div>
+      <textarea
+        className="mt-4 min-h-24 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-orbi-text outline-none placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60"
+        value={comment}
+        onChange={(event) => onCommentChange(event.target.value)}
+        placeholder="Comentario opcional sobre la misión"
+      />
+      {message ? (
+        <p className="mt-3 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
+          {message}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={onSave}
+        className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow sm:w-auto"
+      >
+        Guardar calificación
+      </button>
+    </section>
   );
 }
 

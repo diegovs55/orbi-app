@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound } from "lucide-react";
 import { getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
-import { ActiveMission, getActiveMission, MissionStatus, subscribeToMission } from "@/lib/missions";
+import {
+  ActiveMission,
+  getActiveMission,
+  getMissionHistory,
+  MissionStatus,
+  subscribeToMission
+} from "@/lib/missions";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -22,6 +28,9 @@ type MissionRecord = {
   paymentMethod: "Efectivo" | "Transferencia" | "Tarjeta";
   paymentStatus: string;
   missionStatus: MissionStatus;
+  price: number;
+  agentCost: number;
+  orbiProfit: number;
   rating: number | null;
   ratingComment: string;
   detail: string;
@@ -54,6 +63,9 @@ const fallbackMissions: MissionRecord[] = [
     paymentMethod: "Efectivo",
     paymentStatus: "Pago al finalizar la misión",
     missionStatus: "Misión cumplida",
+    price: 95,
+    agentCost: 65,
+    orbiProfit: 30,
     rating: 5,
     ratingComment: "Entrega rápida y clara.",
     detail: "Compra de café y pan dulce",
@@ -73,6 +85,9 @@ const fallbackMissions: MissionRecord[] = [
     paymentMethod: "Transferencia",
     paymentStatus: "Esta misión requiere pago al inicio",
     missionStatus: "En misión",
+    price: 80,
+    agentCost: 55,
+    orbiProfit: 25,
     rating: null,
     ratingComment: "",
     detail: "Impresiones urgentes",
@@ -92,6 +107,9 @@ const fallbackMissions: MissionRecord[] = [
     paymentMethod: "Tarjeta",
     paymentStatus: "Pago al finalizar la misión",
     missionStatus: "Misión aceptada",
+    price: 120,
+    agentCost: 84,
+    orbiProfit: 36,
     rating: 4.6,
     ratingComment: "Buen seguimiento.",
     detail: "Traslado local",
@@ -111,6 +129,9 @@ const fallbackMissions: MissionRecord[] = [
     paymentMethod: "Efectivo",
     paymentStatus: "Pago al finalizar la misión",
     missionStatus: "Misión cumplida",
+    price: 110,
+    agentCost: 77,
+    orbiProfit: 33,
     rating: 4.8,
     ratingComment: "Muy atento.",
     detail: "Medicamento y artículos urgentes",
@@ -130,6 +151,9 @@ const fallbackMissions: MissionRecord[] = [
     paymentMethod: "Transferencia",
     paymentStatus: "Esta misión requiere pago al inicio",
     missionStatus: "Misión cancelada",
+    price: 0,
+    agentCost: 0,
+    orbiProfit: 0,
     rating: null,
     ratingComment: "Cancelada por cambio de horario.",
     detail: "Pago de servicio",
@@ -142,6 +166,7 @@ const fallbackMissions: MissionRecord[] = [
 export function AdminControlPanel() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
+  const [missionHistory, setMissionHistory] = useState<ActiveMission[]>(() => getMissionHistory());
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("Últimos 7 días");
@@ -150,7 +175,10 @@ export function AdminControlPanel() {
   const [today] = useState(() => new Date());
 
   useEffect(() => {
-    return subscribeToMission(() => setActiveMission(getActiveMission()));
+    return subscribeToMission(() => {
+      setActiveMission(getActiveMission());
+      setMissionHistory(getMissionHistory());
+    });
   }, []);
 
   useEffect(() => {
@@ -176,9 +204,12 @@ export function AdminControlPanel() {
   }, []);
 
   const missions = useMemo(() => {
-    const currentMission = activeMission ? [mapActiveMission(activeMission, today)] : [];
-    return [...currentMission, ...fallbackMissions];
-  }, [activeMission, today]);
+    const currentMission = activeMission ? [activeMission] : [];
+    const realMissions = [...currentMission, ...missionHistory]
+      .filter((mission, index, list) => list.findIndex((item) => item.id === mission.id) === index)
+      .map((mission) => mapActiveMission(mission, today));
+    return realMissions.length ? realMissions : fallbackMissions;
+  }, [activeMission, missionHistory, today]);
 
   const filteredMissions = useMemo(() => {
     return filterMissionsByTime(missions, timeFilter, today, customStart, customEnd);
@@ -247,6 +278,12 @@ export function AdminControlPanel() {
         <MetricCard icon={CalendarDays} label="Misiones de hoy" value={analytics.todayMissions} />
         <MetricCard icon={ShieldCheck} label="Misiones cumplidas" value={analytics.completedMissions} />
         <MetricCard icon={ShieldCheck} label="Misiones canceladas" value={analytics.cancelledMissions} />
+        <MetricCard icon={Gauge} label="Facturación total" value={analytics.totalRevenue} prefix="$" />
+        <MetricCard icon={Gauge} label="Costo operativo total" value={analytics.totalCost} prefix="$" />
+        <MetricCard icon={Gauge} label="Ganancia estimada" value={analytics.totalProfit} prefix="$" />
+        <MetricCard icon={Gauge} label="Ticket promedio" value={analytics.averageTicket} prefix="$" />
+        <MetricCard icon={Gauge} label="Ganancia promedio" value={analytics.averageProfit} prefix="$" />
+        <MetricCard icon={ShieldCheck} label="Calificación promedio" value={analytics.averageRating} suffix="/5" />
         <MetricCard icon={Gauge} label="Meta de misiones" value={missionGoal} />
         <ProgressCard value={analytics.totalMissions} goal={missionGoal} />
       </div>
@@ -270,17 +307,23 @@ export function AdminControlPanel() {
 function MetricCard({
   icon: Icon,
   label,
-  value
+  value,
+  prefix = "",
+  suffix = ""
 }: {
   icon: typeof Orbit;
   label: string;
   value: number;
+  prefix?: string;
+  suffix?: string;
 }) {
   return (
     <article className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-2xl font-black text-orbi-text">{value}</p>
+          <p className="text-2xl font-black text-orbi-text">
+            {prefix}{Number.isInteger(value) ? value : value.toFixed(1)}{suffix}
+          </p>
           <p className="mt-1 text-xs font-semibold text-orbi-muted">{label}</p>
         </div>
         <span className="flex h-10 w-10 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
@@ -407,7 +450,7 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
         <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-orbi-muted">
-              {["Fecha", "Servicio", "Solicitante", "Agente", "Origen", "Destino", "Método de pago", "Estado de pago", "Estado de misión", "Calificación", "Detalle"].map((header) => (
+              {["Fecha", "Servicio", "Solicitante", "Agente", "Origen", "Destino", "Método de pago", "Estado de pago", "Facturación", "Costo", "Ganancia", "Estado de misión", "Calificación", "Detalle"].map((header) => (
                 <th key={header} className="px-4 py-4 font-bold">{header}</th>
               ))}
             </tr>
@@ -423,6 +466,9 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
                 <td className="px-4 py-4 text-orbi-muted">{mission.destination}</td>
                 <td className="px-4 py-4 text-orbi-muted">{mission.paymentMethod}</td>
                 <td className="px-4 py-4 text-orbi-muted">{mission.paymentStatus}</td>
+                <td className="px-4 py-4 text-orbi-muted">${mission.price}</td>
+                <td className="px-4 py-4 text-orbi-muted">${mission.agentCost}</td>
+                <td className="px-4 py-4 text-orbi-muted">${mission.orbiProfit}</td>
                 <td className="px-4 py-4">
                   <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
                     {mission.missionStatus}
@@ -504,18 +550,32 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     product: "Sin datos",
     category: businesses[0]?.category ?? "Red local"
   };
+  const completedMissions = missions.filter((mission) => mission.missionStatus === "Misión cumplida");
+  const ratedMissions = missions.filter((mission) => mission.rating !== null);
+  const totalRevenue = missions.reduce((total, mission) => total + mission.price, 0);
+  const totalCost = missions.reduce((total, mission) => total + mission.agentCost, 0);
+  const totalProfit = totalRevenue - totalCost;
 
   return {
     totalMissions: missions.length,
     todayMissions: missions.filter((mission) => isSameDay(new Date(mission.date), new Date())).length,
-    completedMissions: missions.filter((mission) => mission.missionStatus === "Misión cumplida").length,
+    completedMissions: completedMissions.length,
     cancelledMissions: missions.filter((mission) => mission.missionStatus === "Misión cancelada").length,
+    totalRevenue,
+    totalCost,
+    totalProfit,
+    averageTicket: completedMissions.length ? totalRevenue / completedMissions.length : 0,
+    averageProfit: completedMissions.length ? totalProfit / completedMissions.length : 0,
+    averageRating: ratedMissions.length
+      ? ratedMissions.reduce((total, mission) => total + (mission.rating ?? 0), 0) / ratedMissions.length
+      : 0,
     categoryBars: buildCountBars(missions, ["Mandado", "Entrega", "Traslado", "Compra local", "Pago o trámite"], "service"),
     paymentBars: buildCountBars(missions, ["Efectivo", "Transferencia", "Tarjeta"], "paymentMethod"),
     totalAgents,
     agentsInOrbit,
     agentsOutOrbit,
     agentRanking: rankByAgent(missions, agents),
+    bestRatedMissions: ratedMissions.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 5),
     topBusiness,
     businessRanking
   };
@@ -589,8 +649,11 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     paymentMethod: normalizePaymentMethod(mission.payment_method),
     paymentStatus: mission.payment_status,
     missionStatus: mission.mission_status,
-    rating: null,
-    ratingComment: "",
+    price: mission.precio_servicio ?? 0,
+    agentCost: mission.costo_agente ?? 0,
+    orbiProfit: mission.ganancia_orbi ?? (mission.precio_servicio ?? 0) - (mission.costo_agente ?? 0),
+    rating: mission.rating ?? null,
+    ratingComment: mission.rating_comment ?? "",
     detail: mission.detail,
     business: "Orbi directo",
     product: mission.service_type,

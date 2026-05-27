@@ -32,6 +32,9 @@ export type OrbiAgent = {
   availability: string;
   lat: number | null;
   lng: number | null;
+  operationalBaseLat: number | null;
+  operationalBaseLng: number | null;
+  operationalBaseText: string;
   radiusKm: number;
 };
 
@@ -53,17 +56,31 @@ type AgentRow = {
   lat?: number | null;
   lng?: number | null;
   radius_km?: number | null;
+  operational_base_lat?: number | null;
+  operational_base_lng?: number | null;
+  operational_base_text?: string | null;
   is_active?: boolean | null;
   deleted_at?: string | null;
 };
 
 type AgentUpdate = {
-  status: AgentStatus;
+  name?: string;
+  photo_url?: string | null;
+  initials?: string | null;
+  zone?: string;
+  status?: AgentStatus;
   lat?: number | null;
   lng?: number | null;
+  operational_base_lat?: number | null;
+  operational_base_lng?: number | null;
+  operational_base_text?: string | null;
   radius_km?: number | null;
   service_type?: AgentServiceType;
   availability?: string | null;
+  trust_level?: AgentTrustLevel;
+  phone?: string;
+  description?: string;
+  vehicle?: string | null;
 };
 
 type AgentInsert = {
@@ -81,6 +98,9 @@ type AgentInsert = {
   lat?: number | null;
   lng?: number | null;
   radius_km?: number | null;
+  operational_base_lat?: number | null;
+  operational_base_lng?: number | null;
+  operational_base_text?: string | null;
 };
 
 export async function getAgents() {
@@ -88,7 +108,7 @@ export async function getAgents() {
 
   const { data, error } = await client
     .from("agents")
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,is_active,deleted_at")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text,is_active,deleted_at")
     .order("status", { ascending: true })
     .order("name", { ascending: true });
 
@@ -130,13 +150,16 @@ export async function createAgent(agent: CreateAgentInput) {
     availability: agent.availability || null,
     lat: agent.lat,
     lng: agent.lng,
+    operational_base_lat: agent.operationalBaseLat ?? agent.lat,
+    operational_base_lng: agent.operationalBaseLng ?? agent.lng,
+    operational_base_text: agent.operationalBaseText || agent.zone,
     radius_km: agent.radiusKm || 20
   };
 
   const { data, error } = await client
     .from("agents")
     .insert(payload)
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text")
     .single();
 
   if (isMissingCoordinateColumnError(error)) {
@@ -149,10 +172,10 @@ export async function createAgent(agent: CreateAgentInput) {
       status: payload.status,
       trust_level: payload.trust_level,
       phone: payload.phone,
-      description: payload.description,
-      vehicle: payload.vehicle,
-      availability: payload.availability
-    };
+        description: payload.description,
+        vehicle: payload.vehicle,
+        availability: payload.availability
+      };
 
     const fallback = await client
       .from("agents")
@@ -205,6 +228,7 @@ export async function updateAgentOrbit(
     radiusKm?: number;
     serviceType?: AgentServiceType;
     availability?: string;
+    operationalBaseText?: string;
   }
 ) {
   const client = getSupabaseClient();
@@ -212,6 +236,9 @@ export async function updateAgentOrbit(
     status: update.status,
     lat: update.lat,
     lng: update.lng,
+    operational_base_lat: update.lat,
+    operational_base_lng: update.lng,
+    operational_base_text: update.operationalBaseText,
     radius_km: update.radiusKm,
     service_type: update.serviceType,
     availability: update.availability || null
@@ -221,7 +248,7 @@ export async function updateAgentOrbit(
     .from("agents")
     .update(payload)
     .eq("id", id)
-    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km")
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text")
     .single();
 
   if (isMissingCoordinateColumnError(error)) {
@@ -231,6 +258,69 @@ export async function updateAgentOrbit(
         status: update.status,
         service_type: update.serviceType,
         availability: update.availability || null
+      })
+      .eq("id", id)
+      .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
+      .single();
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+
+    return mapAgentRow(fallback.data);
+  }
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapAgentRow(data);
+}
+
+export async function updateAgent(id: string, agent: CreateAgentInput) {
+  const client = getSupabaseClient();
+  const payload: AgentUpdate = {
+    name: agent.name,
+    photo_url: agent.photoUrl || null,
+    initials: agent.initials || null,
+    service_type: agent.serviceType,
+    zone: agent.zone,
+    status: agent.status,
+    trust_level: agent.trustLevel,
+    phone: agent.phone,
+    description: agent.description,
+    vehicle: agent.vehicle || null,
+    availability: agent.availability || null,
+    lat: agent.lat,
+    lng: agent.lng,
+    operational_base_lat: agent.operationalBaseLat ?? agent.lat,
+    operational_base_lng: agent.operationalBaseLng ?? agent.lng,
+    operational_base_text: agent.operationalBaseText || agent.zone,
+    radius_km: agent.radiusKm
+  };
+
+  const { data, error } = await client
+    .from("agents")
+    .update(payload)
+    .eq("id", id)
+    .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability,lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text")
+    .single();
+
+  if (isMissingCoordinateColumnError(error)) {
+    const fallback = await client
+      .from("agents")
+      .update({
+        name: payload.name,
+        photo_url: payload.photo_url,
+        initials: payload.initials,
+        service_type: payload.service_type,
+        zone: payload.zone,
+        status: payload.status,
+        trust_level: payload.trust_level,
+        phone: payload.phone,
+        description: payload.description,
+        vehicle: payload.vehicle,
+        availability: payload.availability
       })
       .eq("id", id)
       .select("id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability")
@@ -275,6 +365,19 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     availability: row.availability ?? "",
     lat: typeof row.lat === "number" ? row.lat : null,
     lng: typeof row.lng === "number" ? row.lng : null,
+    operationalBaseLat:
+      typeof row.operational_base_lat === "number"
+        ? row.operational_base_lat
+        : typeof row.lat === "number"
+          ? row.lat
+          : null,
+    operationalBaseLng:
+      typeof row.operational_base_lng === "number"
+        ? row.operational_base_lng
+        : typeof row.lng === "number"
+          ? row.lng
+          : null,
+    operationalBaseText: row.operational_base_text ?? row.zone,
     radiusKm: typeof row.radius_km === "number" ? row.radius_km : 20
   };
 }
@@ -321,7 +424,7 @@ function isMissingCoordinateColumnError(error: { message?: string; code?: string
 
   return (
     error.code === "42703" ||
-    /lat|lng|radius_km|is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
+    /lat|lng|radius_km|operational_base|is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
   );
 }
 

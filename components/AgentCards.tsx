@@ -8,6 +8,7 @@ import { AgentServiceType, getAgents, OrbiAgent } from "@/lib/agents";
 import {
   ActiveMission,
   getActiveMission,
+  getMissionHistory,
   isMissionActive,
   isMissionClosed,
   isMissionPending,
@@ -376,6 +377,8 @@ function AgentMissionBoard({
 }
 
 function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => void }) {
+  const ratingStats = getAgentRatingStats(agent.id);
+
   return (
     <div className="fixed inset-0 z-40 flex items-end bg-orbi-black/75 px-3 py-4 backdrop-blur-sm sm:items-center sm:justify-center sm:p-6">
       <section className="max-h-[92vh] w-full overflow-y-auto rounded-md border border-orbi-cyan/20 bg-orbi-panel p-4 shadow-[0_24px_80px_rgba(0,0,0,0.5),0_0_45px_rgba(31,139,255,0.16)] sm:max-w-2xl sm:p-6">
@@ -410,10 +413,15 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
           <InfoTile label="Servicios que cubre" value={agent.serviceType} />
           <InfoTile label="Radio operativo" value={`${agent.radiusKm || 20} km`} />
           <InfoTile
+            label="Rating promedio"
+            value={ratingStats.count ? `${ratingStats.average.toFixed(1)} / 5` : "Sin calificaciones"}
+          />
+          <InfoTile label="Misiones calificadas" value={String(ratingStats.count)} />
+          <InfoTile
             label="Ubicación operativa"
             value={
-              hasValidAgentCoordinates(agent)
-                ? `${agent.lat!.toFixed(6)}, ${agent.lng!.toFixed(6)}`
+              getAgentOperationalPoint(agent)
+                ? `${getAgentOperationalPoint(agent)!.lat.toFixed(6)}, ${getAgentOperationalPoint(agent)!.lng.toFixed(6)}`
                 : "Sin ubicación registrada"
             }
           />
@@ -421,6 +429,18 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
       </section>
     </div>
   );
+}
+
+function getAgentRatingStats(agentId: string) {
+  const ratings = getMissionHistory()
+    .filter((mission) => (mission.rated_agent_id || mission.active_agent_id || mission.selected_agent_id) === agentId)
+    .map((mission) => mission.rating)
+    .filter((rating): rating is number => typeof rating === "number");
+
+  return {
+    count: ratings.length,
+    average: ratings.length ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length : 0
+  };
 }
 
 function AgentAvatar({ agent }: { agent: OrbiAgent }) {
@@ -496,12 +516,8 @@ function getCompatibleServiceType(missionService: string): AgentServiceType {
 }
 
 function hasValidAgentCoordinates(agent: OrbiAgent) {
-  return (
-    agent.lat !== null &&
-    agent.lng !== null &&
-    Number.isFinite(agent.lat) &&
-    Number.isFinite(agent.lng)
-  );
+  const point = getAgentOperationalPoint(agent);
+  return point !== null;
 }
 
 function hasMissionOriginCoordinates(mission: ActiveMission) {
@@ -514,11 +530,24 @@ function hasMissionOriginCoordinates(mission: ActiveMission) {
 }
 
 function getAgentDistanceFromMission(agent: OrbiAgent, mission: ActiveMission) {
-  if (!hasValidAgentCoordinates(agent) || !hasMissionOriginCoordinates(mission)) {
+  const point = getAgentOperationalPoint(agent);
+
+  if (!point || !hasMissionOriginCoordinates(mission)) {
     return null;
   }
 
-  return calculateDistanceKm(mission.origin_lat!, mission.origin_lng!, agent.lat!, agent.lng!);
+  return calculateDistanceKm(mission.origin_lat!, mission.origin_lng!, point.lat, point.lng);
+}
+
+function getAgentOperationalPoint(agent: OrbiAgent) {
+  const lat = agent.lat ?? agent.operationalBaseLat;
+  const lng = agent.lng ?? agent.operationalBaseLng;
+
+  if (lat === null || lng === null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return { lat, lng };
 }
 
 function calculateDistanceKm(originLat: number, originLng: number, agentLat: number, agentLng: number) {

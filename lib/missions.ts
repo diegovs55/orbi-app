@@ -31,6 +31,14 @@ export type ActiveMission = {
   accepted_at?: string;
   payment_status: string;
   payment_method: string;
+  precio_servicio?: number;
+  costo_agente?: number;
+  ganancia_orbi?: number;
+  rating?: number | null;
+  rating_comment?: string;
+  rated_agent_id?: string;
+  rated_requester?: string;
+  rated_at?: string;
   estimated_orbit: string;
   mission_status: MissionStatus;
   last_updated_at: string;
@@ -56,6 +64,7 @@ export function isMissionClosed(mission: ActiveMission | null) {
 }
 
 const ACTIVE_MISSION_KEY = "orbi_active_mission";
+const MISSION_HISTORY_KEY = "orbi_mission_history";
 const MISSION_CHANGE_EVENT = "orbi-mission-change";
 
 export function createMission(mission: Omit<ActiveMission, "id" | "last_updated_at">) {
@@ -86,12 +95,28 @@ export function getActiveMission() {
   }
 }
 
+export function getMissionHistory() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const missions = JSON.parse(window.localStorage.getItem(MISSION_HISTORY_KEY) ?? "[]");
+    return Array.isArray(missions) ? (missions as ActiveMission[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function saveActiveMission(mission: ActiveMission) {
   if (typeof window === "undefined") {
     return;
   }
 
   window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(mission));
+  if (isMissionClosed(mission)) {
+    saveMissionToHistory(mission);
+  }
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
 }
 
@@ -119,4 +144,14 @@ export function subscribeToMission(callback: () => void) {
     window.removeEventListener("storage", callback);
     window.removeEventListener(MISSION_CHANGE_EVENT, callback);
   };
+}
+
+function saveMissionToHistory(mission: ActiveMission) {
+  const history = getMissionHistory();
+  const nextHistory = [
+    mission,
+    ...history.filter((historyMission) => historyMission.id !== mission.id)
+  ].slice(0, 100);
+
+  window.localStorage.setItem(MISSION_HISTORY_KEY, JSON.stringify(nextHistory));
 }

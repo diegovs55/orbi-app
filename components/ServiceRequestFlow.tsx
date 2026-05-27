@@ -220,7 +220,8 @@ export function ServiceRequestFlow() {
     return agents
       .map((agent) => {
       const userHasOrigin = hasCoordinates(details.originLat, details.originLng);
-      const agentHasCoordinates = hasCoordinates(agent.lat, agent.lng);
+      const agentPoint = getAgentOperationalPoint(agent);
+      const agentHasCoordinates = agentPoint !== null;
       const serviceMatches = isServiceCompatible(
         agent.serviceType,
         selectedService.compatibleType as AgentServiceType
@@ -228,7 +229,7 @@ export function ServiceRequestFlow() {
       const statusMatches = agent.status === activeAgentStatus;
       const distance =
         userHasOrigin && agentHasCoordinates
-          ? calculateDistanceKm(details.originLat!, details.originLng!, agent.lat!, agent.lng!)
+          ? calculateDistanceKm(details.originLat!, details.originLng!, agentPoint!.lat, agentPoint!.lng)
           : null;
       const radius = agent.radiusKm || 20;
       let exclusionReason = "";
@@ -256,6 +257,8 @@ export function ServiceRequestFlow() {
           status: agent.status,
           lat: agent.lat,
           lng: agent.lng,
+          operational_base_lat: agent.operationalBaseLat,
+          operational_base_lng: agent.operationalBaseLng,
           radius_km: radius,
           tiene_ubicacion_operativa: agentHasCoordinates
         },
@@ -588,6 +591,7 @@ export function ServiceRequestFlow() {
     }
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
+    const cost = estimateMissionCost(distance);
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -608,6 +612,9 @@ export function ServiceRequestFlow() {
       selected_agent_lng: selectedAgent.lng,
       payment_status: paymentStatus,
       payment_method: paymentMethod,
+      precio_servicio: cost.price,
+      costo_agente: cost.agentCost,
+      ganancia_orbi: cost.orbiProfit,
       estimated_orbit: getEstimatedOrbit(distance),
       mission_status: "Misión por tomar"
     });
@@ -1380,16 +1387,41 @@ function getEstimatedOrbit(distance: number | null) {
   return "35-60 min";
 }
 
+function estimateMissionCost(distance: number | null) {
+  const safeDistance = distance ?? 3;
+  const price = Math.round(45 + safeDistance * 12);
+  const agentCost = Math.round(price * 0.7);
+
+  return {
+    price,
+    agentCost,
+    orbiProfit: price - agentCost
+  };
+}
+
 function hasCoordinates(lat: number | null, lng: number | null) {
   return lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
 }
 
 function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
-  if (!hasCoordinates(originLat, originLng) || !hasCoordinates(agent.lat, agent.lng)) {
+  const point = getAgentOperationalPoint(agent);
+
+  if (!hasCoordinates(originLat, originLng) || !point) {
     return null;
   }
 
-  return calculateDistanceKm(originLat!, originLng!, agent.lat!, agent.lng!);
+  return calculateDistanceKm(originLat!, originLng!, point.lat, point.lng);
+}
+
+function getAgentOperationalPoint(agent: OrbiAgent) {
+  const lat = agent.lat ?? agent.operationalBaseLat;
+  const lng = agent.lng ?? agent.operationalBaseLng;
+
+  if (!hasCoordinates(lat, lng)) {
+    return null;
+  }
+
+  return { lat: lat!, lng: lng! };
 }
 
 function isServiceCompatible(agentService: AgentServiceType, requestedService: AgentServiceType) {
