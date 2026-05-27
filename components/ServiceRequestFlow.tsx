@@ -149,6 +149,7 @@ const paymentStatuses: PaymentStatus[] = [
   "Esta misión requiere pago al inicio"
 ];
 const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"];
+const pricingRule = "MVP_DISTANCE_V1";
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -358,6 +359,21 @@ export function ServiceRequestFlow() {
   const cartSubtotal = useMemo(() => getCartSubtotal(cartItems), [cartItems]);
   const cartBusiness = cartItems[0]?.product ?? null;
   const isCatalogMission = cartItems.length > 0;
+  const routeDistance = useMemo(
+    () =>
+      hasCoordinates(details.originLat, details.originLng) &&
+      hasCoordinates(details.destinationLat, details.destinationLng)
+        ? calculateDistanceKm(
+            details.originLat!,
+            details.originLng!,
+            details.destinationLat!,
+            details.destinationLng!
+          )
+        : null,
+    [details.destinationLat, details.destinationLng, details.originLat, details.originLng]
+  );
+  const serviceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : null;
+  const totalToPay = serviceFee === null ? null : cartSubtotal + serviceFee;
 
   function resetFlow() {
     setSelectedService(null);
@@ -395,7 +411,7 @@ export function ServiceRequestFlow() {
 
     const existingBusinessId = cartItems[0]?.product.businessId;
     if (existingBusinessId && existingBusinessId !== product.businessId) {
-      setCartMessage("Para esta versión, agrega productos de un mismo negocio por misión.");
+      setCartMessage("Para esta versión, crea una misión separada para otro negocio.");
       return;
     }
 
@@ -413,7 +429,7 @@ export function ServiceRequestFlow() {
       origin: product.businessBaseText || product.businessName,
       originLat: product.businessLat,
       originLng: product.businessLng,
-      detail: buildCartTicket(nextCart, 0)
+      detail: buildCartTicket(nextCart, null)
     }));
     setIsRequestReady(false);
     setSelectedAgent(null);
@@ -452,7 +468,7 @@ export function ServiceRequestFlow() {
       origin: business ? business.businessBaseText || business.businessName : "",
       originLat: business?.businessLat ?? null,
       originLng: business?.businessLng ?? null,
-      detail: nextCart.length ? buildCartTicket(nextCart, 0) : ""
+      detail: nextCart.length ? buildCartTicket(nextCart, null) : ""
     }));
   }
 
@@ -688,8 +704,8 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const estimatedOrbit = getEstimatedOrbit(distance);
-    const serviceFee = estimateMissionCost(distance).price;
-    const totalEstimate = cartSubtotal + serviceFee;
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : estimateMissionCost(distance).price;
+    const totalEstimate = cartSubtotal + (currentServiceFee ?? 0);
 
     const message = [
       "Solicitud Orbi",
@@ -700,8 +716,8 @@ export function ServiceRequestFlow() {
             `Productos:`,
             ...cartItems.map((item) => `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`),
             `Subtotal productos: $${cartSubtotal}`,
-            `Costo estimado de servicio/logística: $${serviceFee}`,
-            `Total estimado: $${totalEstimate}`,
+            `Servicio/logística: ${currentServiceFee === null ? "Define destino para calcular servicio." : `$${currentServiceFee}`}`,
+            `Total a pagar: ${currentServiceFee === null ? "Define destino para calcular servicio." : `$${totalEstimate}`}`,
             `Sector: ${cartBusiness.sector}`
           ]
         : []),
@@ -737,9 +753,10 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const cost = estimateMissionCost(distance);
-    const servicePrice = isCatalogMission ? cartSubtotal + cost.price : cost.price;
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
+    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
     const agentLocation = getAgentOperationalLocation(selectedAgent);
-    const ticketDetail = isCatalogMission ? buildCartTicket(cartItems, cost.price) : details.detail;
+    const ticketDetail = isCatalogMission ? buildCartTicket(cartItems, currentServiceFee) : details.detail;
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -768,8 +785,10 @@ export function ServiceRequestFlow() {
         subtotal: item.product.price * item.quantity
       })),
       subtotal_productos: cartSubtotal || undefined,
-      service_fee: cost.price,
-      total_estimado: servicePrice,
+      service_fee: currentServiceFee ?? undefined,
+      total: servicePrice,
+      distance_km: routeDistance,
+      pricing_rule: isCatalogMission ? pricingRule : undefined,
       product_ids: cartItems.map((item) => item.product.id),
       sector: cartBusiness?.sector,
       categoria_producto: cartItems[0]?.product.category,
@@ -783,8 +802,8 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       precio_servicio: servicePrice,
-      costo_agente: cost.agentCost,
-      ganancia_orbi: servicePrice - cost.agentCost,
+      costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
+      ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
       estimated_orbit: getEstimatedOrbit(distance),
       mission_status: "Misión por tomar"
     });
@@ -867,6 +886,33 @@ export function ServiceRequestFlow() {
         </>
       ) : null}
 
+      {isCatalogMission && !selectedAgent ? (
+        <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+            Agregar otro producto o servicio
+          </p>
+          <div className="mt-4 flex min-h-12 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4">
+            <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Buscar otro producto, servicio o trámite..."
+              className="min-w-0 flex-1 bg-transparent py-3 text-sm font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
+            />
+          </div>
+          {searchQuery.trim() ? (
+            <CatalogSuggestions
+              query={searchQuery}
+              results={catalogResults}
+              cartItems={cartItems}
+              message={cartMessage}
+              onSelectProduct={handleSelectProduct}
+              onSelectCustomMission={handleSelectCustomMission}
+            />
+          ) : null}
+        </section>
+      ) : null}
+
       {selectedService && !isRequestReady ? (
         <form
           onSubmit={handleDetailsSubmit}
@@ -876,7 +922,8 @@ export function ServiceRequestFlow() {
           {isCatalogMission ? (
             <LocalCart
               items={cartItems}
-              serviceFee={0}
+              serviceFee={serviceFee}
+              distance={routeDistance}
               onQuantityChange={updateCartQuantity}
               onRemove={removeCartItem}
             />
@@ -1055,7 +1102,7 @@ export function ServiceRequestFlow() {
               label={isCatalogMission ? "Ticket de misión" : "Detalle"}
               value={
                 isCatalogMission
-                  ? buildCartTicket(cartItems, estimateMissionCost(getAgentDistance(details.originLat, details.originLng, selectedAgent)).price)
+                  ? buildCartTicket(cartItems, serviceFee)
                   : details.detail
               }
               wide
@@ -1344,11 +1391,13 @@ function CatalogSuggestions({
 function LocalCart({
   items,
   serviceFee,
+  distance,
   onQuantityChange,
   onRemove
 }: {
   items: CartItem[];
-  serviceFee: number;
+  serviceFee: number | null;
+  distance: number | null;
   onQuantityChange: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
 }) {
@@ -1414,9 +1463,20 @@ function LocalCart({
       </div>
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
         <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
-        <InfoTile label="Servicio/logística" value={serviceFee ? `$${serviceFee}` : "Por estimar"} />
-        <InfoTile label="Total estimado" value={serviceFee ? `$${subtotal + serviceFee}` : `$${subtotal} + servicio`} />
+        <InfoTile
+          label="Servicio/logística"
+          value={serviceFee === null ? "Define destino para calcular servicio." : `$${serviceFee}`}
+        />
+        <InfoTile
+          label="Total a pagar"
+          value={serviceFee === null ? "Define destino para calcular servicio." : `$${subtotal + serviceFee}`}
+        />
       </div>
+      {distance !== null ? (
+        <p className="mt-2 text-xs font-semibold text-orbi-muted">
+          Distancia origen-destino: {distance.toFixed(1)} km · Regla {pricingRule}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1801,11 +1861,39 @@ function estimateMissionCost(distance: number | null) {
   };
 }
 
+function calculateServiceFee(distance: number | null, subtotal: number) {
+  if (distance === null) {
+    return null;
+  }
+
+  let fee = 120;
+
+  if (distance <= 2) {
+    fee = 25;
+  } else if (distance <= 5) {
+    fee = 35;
+  } else if (distance <= 8) {
+    fee = 45;
+  } else if (distance <= 12) {
+    fee = 60;
+  } else if (distance <= 20) {
+    fee = 80;
+  }
+
+  if (subtotal > 600) {
+    fee += 20;
+  } else if (subtotal > 300) {
+    fee += 10;
+  }
+
+  return fee;
+}
+
 function getCartSubtotal(items: CartItem[]) {
   return items.reduce((total, item) => total + item.product.price * item.quantity, 0);
 }
 
-function buildCartTicket(items: CartItem[], serviceFee: number) {
+function buildCartTicket(items: CartItem[], serviceFee: number | null) {
   const subtotal = getCartSubtotal(items);
   const lines = items.map(
     (item) =>
@@ -1817,8 +1905,8 @@ function buildCartTicket(items: CartItem[], serviceFee: number) {
     "Productos:",
     ...lines,
     `Subtotal productos: $${subtotal}`,
-    `Costo estimado de servicio/logística: ${serviceFee ? `$${serviceFee}` : "Por estimar"}`,
-    `Total estimado: ${serviceFee ? `$${subtotal + serviceFee}` : `$${subtotal} + servicio`}`
+    `Servicio/logística: ${serviceFee === null ? "Define destino para calcular servicio." : `$${serviceFee}`}`,
+    `Total a pagar: ${serviceFee === null ? "Define destino para calcular servicio." : `$${subtotal + serviceFee}`}`
   ].join("\n");
 }
 

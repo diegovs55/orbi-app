@@ -39,6 +39,9 @@ export type ActiveMission = {
   subtotal_productos?: number;
   service_fee?: number;
   total_estimado?: number;
+  total?: number;
+  distance_km?: number | null;
+  pricing_rule?: string;
   product_ids?: string[];
   sector?: string;
   categoria_producto?: string;
