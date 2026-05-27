@@ -24,6 +24,7 @@ const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
 const radiusOptions = [10, 20, 30];
 const defaultAgentLevel: AgentTrustLevel = "Aprendiz";
+const timeOptions = buildTimeOptions();
 
 const LocationPickerMap = dynamic(
   () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
@@ -111,12 +112,17 @@ export function AdminAgents() {
     const form = event.currentTarget;
     const data = new FormData(form);
     const name = String(data.get("name") ?? "").trim();
-    const initials = String(data.get("initials") ?? "").trim() || getAgentInitials(name);
+    const availability = formatAvailability(availabilityStart, availabilityEnd);
+
+    if (availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
+      setAgentError("La hora fin debe ser posterior a la hora inicio.");
+      return;
+    }
 
     const newAgent = {
       name,
       photoUrl: String(data.get("photoUrl") ?? "").trim(),
-      initials,
+      initials: getAgentInitials(name),
       serviceType: String(data.get("serviceType")) as AgentServiceType,
       zone: operationalBaseText || String(data.get("zone") ?? "").trim(),
       status: agentStatus,
@@ -124,7 +130,7 @@ export function AdminAgents() {
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
       vehicle: String(data.get("vehicle") ?? "").trim(),
-      availability: formatAvailability(availabilityStart, availabilityEnd),
+      availability,
       lat: parseOptionalNumber(data.get("lat")),
       lng: parseOptionalNumber(data.get("lng")),
       currentLat: parseOptionalNumber(data.get("lat")),
@@ -321,7 +327,6 @@ export function AdminAgents() {
       >
         <Input label="Nombre" name="name" placeholder="Ej. Diego Ramírez" />
         <Input label="Foto URL" name="photoUrl" placeholder="https://..." required={false} />
-        <Input label="Iniciales" name="initials" placeholder="DR" required={false} />
         <label className="block text-sm font-semibold text-orbi-text">
           Tipo de servicio
           <select
@@ -398,20 +403,14 @@ export function AdminAgents() {
         </div>
         <Input label="Teléfono/WhatsApp interno" name="phone" placeholder="5255..." />
         <Input label="Placa o vehículo" name="vehicle" placeholder="Moto azul / ABC-123" required={false} />
-        <Input
+        <TimeSelect
           label="Hora inicio"
-          name="availabilityStart"
-          placeholder="09:00"
-          type="time"
           value={availabilityStart}
           onChange={setAvailabilityStart}
           required={false}
         />
-        <Input
+        <TimeSelect
           label="Hora fin"
-          name="availabilityEnd"
-          placeholder="18:00"
-          type="time"
           value={availabilityEnd}
           onChange={setAvailabilityEnd}
           required={false}
@@ -717,6 +716,11 @@ function AgentEditDialog({
       return;
     }
 
+    if (availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
+      setError("La hora fin debe ser posterior a la hora inicio.");
+      return;
+    }
+
     setIsSaving(true);
     setError("");
 
@@ -807,8 +811,8 @@ function AgentEditDialog({
           <ControlledInput label="Longitud base" value={lng} onChange={setLng} required={false} />
           <ControlledInput label="Teléfono" value={phone} onChange={setPhone} />
           <ControlledInput label="Vehículo" value={vehicle} onChange={setVehicle} required={false} />
-          <ControlledInput label="Hora inicio" value={availabilityStart} onChange={setAvailabilityStart} required={false} type="time" />
-          <ControlledInput label="Hora fin" value={availabilityEnd} onChange={setAvailabilityEnd} required={false} type="time" />
+          <TimeSelect label="Hora inicio" value={availabilityStart} onChange={setAvailabilityStart} required={false} />
+          <TimeSelect label="Hora fin" value={availabilityEnd} onChange={setAvailabilityEnd} required={false} />
           <SelectInput label="Estado" value={status} onChange={(value) => setStatus(value as AgentStatus)} options={["En órbita", "Fuera de órbita"]} />
           <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
             Descripción
@@ -923,6 +927,37 @@ function SelectInput({
   );
 }
 
+function TimeSelect({
+  label,
+  value,
+  onChange,
+  required = true
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-orbi-text">
+      {label}
+      <select
+        className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+        value={value}
+        onChange={(event) => onChange(normalizeTimeToHHmm(event.target.value))}
+        required={required}
+      >
+        <option value="">Selecciona hora</option>
+        {timeOptions.map((time) => (
+          <option key={time} value={time}>
+            {time}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function readAdminSession() {
   return window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "true";
 }
@@ -957,6 +992,20 @@ function formatAvailability(start: string, end: string) {
   }
 
   return [normalizeTimeToHHmm(start), normalizeTimeToHHmm(end)].filter(Boolean).join(" - ");
+}
+
+function buildTimeOptions() {
+  const options: string[] = [];
+
+  for (let hour = 6; hour <= 23; hour += 1) {
+    options.push(`${String(hour).padStart(2, "0")}:00`);
+
+    if (hour !== 23) {
+      options.push(`${String(hour).padStart(2, "0")}:30`);
+    }
+  }
+
+  return options;
 }
 
 function getAvailabilityParts(availability: string) {
