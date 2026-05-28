@@ -8,6 +8,7 @@ import { AGENT_STATUS, AgentServiceType, getAgentLocation, getAgents, OrbiAgent 
 import {
   ActiveMission,
   getActiveMission,
+  getMissionStatusLabel,
   getMissionHistory,
   isMissionActive,
   isMissionClosed,
@@ -118,7 +119,7 @@ export function AgentCards() {
 
     const operationalLocation = getAgentLocation(agent);
     const nextMission = updateActiveMission({
-      mission_status: "Misión aceptada",
+      status: "aceptada",
       selected_agent_id: agent.id,
       selected_agent_name: agent.name,
       selected_agent_zone: agent.zone,
@@ -141,7 +142,7 @@ export function AgentCards() {
     }
 
     const nextMission = updateActiveMission({
-      mission_status: "Misión cancelada",
+      status: "cancelada",
       active_agent_id: mission.active_agent_id || agent.id
     });
     setMission(nextMission);
@@ -230,6 +231,7 @@ export function AgentCards() {
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
               {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
               <InfoTile label="Nivel" value={agent.trustLevel} />
+              <InfoTile label="Calificación" value={formatAgentRating(getAgentRatingStats(agent.id))} />
             </div>
 
             <button
@@ -314,7 +316,7 @@ function AgentMissionBoard({
                     <p className="mt-2 text-sm leading-6 text-orbi-muted">{mission.detail}</p>
                   </div>
                   <span className="w-fit rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-                    {mission.mission_status === "Misión por tomar" ? "Por tomar" : mission.mission_status}
+                    {mission.status === "por_tomar" ? "Por tomar" : getMissionStatusLabel(mission.status)}
                   </span>
                 </div>
 
@@ -436,12 +438,18 @@ function getAgentRatingStats(agentId: string) {
   const ratings = getMissionHistory()
     .filter((mission) => (mission.rated_agent_id || mission.active_agent_id || mission.selected_agent_id) === agentId)
     .map((mission) => mission.rating)
-    .filter((rating): rating is number => typeof rating === "number");
+    .filter((rating): rating is number => typeof rating === "number" && rating >= 1 && rating <= 5);
 
   return {
     count: ratings.length,
     average: ratings.length ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length : 0
   };
+}
+
+function formatAgentRating(ratingStats: { count: number; average: number }) {
+  return ratingStats.count
+    ? `⭐ ${ratingStats.average.toFixed(1)} / 5 · ${ratingStats.count} misiones calificadas`
+    : "Sin calificaciones todavía";
 }
 
 function AgentAvatar({ agent }: { agent: OrbiAgent }) {

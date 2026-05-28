@@ -29,6 +29,7 @@ import {
   ActiveMission,
   createMission,
   getActiveMission,
+  getMissionStatusLabel,
   isMissionActive,
   subscribeToMission
 } from "@/lib/missions";
@@ -952,7 +953,7 @@ export function ServiceRequestFlow() {
       costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
       ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
       estimated_orbit: getEstimatedOrbit(distance),
-      mission_status: "Misión por tomar"
+      status: "por_tomar"
     });
 
     setActiveMission(mission);
@@ -1336,13 +1337,13 @@ export function ServiceRequestFlow() {
           {activeMission && activeMission.selected_agent_id === selectedAgent.id ? (
             <div className="mt-5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] p-4">
               <p className="text-sm font-bold text-orbi-cyan">
-                {activeMission.mission_status === "Misión aceptada"
+                {activeMission.status === "aceptada"
                   ? `Misión aceptada por ${activeMission.selected_agent_name}`
-                  : activeMission.mission_status === "Misión por tomar"
+                  : activeMission.status === "por_tomar"
                     ? "Esperando confirmación del agente"
-                    : activeMission.mission_status}
+                    : getMissionStatusLabel(activeMission.status)}
               </p>
-              {activeMission.mission_status === "Misión por tomar" ? (
+              {activeMission.status === "por_tomar" ? (
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">
                   La solicitud ya está en la red. El agente seleccionado puede tomarla desde Orbi.
                 </p>

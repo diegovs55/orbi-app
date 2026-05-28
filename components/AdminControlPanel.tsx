@@ -7,6 +7,7 @@ import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import {
   ActiveMission,
   getActiveMission,
+  getMissionStatusLabel,
   getMissionHistory,
   MissionStatus,
   subscribeToMission
@@ -77,7 +78,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "La Ascensión",
     paymentMethod: "Efectivo",
     paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "Misión cumplida",
+    missionStatus: "cumplida",
     price: 95,
     agentCost: 65,
     orbiProfit: 30,
@@ -101,7 +102,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "Zumpahuacán",
     paymentMethod: "Transferencia",
     paymentStatus: "Esta misión requiere pago al inicio",
-    missionStatus: "En misión",
+    missionStatus: "en_mision",
     price: 80,
     agentCost: 55,
     orbiProfit: 25,
@@ -125,7 +126,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "Centro",
     paymentMethod: "Tarjeta",
     paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "Misión aceptada",
+    missionStatus: "aceptada",
     price: 120,
     agentCost: 84,
     orbiProfit: 36,
@@ -149,7 +150,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "Barrio Alto",
     paymentMethod: "Efectivo",
     paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "Misión cumplida",
+    missionStatus: "cumplida",
     price: 110,
     agentCost: 77,
     orbiProfit: 33,
@@ -173,7 +174,7 @@ const fallbackMissions: MissionRecord[] = [
     destination: "Tesorería",
     paymentMethod: "Transferencia",
     paymentStatus: "Esta misión requiere pago al inicio",
-    missionStatus: "Misión cancelada",
+    missionStatus: "cancelada",
     price: 0,
     agentCost: 0,
     orbiProfit: 0,
@@ -546,7 +547,7 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
                 <td className="px-4 py-4 text-orbi-muted">${mission.orbiProfit}</td>
                 <td className="px-4 py-4">
                   <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-                    {mission.missionStatus}
+                    {getMissionStatusLabel(mission.missionStatus)}
                   </span>
                 </td>
                 <td className="px-4 py-4 text-orbi-muted">
@@ -563,7 +564,7 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
 }
 
 function RatingsPanel({ missions }: { missions: MissionRecord[] }) {
-  const ratedMissions = missions.filter((mission) => mission.rating !== null);
+  const ratedMissions = missions.filter(isRatedMission);
 
   return (
     <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
@@ -625,8 +626,8 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     product: "Sin datos",
     category: businesses[0]?.category ?? "Red local"
   };
-  const completedMissions = missions.filter((mission) => mission.missionStatus === "Misión cumplida");
-  const ratedMissions = missions.filter((mission) => mission.rating !== null);
+  const completedMissions = missions.filter((mission) => mission.missionStatus === "cumplida");
+  const ratedMissions = missions.filter(isRatedMission);
   const totalRevenue = missions.reduce((total, mission) => total + mission.price, 0);
   const totalCost = missions.reduce((total, mission) => total + mission.agentCost, 0);
   const totalProfit = totalRevenue - totalCost;
@@ -635,7 +636,7 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     totalMissions: missions.length,
     todayMissions: missions.filter((mission) => isSameDay(new Date(mission.date), new Date())).length,
     completedMissions: completedMissions.length,
-    cancelledMissions: missions.filter((mission) => mission.missionStatus === "Misión cancelada").length,
+    cancelledMissions: missions.filter((mission) => mission.missionStatus === "cancelada").length,
     totalRevenue,
     totalCost,
     totalProfit,
@@ -661,6 +662,14 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     salesByCategoryBars: sumBars(missions, "businessCategory", "price"),
     salesByZoneBars: sumBars(missions, "zone", "price")
   };
+}
+
+function isValidRating(rating: number | null): rating is number {
+  return typeof rating === "number" && rating >= 1 && rating <= 5;
+}
+
+function isRatedMission(mission: MissionRecord) {
+  return isValidRating(mission.rating);
 }
 
 function buildCountBars(
@@ -778,23 +787,30 @@ function rankProductsById(missions: MissionRecord[]) {
 }
 
 function rankByAgent(missions: MissionRecord[], agents: OrbiAgent[]) {
-  const names = agents.length
-    ? agents.map((agent) => agent.name)
-    : Array.from(new Set(missions.map((mission) => mission.agent))).filter(Boolean);
+  const agentKeys = agents.length
+    ? agents.map((agent) => ({ id: agent.id, name: agent.name }))
+    : Array.from(
+        new Map(
+          missions
+            .filter((mission) => mission.agentId || mission.agent)
+            .map((mission) => [
+              mission.agentId || mission.agent,
+              { id: mission.agentId || mission.agent, name: mission.agent }
+            ])
+        ).values()
+      );
 
-  return names
-    .map((name) => {
-      const agentMissions = missions.filter((mission) => mission.agent === name);
-      const agentProfile = agents.find((agent) => agent.name === name);
-      const ratings = agentMissions
-        .map((mission) => mission.rating)
-        .filter((rating): rating is number => rating !== null);
+  return agentKeys
+    .map((agentKey) => {
+      const agentMissions = missions.filter((mission) => (mission.agentId || mission.agent) === agentKey.id);
+      const agentProfile = agents.find((agent) => agent.id === agentKey.id);
+      const ratings = agentMissions.map((mission) => mission.rating).filter(isValidRating);
 
       return {
-        name,
+        name: agentProfile?.name ?? agentKey.name,
         level: agentProfile?.trustLevel ?? getSuggestedAgentLevel(agentMissions),
         missions: agentMissions.length,
-        completed: agentMissions.filter((mission) => mission.missionStatus === "Misión cumplida").length,
+        completed: agentMissions.filter((mission) => mission.missionStatus === "cumplida").length,
         averageRating: ratings.length
           ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
           : 0
@@ -837,11 +853,9 @@ function rankByBusiness(missions: MissionRecord[], businesses: AffiliateBusiness
 }
 
 function getSuggestedAgentLevel(agentMissions: MissionRecord[]) {
-  const completed = agentMissions.filter((mission) => mission.missionStatus === "Misión cumplida").length;
-  const cancelled = agentMissions.filter((mission) => mission.missionStatus === "Misión cancelada").length;
-  const ratings = agentMissions
-    .map((mission) => mission.rating)
-    .filter((rating): rating is number => rating !== null);
+  const completed = agentMissions.filter((mission) => mission.missionStatus === "cumplida").length;
+  const cancelled = agentMissions.filter((mission) => mission.missionStatus === "cancelada").length;
+  const ratings = agentMissions.map((mission) => mission.rating).filter(isValidRating);
   const averageRating = ratings.length
     ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
     : 0;
@@ -869,7 +883,7 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     destination: mission.destination_text,
     paymentMethod: normalizePaymentMethod(mission.payment_method),
     paymentStatus: mission.payment_status,
-    missionStatus: mission.mission_status,
+    missionStatus: mission.status,
     price: mission.precio_servicio ?? 0,
     agentCost: mission.costo_agente ?? 0,
     orbiProfit: mission.ganancia_orbi ?? (mission.precio_servicio ?? 0) - (mission.costo_agente ?? 0),

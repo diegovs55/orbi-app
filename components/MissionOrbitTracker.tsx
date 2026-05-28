@@ -7,8 +7,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { MissionPoint } from "@/components/MissionOrbitMap";
 import {
   ActiveMission,
+  canTransitionMission,
   getActiveMission,
+  getMissionStatusLabel,
   isMissionActive,
+  MissionStatus,
   missionProgressStatuses,
   subscribeToMission,
   updateActiveMission
@@ -76,12 +79,12 @@ export function MissionOrbitTracker() {
     }
   }
 
-  function handleMissionStatusChange(status: ActiveMission["mission_status"]) {
-    if (!mission || !canMoveToStatus(mission.mission_status, status)) {
+  function handleMissionStatusChange(status: MissionStatus) {
+    if (!mission || !canTransitionMission(mission.status, status)) {
       return;
     }
 
-    const nextMission = updateActiveMission({ mission_status: status });
+    const nextMission = updateActiveMission({ status });
     setMission(nextMission);
     if (nextMission?.last_updated_at) {
       setLastUpdated(new Date(nextMission.last_updated_at));
@@ -89,7 +92,7 @@ export function MissionOrbitTracker() {
   }
 
   function handleSaveRating() {
-    if (!mission || mission.mission_status !== "Misión cumplida") {
+    if (!mission || mission.status !== "cumplida") {
       return;
     }
 
@@ -104,7 +107,7 @@ export function MissionOrbitTracker() {
     setRatingMessage("Calificación guardada para el agente.");
   }
 
-  const nextStatus = mission ? getNextMissionStatus(mission.mission_status) : null;
+  const nextStatus = mission ? getNextMissionStatus(mission.status) : null;
 
   if (!mission) {
     return (
@@ -126,7 +129,7 @@ export function MissionOrbitTracker() {
     );
   }
 
-  if (mission.mission_status === "Misión por tomar") {
+  if (mission.status === "por_tomar") {
     return (
       <MissionClosedState
         tone="waiting"
@@ -138,7 +141,7 @@ export function MissionOrbitTracker() {
     );
   }
 
-  if (mission.mission_status === "Misión cancelada") {
+  if (mission.status === "cancelada" || mission.status === "archivada") {
     return (
       <MissionClosedState
         tone="cancelled"
@@ -150,11 +153,11 @@ export function MissionOrbitTracker() {
     );
   }
 
-  if (mission.mission_status === "Misión cumplida") {
+  if (mission.status === "cumplida") {
     return (
       <section className="space-y-5">
         <MissionSummary mission={mission} title="Misión cumplida" />
-        <MissionTimeline status={mission.mission_status} />
+        <MissionTimeline status={mission.status} />
         <RatingPanel
           comment={ratingComment}
           message={ratingMessage}
@@ -177,7 +180,7 @@ export function MissionOrbitTracker() {
   return (
     <section className="space-y-5">
       <MissionSummary mission={mission} title="Misión activa" />
-      <MissionTimeline status={mission.mission_status} />
+      <MissionTimeline status={mission.status} />
 
       <article className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -204,12 +207,12 @@ export function MissionOrbitTracker() {
               onClick={() => handleMissionStatusChange(nextStatus)}
               className="min-h-11 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
             >
-              Avanzar a {nextStatus}
+              Avanzar a {getMissionStatusLabel(nextStatus)}
             </button>
           ) : null}
           <button
             type="button"
-            onClick={() => handleMissionStatusChange("Misión cancelada")}
+            onClick={() => handleMissionStatusChange("cancelada")}
             className="min-h-11 rounded-md border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/15"
           >
             Cancelar misión
@@ -280,7 +283,7 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
           </p>
         </div>
         <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-          {mission.mission_status}
+          {getMissionStatusLabel(mission.status)}
         </span>
       </div>
 
@@ -288,7 +291,7 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
         <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
         <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
         <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
-        <MissionTile icon={Radar} label="Estado de misión" value={mission.mission_status} />
+        <MissionTile icon={Radar} label="Estado de misión" value={getMissionStatusLabel(mission.status)} />
         <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
         <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
         <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
@@ -299,9 +302,9 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
   );
 }
 
-function MissionTimeline({ status }: { status: ActiveMission["mission_status"] }) {
+function MissionTimeline({ status }: { status: MissionStatus }) {
   const currentIndex = missionProgressStatuses.indexOf(status);
-  const isCancelled = status === "Misión cancelada";
+  const isCancelled = status === "cancelada" || status === "archivada";
 
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.04] p-4">
@@ -323,7 +326,7 @@ function MissionTimeline({ status }: { status: ActiveMission["mission_status"] }
                   : "border-white/10 bg-white/[0.03] text-orbi-muted"
               }`}
             >
-              {state}
+              {getMissionStatusLabel(state)}
             </div>
           ))}
         </div>
@@ -461,27 +464,16 @@ function MissionTile({
   );
 }
 
-function getNextMissionStatus(status: ActiveMission["mission_status"]) {
-  if (status === "Misión aceptada") {
-    return "En misión";
+function getNextMissionStatus(status: MissionStatus) {
+  if (status === "aceptada") {
+    return "en_mision";
   }
 
-  if (status === "En misión") {
-    return "Misión cumplida";
+  if (status === "en_mision") {
+    return "cumplida";
   }
 
   return null;
-}
-
-function canMoveToStatus(
-  currentStatus: ActiveMission["mission_status"],
-  nextStatus: ActiveMission["mission_status"]
-) {
-  if (nextStatus === "Misión cancelada") {
-    return currentStatus !== "Misión cumplida" && currentStatus !== "Misión cancelada";
-  }
-
-  return getNextMissionStatus(currentStatus) === nextStatus;
 }
 
 function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {

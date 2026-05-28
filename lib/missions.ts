@@ -1,12 +1,22 @@
 export const missionStatuses = [
-  "Misión por tomar",
-  "Misión aceptada",
-  "En misión",
-  "Misión cumplida",
-  "Misión cancelada"
+  "por_tomar",
+  "aceptada",
+  "en_mision",
+  "cumplida",
+  "cancelada",
+  "archivada"
 ] as const;
 
 export type MissionStatus = (typeof missionStatuses)[number];
+
+export const missionStatusLabels: Record<MissionStatus, string> = {
+  por_tomar: "Misión por tomar",
+  aceptada: "Misión aceptada",
+  en_mision: "En misión",
+  cumplida: "Misión cumplida",
+  cancelada: "Misión cancelada",
+  archivada: "Misión archivada"
+};
 
 export type ActiveMission = {
   id: string;
@@ -65,38 +75,64 @@ export type ActiveMission = {
   rated_requester?: string;
   rated_at?: string;
   estimated_orbit: string;
-  mission_status: MissionStatus;
+  status: MissionStatus;
+  mission_status?: MissionStatus | string;
   last_updated_at: string;
+  updated_at: string;
+};
+
+type CreateMissionInput = Omit<ActiveMission, "id" | "last_updated_at" | "updated_at" | "status" | "mission_status"> & {
+  status?: MissionStatus;
+  mission_status?: MissionStatus | string;
 };
 
 export const missionProgressStatuses: MissionStatus[] = [
-  "Misión por tomar",
-  "Misión aceptada",
-  "En misión",
-  "Misión cumplida"
+  "por_tomar",
+  "aceptada",
+  "en_mision",
+  "cumplida"
 ];
 
 export function isMissionPending(mission: ActiveMission | null) {
-  return mission?.mission_status === "Misión por tomar";
+  return mission?.status === "por_tomar";
 }
 
 export function isMissionActive(mission: ActiveMission | null) {
-  return mission?.mission_status === "Misión aceptada" || mission?.mission_status === "En misión";
+  return mission?.status === "aceptada" || mission?.status === "en_mision";
 }
 
 export function isMissionClosed(mission: ActiveMission | null) {
-  return mission?.mission_status === "Misión cumplida" || mission?.mission_status === "Misión cancelada";
+  return mission?.status === "cumplida" || mission?.status === "cancelada" || mission?.status === "archivada";
+}
+
+export function getMissionStatusLabel(status: MissionStatus) {
+  return missionStatusLabels[status];
+}
+
+export function canTransitionMission(currentStatus: MissionStatus, nextStatus: MissionStatus) {
+  return (
+    (currentStatus === "por_tomar" && nextStatus === "aceptada") ||
+    (currentStatus === "aceptada" && nextStatus === "en_mision") ||
+    (currentStatus === "en_mision" && nextStatus === "cumplida") ||
+    ((currentStatus === "por_tomar" || currentStatus === "aceptada" || currentStatus === "en_mision") &&
+      nextStatus === "cancelada") ||
+    ((currentStatus === "cumplida" || currentStatus === "cancelada") && nextStatus === "archivada")
+  );
 }
 
 const ACTIVE_MISSION_KEY = "orbi_active_mission";
 const MISSION_HISTORY_KEY = "orbi_mission_history";
 const MISSION_CHANGE_EVENT = "orbi-mission-change";
 
-export function createMission(mission: Omit<ActiveMission, "id" | "last_updated_at">) {
+export function createMission(mission: CreateMissionInput) {
+  const now = new Date().toISOString();
   const nextMission: ActiveMission = {
     ...mission,
     id: crypto.randomUUID(),
-    last_updated_at: new Date().toISOString()
+    status: normalizeMissionStatus(mission.status ?? mission.mission_status),
+    mission_status: undefined,
+    last_updated_at: now,
+    updated_at: now
   };
 
   saveActiveMission(nextMission);
@@ -114,7 +150,7 @@ export function getActiveMission() {
   }
 
   try {
-    return JSON.parse(rawMission) as ActiveMission;
+    return normalizeMission(JSON.parse(rawMission)) as ActiveMission;
   } catch {
     return null;
   }
@@ -127,7 +163,7 @@ export function getMissionHistory() {
 
   try {
     const missions = JSON.parse(window.localStorage.getItem(MISSION_HISTORY_KEY) ?? "[]");
-    return Array.isArray(missions) ? (missions as ActiveMission[]) : [];
+    return Array.isArray(missions) ? (missions.map(normalizeMission) as ActiveMission[]) : [];
   } catch {
     return [];
   }
@@ -138,9 +174,10 @@ export function saveActiveMission(mission: ActiveMission) {
     return;
   }
 
-  window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(mission));
-  if (isMissionClosed(mission)) {
-    saveMissionToHistory(mission);
+  const normalizedMission = normalizeMission(mission) as ActiveMission;
+  window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(normalizedMission));
+  if (isMissionClosed(normalizedMission)) {
+    saveMissionToHistory(normalizedMission);
   }
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
 }
@@ -151,10 +188,23 @@ export function updateActiveMission(update: Partial<ActiveMission>) {
     return null;
   }
 
+  const nextStatus =
+    update.status || update.mission_status
+      ? normalizeMissionStatus(update.status ?? update.mission_status)
+      : currentMission.status;
+
+  if (nextStatus !== currentMission.status && !canTransitionMission(currentMission.status, nextStatus)) {
+    return currentMission;
+  }
+
+  const now = new Date().toISOString();
   const nextMission: ActiveMission = {
     ...currentMission,
     ...update,
-    last_updated_at: new Date().toISOString()
+    status: nextStatus,
+    mission_status: undefined,
+    last_updated_at: now,
+    updated_at: now
   };
 
   saveActiveMission(nextMission);
@@ -179,4 +229,50 @@ function saveMissionToHistory(mission: ActiveMission) {
   ].slice(0, 100);
 
   window.localStorage.setItem(MISSION_HISTORY_KEY, JSON.stringify(nextHistory));
+}
+
+function normalizeMission(mission: unknown) {
+  const rawMission = mission as ActiveMission & { mission_status?: string; updated_at?: string };
+  const status = normalizeMissionStatus(rawMission.status ?? rawMission.mission_status);
+  const updatedAt = rawMission.updated_at || rawMission.last_updated_at || new Date().toISOString();
+
+  return {
+    ...rawMission,
+    status,
+    mission_status: undefined,
+    updated_at: updatedAt,
+    last_updated_at: rawMission.last_updated_at || updatedAt
+  };
+}
+
+function normalizeMissionStatus(status: unknown): MissionStatus {
+  if (missionStatuses.includes(status as MissionStatus)) {
+    return status as MissionStatus;
+  }
+
+  if (status === "Misión por tomar" || status === "Esperando confirmación del agente") {
+    return "por_tomar";
+  }
+
+  if (status === "Misión aceptada") {
+    return "aceptada";
+  }
+
+  if (status === "En misión") {
+    return "en_mision";
+  }
+
+  if (status === "Misión cumplida" || status === "Finalizada") {
+    return "cumplida";
+  }
+
+  if (status === "Misión cancelada" || status === "Cancelada" || status === "Cancelar misión") {
+    return "cancelada";
+  }
+
+  if (status === "Misión archivada") {
+    return "archivada";
+  }
+
+  return "por_tomar";
 }

@@ -6,7 +6,10 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { CheckCircle2, LocateFixed, XCircle } from "lucide-react";
 import {
   ActiveMission,
+  canTransitionMission,
   getActiveMission,
+  getMissionStatusLabel,
+  MissionStatus,
   missionStatuses,
   subscribeToMission,
   updateActiveMission
@@ -30,7 +33,7 @@ export function AdminMissions() {
     }
 
     const nextMission = updateActiveMission({
-      mission_status: "Misión aceptada",
+      status: "aceptada",
       active_agent_id: mission.selected_agent_id,
       accepted_at: new Date().toISOString()
     });
@@ -40,15 +43,19 @@ export function AdminMissions() {
   }
 
   function handleRejectMission() {
-    const nextMission = updateActiveMission({ mission_status: "Misión cancelada" });
+    const nextMission = updateActiveMission({ status: "cancelada" });
     setMission(nextMission);
     setMessage("Misión rechazada. La solicitud queda fuera de órbita.");
   }
 
-  function handleMissionStatusChange(status: ActiveMission["mission_status"]) {
-    const nextMission = updateActiveMission({ mission_status: status });
+  function handleMissionStatusChange(status: MissionStatus) {
+    if (!mission || !canTransitionMission(mission.status, status)) {
+      return;
+    }
+
+    const nextMission = updateActiveMission({ status });
     setMission(nextMission);
-    setMessage(`Estado actualizado: ${status}`);
+    setMessage(`Estado actualizado: ${getMissionStatusLabel(status)}`);
   }
 
   if (!isUnlocked) {
@@ -80,7 +87,7 @@ export function AdminMissions() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-                {mission.mission_status}
+                {getMissionStatusLabel(mission.status)}
               </p>
               <h3 className="mt-1 text-xl font-black text-orbi-text">{mission.service_type}</h3>
             </div>
@@ -107,7 +114,7 @@ export function AdminMissions() {
           ) : null}
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            {mission.mission_status === "Misión por tomar" ? (
+            {mission.status === "por_tomar" ? (
               <>
                 <button
                   type="button"
@@ -137,19 +144,19 @@ export function AdminMissions() {
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             {missionStatuses
-              .filter((status) => status !== "Misión por tomar")
+              .filter((status) => canTransitionMission(mission.status, status))
               .map((status) => (
                 <button
                   key={status}
                   type="button"
                   onClick={() => handleMissionStatusChange(status)}
                   className={`min-h-10 rounded-md border px-3 py-2 text-xs font-bold transition ${
-                    mission.mission_status === status
+                    mission.status === status
                       ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan"
                       : "border-white/10 bg-white/[0.04] text-orbi-muted hover:bg-white/10"
                   }`}
                 >
-                  {status}
+                  {getMissionStatusLabel(status)}
                 </button>
               ))}
           </div>
