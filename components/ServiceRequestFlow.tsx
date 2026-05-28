@@ -382,6 +382,49 @@ export function ServiceRequestFlow() {
     };
   }, [agents, selectedService]);
 
+  const matchingDiagnostics = useMemo(() => {
+    if (!selectedService) {
+      return [];
+    }
+
+    const userOrigin = getValidCoordinatePair({
+      lat: details.originLat,
+      lng: details.originLng
+    });
+
+    return agents.map((agent) => {
+      const agentPoint = getAgentLocation(agent);
+      const validAgentPoint = agentPoint ? getValidCoordinatePair(agentPoint) : null;
+      const distance =
+        userOrigin && validAgentPoint
+          ? calculateDistanceKm(userOrigin.lat, userOrigin.lng, validAgentPoint.lat, validAgentPoint.lng)
+          : null;
+      const radius = agent.radiusKm || 20;
+      const serviceMatches = isServiceCompatible(
+        agent.serviceType,
+        selectedService.compatibleType as AgentServiceType
+      );
+
+      if (agent.status !== activeAgentStatus) {
+        return `${agent.name}: fuera de servicio (${agent.status}).`;
+      }
+
+      if (!serviceMatches) {
+        return `${agent.name}: servicio incompatible (${agent.serviceType}).`;
+      }
+
+      if (!validAgentPoint) {
+        return `${agent.name}: sin ubicación válida.`;
+      }
+
+      if (distance !== null && distance > radius) {
+        return `${agent.name}: fuera de radio (${distance.toFixed(1)} km > ${radius} km).`;
+      }
+
+      return `${agent.name}: compatible${distance !== null ? ` a ${distance.toFixed(1)} km` : ""}.`;
+    });
+  }, [agents, details.originLat, details.originLng, selectedService]);
+
   const catalogResults = useMemo(() => searchCatalog(catalogItems, searchQuery), [
     catalogItems,
     searchQuery
@@ -1092,7 +1135,7 @@ export function ServiceRequestFlow() {
                   {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
                 </p>
               ) : null}
-              {matchingStats ? <MatchingDebug stats={matchingStats} /> : null}
+              {matchingStats ? <MatchingDebug stats={matchingStats} diagnostics={matchingDiagnostics} /> : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 {compatibleAgents.map((agent) => (
                   <AgentOptionCard
@@ -1107,7 +1150,7 @@ export function ServiceRequestFlow() {
             </>
           ) : (
             <>
-              {matchingStats ? <MatchingDebug stats={matchingStats} /> : null}
+              {matchingStats ? <MatchingDebug stats={matchingStats} diagnostics={matchingDiagnostics} /> : null}
               <StateCard
                 title="No hay agentes disponibles para este servicio o zona."
                 body={
@@ -1618,7 +1661,8 @@ function AgentOptionCard({
 }
 
 function MatchingDebug({
-  stats
+  stats,
+  diagnostics
 }: {
   stats: {
     total: number;
@@ -1626,13 +1670,23 @@ function MatchingDebug({
     serviceCompatible: number;
     located: number;
   };
+  diagnostics: string[];
 }) {
   return (
-    <div className="grid gap-2 rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted sm:grid-cols-4">
-      <span>Agentes totales: {stats.total}</span>
-      <span>En órbita: {stats.active}</span>
-      <span>Servicio compatible: {stats.serviceCompatible}</span>
-      <span>Ubicación válida: {stats.located}</span>
+    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
+      <div className="grid gap-2 sm:grid-cols-4">
+        <span>Agentes totales: {stats.total}</span>
+        <span>En órbita: {stats.active}</span>
+        <span>Servicio compatible: {stats.serviceCompatible}</span>
+        <span>Ubicación válida: {stats.located}</span>
+      </div>
+      {diagnostics.length ? (
+        <div className="mt-3 space-y-1 border-t border-white/10 pt-3">
+          {diagnostics.slice(0, 5).map((item) => (
+            <p key={item}>{item}</p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

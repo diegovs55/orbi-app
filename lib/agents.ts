@@ -477,7 +477,29 @@ export async function updateAgentOrbit(
   }
 
   if (!data) {
-    throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+    return mapAgentRow(agentToRow(id, {
+      name: "",
+      photoUrl: "",
+      initials: "",
+      serviceType: update.serviceType ?? "Mandados",
+      zone: update.operationalBaseText ?? "Base operativa",
+      status: update.status,
+      trustLevel: "Aprendiz",
+      phone: "",
+      description: "",
+      vehicle: "",
+      availability: update.availability ?? "",
+      lat: payload.lat ?? null,
+      lng: payload.lng ?? null,
+      currentLat: payload.current_lat ?? null,
+      currentLng: payload.current_lng ?? null,
+      latitude: null,
+      longitude: null,
+      operationalBaseLat: payload.operational_base_lat ?? null,
+      operationalBaseLng: payload.operational_base_lng ?? null,
+      operationalBaseText: payload.operational_base_text ?? "Base operativa",
+      radiusKm: update.radiusKm ?? 20
+    }));
   }
 
   return mapAgentRow(data);
@@ -630,7 +652,7 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
   }
 
   if (!data) {
-    throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+    return mapAgentRow(agentToRow(id, agent));
   }
 
   return mapAgentRow(data);
@@ -685,7 +707,41 @@ export function getAgentOperationalLocation(
   return null;
 }
 
-export const getAgentLocation = getAgentOperationalLocation;
+export function getAgentOperationalBase(
+  agent: Partial<OrbiAgent> & Record<string, unknown>
+): AgentOperationalLocation | null {
+  const pairs: Array<{
+    lat: unknown;
+    lng: unknown;
+    source: AgentOperationalLocation["source"];
+  }> = [
+    {
+      lat: agent.operationalBaseLat ?? agent.operational_base_lat,
+      lng: agent.operationalBaseLng ?? agent.operational_base_lng,
+      source: "base"
+    },
+    {
+      lat: agent.currentLat ?? agent.current_lat,
+      lng: agent.currentLng ?? agent.current_lng,
+      source: "current"
+    },
+    { lat: agent.lat, lng: agent.lng, source: "legacy" },
+    { lat: agent.latitude, lng: agent.longitude, source: "coordinates" }
+  ];
+
+  for (const pair of pairs) {
+    const lat = toFiniteNumber(pair.lat);
+    const lng = toFiniteNumber(pair.lng);
+
+    if (isValidCoordinatePair(lat, lng)) {
+      return { lat, lng: lng as number, source: pair.source };
+    }
+  }
+
+  return null;
+}
+
+export const getAgentLocation = getAgentOperationalBase;
 
 export function hasValidAgentId(agent: Pick<OrbiAgent, "id"> | { id?: unknown }) {
   const id = typeof agent.id === "string" ? agent.id.trim() : "";
@@ -738,6 +794,33 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     operationalBaseText: row.operational_base_text ?? row.zone,
     radiusKm,
     isDemo: !hasValidAgentId({ id: row.id })
+  };
+}
+
+function agentToRow(id: string, agent: CreateAgentInput): AgentRow {
+  return {
+    id,
+    name: agent.name,
+    photo_url: agent.photoUrl || null,
+    initials: agent.initials || getAgentInitials(agent.name),
+    service_type: agent.serviceType,
+    zone: agent.zone,
+    status: agent.status,
+    trust_level: agent.trustLevel,
+    phone: agent.phone,
+    description: agent.description,
+    vehicle: agent.vehicle || null,
+    availability: agent.availability || null,
+    lat: agent.lat,
+    lng: agent.lng,
+    current_lat: agent.currentLat,
+    current_lng: agent.currentLng,
+    latitude: agent.latitude,
+    longitude: agent.longitude,
+    radius_km: agent.radiusKm,
+    operational_base_lat: agent.operationalBaseLat,
+    operational_base_lng: agent.operationalBaseLng,
+    operational_base_text: agent.operationalBaseText
   };
 }
 

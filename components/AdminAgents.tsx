@@ -208,7 +208,7 @@ export function AdminAgents() {
 
     try {
       const position = await getCurrentPosition();
-      const updatedAgent = await updateAgentOrbit(agent.id, {
+      await updateAgentOrbit(agent.id, {
         status: AGENT_STATUS.ONLINE,
         lat: position.latitude,
         lng: position.longitude,
@@ -218,11 +218,7 @@ export function AdminAgents() {
         operationalBaseText: "Ubicación actual del agente"
       });
       const refreshedAgents = await getAgents();
-      setAgents(
-        refreshedAgents.map((currentAgent) =>
-          currentAgent.id === agent.id ? updatedAgent : currentAgent
-        )
-      );
+      setAgents(refreshedAgents);
       setLocationMessage(`${agent.name} tomó órbita con ubicación operativa actualizada.`);
     } catch (caughtError) {
       setAgentError(
@@ -243,7 +239,7 @@ export function AdminAgents() {
 
     try {
       const operationalLocation = getAgentLocation(agent);
-      const updatedAgent = await updateAgentOrbit(agent.id, {
+      await updateAgentOrbit(agent.id, {
         status: AGENT_STATUS.OFFLINE,
         lat: operationalLocation?.lat ?? agent.lat,
         lng: operationalLocation?.lng ?? agent.lng,
@@ -252,11 +248,7 @@ export function AdminAgents() {
         availability: agent.availability,
         operationalBaseText: agent.operationalBaseText || agent.zone
       });
-      setAgents((currentAgents) =>
-        currentAgents.map((currentAgent) =>
-          currentAgent.id === agent.id ? updatedAgent : currentAgent
-        )
-      );
+      setAgents(await getAgents());
       setLocationMessage(`${agent.name} salió de órbita.`);
     } catch (caughtError) {
       setAgentError(
@@ -288,7 +280,7 @@ export function AdminAgents() {
   async function handleConfirmBasePoint() {
     setAgentLat(mapPoint.lat.toFixed(6));
     setAgentLng(mapPoint.lng.toFixed(6));
-    setOperationalBaseText("Base marcada en mapa");
+    setOperationalBaseText(await getBaseLabel(mapPoint));
     setIsMapOpen(false);
   }
 
@@ -831,9 +823,11 @@ function AgentEditDialog({
             onPointChange={setMapPoint}
             onClose={() => setIsMapOpen(false)}
             onConfirm={() => {
-              setLat(mapPoint.lat.toFixed(6));
-              setLng(mapPoint.lng.toFixed(6));
-              setZone("Base marcada en mapa");
+              void (async () => {
+                setLat(mapPoint.lat.toFixed(6));
+                setLng(mapPoint.lng.toFixed(6));
+                setZone(await getBaseLabel(mapPoint));
+              })();
               setIsMapOpen(false);
             }}
           />
@@ -1094,9 +1088,51 @@ function getCurrentPosition() {
   });
 }
 
+async function getBaseLabel(point: { lat: number; lng: number }) {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
+        point.lat
+      )}&lon=${encodeURIComponent(point.lng)}`
+    );
+
+    if (!response.ok) {
+      throw new Error("No fue posible leer la base.");
+    }
+
+    const result = (await response.json()) as {
+      display_name?: string;
+      address?: {
+        neighbourhood?: string;
+        suburb?: string;
+        village?: string;
+        town?: string;
+        city?: string;
+        municipality?: string;
+        county?: string;
+      };
+    };
+    const address = result.address ?? {};
+
+    return (
+      address.neighbourhood ||
+      address.suburb ||
+      address.village ||
+      address.town ||
+      address.city ||
+      address.municipality ||
+      address.county ||
+      result.display_name ||
+      "Base operativa válida"
+    );
+  } catch {
+    return "Base operativa válida";
+  }
+}
+
 function getAgentLocationBadge(agent: OrbiAgent) {
   const location = getAgentLocation(agent);
-  const label = location?.source === "current" ? "Ubicación actual" : "Base operativa";
+  const label = agent.operationalBaseText || (location?.source === "current" ? "Ubicación actual" : "Base operativa válida");
 
-  return `${label} · ${agent.radiusKm || 20} km`;
+  return `Base operativa: ${label} · radio ${agent.radiusKm || 20} km`;
 }
