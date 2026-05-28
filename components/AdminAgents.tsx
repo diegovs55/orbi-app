@@ -202,7 +202,7 @@ export function AdminAgents() {
     setAgentError("");
 
     if (!hasValidAgentId(agent)) {
-      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      setAgentError("Este agente no tiene ID real de Supabase. Recarga la lista.");
       return;
     }
 
@@ -233,7 +233,7 @@ export function AdminAgents() {
     setAgentError("");
 
     if (!hasValidAgentId(agent)) {
-      setAgentError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+      setAgentError("Este agente no tiene ID real de Supabase. Recarga la lista.");
       return;
     }
 
@@ -572,10 +572,8 @@ export function AdminAgents() {
         <AgentEditDialog
           agent={editingAgent}
           onClose={() => setEditingAgent(null)}
-          onSaved={(updatedAgent) => {
-            setAgents((currentAgents) =>
-              currentAgents.map((agent) => (agent.id === updatedAgent.id ? updatedAgent : agent))
-            );
+          onSaved={async () => {
+            setAgents(await getAgents());
             setEditingAgent(null);
           }}
         />
@@ -655,8 +653,9 @@ function AgentEditDialog({
 }: {
   agent: OrbiAgent;
   onClose: () => void;
-  onSaved: (agent: OrbiAgent) => void;
+  onSaved: () => void | Promise<void>;
 }) {
+  const [agentId] = useState(agent.id);
   const initialLocation = getAgentLocation(agent);
   const [name, setName] = useState(agent.name);
   const [photoUrl, setPhotoUrl] = useState(agent.photoUrl);
@@ -700,8 +699,8 @@ function AgentEditDialog({
     const parsedLat = parseOptionalNumber(lat);
     const parsedLng = parseOptionalNumber(lng);
 
-    if (!hasValidAgentId(agent)) {
-      setError("Este agente no tiene id válido. Recarga la lista desde Supabase.");
+    if (!hasValidAgentId({ id: agentId })) {
+      setError("Este agente no tiene ID real de Supabase. Recarga la lista.");
       return;
     }
 
@@ -719,7 +718,7 @@ function AgentEditDialog({
     setError("");
 
     try {
-      const updatedAgent = await updateAgent(agent.id, {
+      await updateAgent(agentId, {
         ...agent,
         name,
         photoUrl,
@@ -743,7 +742,7 @@ function AgentEditDialog({
         operationalBaseText: zone,
         radiusKm: Number(radius)
       });
-      onSaved(updatedAgent);
+      await onSaved();
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "No fue posible editar el agente.");
     } finally {

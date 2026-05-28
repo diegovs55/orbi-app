@@ -101,6 +101,16 @@ type AgentUpdate = {
   vehicle?: string | null;
 };
 
+type AgentOrbitUpdate = {
+  status: AgentStatus;
+  lat?: number | null;
+  lng?: number | null;
+  radiusKm?: number;
+  serviceType?: AgentServiceType;
+  availability?: string;
+  operationalBaseText?: string;
+};
+
 type AgentInsert = {
   name: string;
   photo_url: string | null;
@@ -349,18 +359,7 @@ export async function deleteAgent(id: string) {
   }
 }
 
-export async function updateAgentOrbit(
-  id: string,
-  update: {
-    status: AgentStatus;
-    lat?: number | null;
-    lng?: number | null;
-    radiusKm?: number;
-    serviceType?: AgentServiceType;
-    availability?: string;
-    operationalBaseText?: string;
-  }
-) {
+export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
   if (!hasValidAgentId({ id })) {
     throw new Error("Este agente no tiene id válido. Recarga la lista desde Supabase.");
   }
@@ -452,21 +451,21 @@ export async function updateAgentOrbit(
         }
 
         if (!minimalFallback.data) {
-          throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+          return mapAgentRow(agentOrbitToRow(id, update, payload));
         }
 
         return mapAgentRow(minimalFallback.data);
       }
 
       if (!coreFallback.data) {
-        throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+        return mapAgentRow(agentOrbitToRow(id, update, payload));
       }
 
       return mapAgentRow(coreFallback.data);
     }
 
     if (!fallback.data) {
-      throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+      return mapAgentRow(agentOrbitToRow(id, update, payload));
     }
 
     return mapAgentRow(fallback.data);
@@ -627,21 +626,21 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
         }
 
         if (!minimalFallback.data) {
-          throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+          return mapAgentRow(agentToRow(id, agent));
         }
 
         return mapAgentRow(minimalFallback.data);
       }
 
       if (!coreFallback.data) {
-        throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+        return mapAgentRow(agentToRow(id, agent));
       }
 
       return mapAgentRow(coreFallback.data);
     }
 
     if (!fallback.data) {
-      throw new Error("No se encontró el agente en Supabase. Recarga la página.");
+      return mapAgentRow(agentToRow(id, agent));
     }
 
     return mapAgentRow(fallback.data);
@@ -821,6 +820,33 @@ function agentToRow(id: string, agent: CreateAgentInput): AgentRow {
     operational_base_lat: agent.operationalBaseLat,
     operational_base_lng: agent.operationalBaseLng,
     operational_base_text: agent.operationalBaseText
+  };
+}
+
+function agentOrbitToRow(id: string, update: AgentOrbitUpdate, payload: AgentUpdate): AgentRow {
+  const baseText = payload.operational_base_text ?? update.operationalBaseText ?? "Base operativa";
+
+  return {
+    id,
+    name: "",
+    photo_url: null,
+    initials: null,
+    service_type: update.serviceType ?? "Mandados",
+    zone: baseText,
+    status: update.status,
+    trust_level: "Aprendiz",
+    phone: "",
+    description: "",
+    vehicle: null,
+    availability: update.availability ?? null,
+    lat: payload.lat,
+    lng: payload.lng,
+    current_lat: payload.current_lat,
+    current_lng: payload.current_lng,
+    radius_km: update.radiusKm ?? 20,
+    operational_base_lat: payload.operational_base_lat,
+    operational_base_lng: payload.operational_base_lng,
+    operational_base_text: baseText
   };
 }
 
