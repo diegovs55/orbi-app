@@ -13,7 +13,12 @@ export const agentServiceTypes = [
 
 export type AgentServiceType = (typeof agentServiceTypes)[number];
 
-export type AgentStatus = "En órbita" | "Fuera de órbita";
+export const AGENT_STATUS = {
+  ONLINE: "Disponible",
+  OFFLINE: "Fuera de servicio"
+} as const;
+
+export type AgentStatus = (typeof AGENT_STATUS)[keyof typeof AGENT_STATUS];
 
 export const agentLevels = ["Aprendiz", "Experto", "Elite"] as const;
 
@@ -54,7 +59,7 @@ type AgentRow = {
   initials: string | null;
   service_type: AgentServiceType;
   zone: string;
-  status: AgentStatus | "Disponible" | "Ocupado" | "Desconectado" | "Fuera de servicio";
+  status: AgentStatus | "En órbita" | "Fuera de órbita" | "Ocupado" | "Desconectado";
   trust_level: AgentTrustLevel | "Verificado" | "En validación";
   phone: string;
   description: string;
@@ -335,7 +340,7 @@ export async function deleteAgent(id: string) {
       .eq("id", id);
 
     if (softDelete.error) {
-      const inactiveFallback = await client.from("agents").update({ status: "Fuera de órbita" }).eq("id", id);
+      const inactiveFallback = await client.from("agents").update({ status: AGENT_STATUS.OFFLINE }).eq("id", id);
 
       if (inactiveFallback.error) {
         throw new Error(error.message);
@@ -787,7 +792,11 @@ function getLocallyDeletedAgentIds() {
 }
 
 function normalizeAgentStatus(status: AgentRow["status"]): AgentStatus {
-  return status === "En órbita" ? "En órbita" : "Fuera de órbita";
+  if (status === AGENT_STATUS.ONLINE || status === "En órbita") {
+    return AGENT_STATUS.ONLINE;
+  }
+
+  return AGENT_STATUS.OFFLINE;
 }
 
 function normalizeAgentLevel(level: AgentRow["trust_level"]): AgentTrustLevel {

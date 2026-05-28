@@ -16,7 +16,7 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import { AGENT_STATUS, AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   ActiveMission,
@@ -117,8 +117,8 @@ const emptyDetails: RequestDetails = {
 };
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
-  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
-  "Fuera de órbita": "border-white/10 bg-white/5 text-orbi-muted"
+  [AGENT_STATUS.ONLINE]: "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
+  [AGENT_STATUS.OFFLINE]: "border-white/10 bg-white/5 text-orbi-muted"
 };
 
 type LocationTarget = "origin" | "destination";
@@ -142,7 +142,7 @@ const initialGeocodeState: GeocodeState = {
   destination: { isLoading: false, message: "", tone: "" }
 };
 
-const activeAgentStatus: OrbiAgent["status"] = "En órbita";
+const activeAgentStatus: OrbiAgent["status"] = AGENT_STATUS.ONLINE;
 const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
 const paymentStatuses: PaymentStatus[] = [
   "Pago al finalizar la misión",

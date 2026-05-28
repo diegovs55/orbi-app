@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "r
 import dynamic from "next/dynamic";
 import { Edit3, LocateFixed, MapPin, Plus, Trash2, UserRound, X } from "lucide-react";
 import {
+  AGENT_STATUS,
   AgentServiceType,
   AgentStatus,
   AgentTrustLevel,
@@ -46,7 +47,7 @@ export function AdminAgents() {
   const [agentError, setAgentError] = useState("");
   const [agentLat, setAgentLat] = useState("");
   const [agentLng, setAgentLng] = useState("");
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>("Fuera de órbita");
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>(AGENT_STATUS.OFFLINE);
   const [availabilityStart, setAvailabilityStart] = useState("");
   const [availabilityEnd, setAvailabilityEnd] = useState("");
   const [operationalBaseText, setOperationalBaseText] = useState("");
@@ -147,7 +148,7 @@ export function AdminAgents() {
       return;
     }
 
-    if (newAgent.status === "En órbita" && !hasValidCoordinates(newAgent.lat, newAgent.lng)) {
+    if (newAgent.status === AGENT_STATUS.ONLINE && !hasValidCoordinates(newAgent.lat, newAgent.lng)) {
       setAgentError("Para tomar órbita necesitas una ubicación operativa válida.");
       return;
     }
@@ -161,7 +162,7 @@ export function AdminAgents() {
       form.reset();
       setAgentLat("");
       setAgentLng("");
-      setAgentStatus("Fuera de órbita");
+      setAgentStatus(AGENT_STATUS.OFFLINE);
       setAvailabilityStart("");
       setAvailabilityEnd("");
       setOperationalBaseText("");
@@ -184,16 +185,16 @@ export function AdminAgents() {
       setAgentLat(position.latitude.toFixed(6));
       setAgentLng(position.longitude.toFixed(6));
       setOperationalBaseText("Ubicación actual del agente");
-      setAgentStatus("En órbita");
+      setAgentStatus(AGENT_STATUS.ONLINE);
       setLocationMessage("Agente en órbita con ubicación operativa actualizada.");
     } catch {
-      setAgentStatus("Fuera de órbita");
+      setAgentStatus(AGENT_STATUS.OFFLINE);
       setLocationMessage("No pudimos obtener la ubicación del agente. No se puede tomar órbita sin ubicación válida.");
     }
   }
 
   function handleExitOrbitDraft() {
-    setAgentStatus("Fuera de órbita");
+    setAgentStatus(AGENT_STATUS.OFFLINE);
     setLocationMessage("El agente quedará fuera de órbita al guardar.");
   }
 
@@ -208,7 +209,7 @@ export function AdminAgents() {
     try {
       const position = await getCurrentPosition();
       const updatedAgent = await updateAgentOrbit(agent.id, {
-        status: "En órbita",
+        status: AGENT_STATUS.ONLINE,
         lat: position.latitude,
         lng: position.longitude,
         radiusKm: agent.radiusKm,
@@ -243,7 +244,7 @@ export function AdminAgents() {
     try {
       const operationalLocation = getAgentLocation(agent);
       const updatedAgent = await updateAgentOrbit(agent.id, {
-        status: "Fuera de órbita",
+        status: AGENT_STATUS.OFFLINE,
         lat: operationalLocation?.lat ?? agent.lat,
         lng: operationalLocation?.lng ?? agent.lng,
         radiusKm: agent.radiusKm,
@@ -695,9 +696,9 @@ function AgentEditDialog({
       setLat(position.latitude.toFixed(6));
       setLng(position.longitude.toFixed(6));
       setZone("Ubicación actual del agente");
-      setStatus("En órbita");
+      setStatus(AGENT_STATUS.ONLINE);
     } catch {
-      setStatus("Fuera de órbita");
+      setStatus(AGENT_STATUS.OFFLINE);
       setError("No pudimos obtener la ubicación del agente. No se puede tomar órbita sin ubicación válida.");
     }
   }
@@ -712,7 +713,7 @@ function AgentEditDialog({
       return;
     }
 
-    if (status === "En órbita" && !hasValidCoordinates(parsedLat, parsedLng)) {
+    if (status === AGENT_STATUS.ONLINE && !hasValidCoordinates(parsedLat, parsedLng)) {
       setError("No puedes dejar al agente en órbita sin una ubicación operativa válida.");
       return;
     }
@@ -741,8 +742,8 @@ function AgentEditDialog({
         availability: formatAvailability(availabilityStart, availabilityEnd),
         lat: parsedLat,
         lng: parsedLng,
-        currentLat: status === "En órbita" ? parsedLat : agent.currentLat,
-        currentLng: status === "En órbita" ? parsedLng : agent.currentLng,
+        currentLat: status === AGENT_STATUS.ONLINE ? parsedLat : agent.currentLat,
+        currentLng: status === AGENT_STATUS.ONLINE ? parsedLng : agent.currentLng,
         latitude: agent.latitude,
         longitude: agent.longitude,
         operationalBaseLat: parsedLat,
@@ -814,7 +815,7 @@ function AgentEditDialog({
           <ControlledInput label="Vehículo" value={vehicle} onChange={setVehicle} required={false} />
           <TimeSelect label="Hora inicio" value={availabilityStart} onChange={setAvailabilityStart} required={false} />
           <TimeSelect label="Hora fin" value={availabilityEnd} onChange={setAvailabilityEnd} required={false} />
-          <SelectInput label="Estado" value={status} onChange={(value) => setStatus(value as AgentStatus)} options={["En órbita", "Fuera de órbita"]} />
+          <SelectInput label="Estado" value={status} onChange={(value) => setStatus(value as AgentStatus)} options={[AGENT_STATUS.ONLINE, AGENT_STATUS.OFFLINE]} />
           <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
             Descripción
             <textarea className="mt-2 min-h-24 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none" value={description} onChange={(event) => setDescription(event.target.value)} required />

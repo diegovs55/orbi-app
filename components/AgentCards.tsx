@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import { AGENT_STATUS, AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
 import {
   ActiveMission,
   getActiveMission,
@@ -17,8 +17,8 @@ import {
 } from "@/lib/missions";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
-  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
-  "Fuera de órbita": "border-white/10 bg-white/5 text-orbi-muted"
+  [AGENT_STATUS.ONLINE]: "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
+  [AGENT_STATUS.OFFLINE]: "border-white/10 bg-white/5 text-orbi-muted"
 };
 
 export function AgentCards() {
@@ -478,7 +478,7 @@ function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: 
   }
 
   const isAssigned = isMissionActive(mission) && mission.active_agent_id === agent.id;
-  const isAgentActive = agent.status === "En órbita";
+  const isAgentActive = agent.status === AGENT_STATUS.ONLINE;
 
   if (isAssigned) {
     return true;

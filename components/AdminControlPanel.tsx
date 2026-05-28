@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound } from "lucide-react";
-import { getAgents, OrbiAgent } from "@/lib/agents";
+import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import {
   ActiveMission,
@@ -616,7 +616,7 @@ type Analytics = ReturnType<typeof buildAnalytics>;
 
 function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], businesses: AffiliateBusiness[]) {
   const totalAgents = agents.length;
-  const agentsInOrbit = agents.filter((agent) => agent.status === "En órbita").length;
+  const agentsInOrbit = agents.filter((agent) => agent.status === AGENT_STATUS.ONLINE).length;
   const agentsOutOrbit = Math.max(0, totalAgents - agentsInOrbit);
   const businessRanking = rankByBusiness(missions, businesses);
   const topBusiness = businessRanking[0] ?? {
