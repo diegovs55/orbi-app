@@ -18,6 +18,7 @@ import {
   getAgentLocationDiagnostics,
   getAgents,
   hasValidAgentId,
+  isAgentWithinOperatingHours,
   updateAgent,
   updateAgentOrbit
 } from "@/lib/agents";
@@ -27,6 +28,8 @@ const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
 const radiusOptions = [10, 20, 30];
 const defaultAgentLevel: AgentTrustLevel = "Aprendiz";
 const timeOptions = buildTimeOptions();
+const showAgentDebug =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_DEBUG_AGENT_MATCHING === "true";
 
 const LocationPickerMap = dynamic(
   () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
@@ -117,7 +120,7 @@ export function AdminAgents() {
     const name = String(data.get("name") ?? "").trim();
     const availability = formatAvailability(availabilityStart, availabilityEnd);
 
-    if (availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
+    if (availabilityStart !== "24 horas" && availabilityEnd !== "24 horas" && availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
       setAgentError("La hora fin debe ser posterior a la hora inicio.");
       return;
     }
@@ -527,6 +530,11 @@ export function AdminAgents() {
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                     {agent.isOnOrbit ? "En órbita" : "Fuera de órbita"}
                   </span>
+                  {!isAgentWithinOperatingHours(agent) ? (
+                    <span className="rounded-full border border-yellow-300/15 bg-yellow-300/10 px-3 py-1 text-yellow-100">
+                      Fuera de horario
+                    </span>
+                  ) : null}
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                     Nivel {agent.trustLevel}
                   </span>
@@ -570,7 +578,7 @@ export function AdminAgents() {
           </p>
         )}
       </section>
-      <AgentLocationDebugPanel agents={sortedAgents} />
+      {showAgentDebug ? <AgentLocationDebugPanel agents={sortedAgents} /> : null}
       {isMapOpen ? (
         <MapDialog
           point={mapPoint}
@@ -775,7 +783,7 @@ function AgentEditDialog({
       return;
     }
 
-    if (availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
+    if (availabilityStart !== "24 horas" && availabilityEnd !== "24 horas" && availabilityStart && availabilityEnd && availabilityStart >= availabilityEnd) {
       setError("La hora fin debe ser posterior a la hora inicio.");
       return;
     }
@@ -1006,7 +1014,7 @@ function TimeSelect({
       <select
         className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
         value={value}
-        onChange={(event) => onChange(normalizeTimeToHHmm(event.target.value))}
+        onChange={(event) => onChange(event.target.value === "24 horas" ? "24 horas" : normalizeTimeToHHmm(event.target.value))}
         required={required}
       >
         <option value="">Selecciona hora</option>
@@ -1057,6 +1065,10 @@ function hasValidCoordinates(lat: number | null, lng: number | null) {
 }
 
 function formatAvailability(start: string, end: string) {
+  if (start === "24 horas" || end === "24 horas") {
+    return "24 horas";
+  }
+
   if (!start.trim() && !end.trim()) {
     return "";
   }
@@ -1065,7 +1077,7 @@ function formatAvailability(start: string, end: string) {
 }
 
 function buildTimeOptions() {
-  const options: string[] = [];
+  const options: string[] = ["24 horas"];
 
   for (let hour = 6; hour <= 23; hour += 1) {
     options.push(`${String(hour).padStart(2, "0")}:00`);
@@ -1079,6 +1091,13 @@ function buildTimeOptions() {
 }
 
 function getAvailabilityParts(availability: string) {
+  if (availability.trim().toLowerCase() === "24 horas") {
+    return {
+      start: "24 horas",
+      end: ""
+    };
+  }
+
   const [start = "", end = ""] = splitAvailability(availability);
 
   return {

@@ -11,6 +11,7 @@ import {
   getAgentLocation,
   getAgentOperatingEligibility,
   getAgents,
+  isAgentWithinOperatingHours,
   OrbiAgent
 } from "@/lib/agents";
 import {
@@ -231,6 +232,14 @@ export function AgentCards() {
                   >
                     {agent.status}
                   </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-bold text-orbi-muted">
+                    {agent.isOnOrbit ? "En órbita" : "Fuera de órbita"}
+                  </span>
+                  {!isAgentWithinOperatingHours(agent) ? (
+                    <span className="rounded-full border border-yellow-300/15 bg-yellow-300/10 px-2.5 py-1 text-[11px] font-bold text-yellow-100">
+                      Fuera de horario
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
               </div>

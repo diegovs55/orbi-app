@@ -177,6 +177,8 @@ const paymentStatuses: PaymentStatus[] = [
 ];
 const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"];
 const pricingRule = "MVP_DISTANCE_V1";
+const showAgentMatchingDebug =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_DEBUG_AGENT_MATCHING === "true";
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -1082,11 +1084,9 @@ export function ServiceRequestFlow() {
               lat={details.originLat}
               lng={details.originLng}
               buttonLabel="Usar mi ubicación"
-              geocodeLabel="Buscar ubicación"
               geocodeState={geocodeState.origin}
               onChange={(value) => updateLocationText("origin", value)}
               onUseLocation={() => handleUseCurrentLocation("origin")}
-              onGeocode={() => handleGeocodeLocation("origin")}
               onOpenMap={() => handleOpenMap("origin")}
             />
           )}
@@ -1097,11 +1097,9 @@ export function ServiceRequestFlow() {
             lat={details.destinationLat}
             lng={details.destinationLng}
             buttonLabel="Usar ubicación actual como destino"
-            geocodeLabel="Buscar ubicación"
             geocodeState={geocodeState.destination}
             onChange={(value) => updateLocationText("destination", value)}
             onUseLocation={() => handleUseCurrentLocation("destination")}
-            onGeocode={() => handleGeocodeLocation("destination")}
             onOpenMap={() => handleOpenMap("destination")}
           />
           <ScheduleField
@@ -1178,7 +1176,7 @@ export function ServiceRequestFlow() {
                   {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
                 </p>
               ) : null}
-              {matchingStats ? (
+              {showAgentMatchingDebug && matchingStats ? (
                 <MatchingDebug
                   stats={matchingStats}
                   diagnostics={matchingDiagnostics}
@@ -1199,7 +1197,7 @@ export function ServiceRequestFlow() {
             </>
           ) : (
             <>
-              {matchingStats ? (
+              {showAgentMatchingDebug && matchingStats ? (
                 <MatchingDebug
                   stats={matchingStats}
                   diagnostics={matchingDiagnostics}
@@ -1829,11 +1827,9 @@ function LocationField({
   lat,
   lng,
   buttonLabel,
-  geocodeLabel,
   geocodeState,
   onChange,
   onUseLocation,
-  onGeocode,
   onOpenMap
 }: {
   label: string;
@@ -1842,26 +1838,15 @@ function LocationField({
   lat: number | null;
   lng: number | null;
   buttonLabel: string;
-  geocodeLabel: string;
   geocodeState: GeocodeState[LocationTarget];
   onChange: (value: string) => void;
   onUseLocation: () => void;
-  onGeocode: () => void;
   onOpenMap: () => void;
 }) {
   return (
     <div className="space-y-2">
       <RequestInput label={label} value={value} placeholder={placeholder} onChange={onChange} />
       <div className="grid gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={onGeocode}
-          disabled={geocodeState.isLoading}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <MapPin aria-hidden="true" className="h-4 w-4" />
-          {geocodeState.isLoading ? "Buscando..." : geocodeLabel}
-        </button>
         <button
           type="button"
           onClick={onOpenMap}

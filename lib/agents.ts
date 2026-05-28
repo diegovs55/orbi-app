@@ -599,6 +599,7 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
   }
 
   const client = getSupabaseClient();
+  setLocalAgentOrbit(id, agent.isOnOrbit);
   const payload: AgentUpdate = {
     name: agent.name,
     photo_url: agent.photoUrl || null,
@@ -941,6 +942,10 @@ export function getAgentCurrentLocation(agent: Partial<OrbiAgent> & Record<strin
 }
 
 export function isAgentWithinOperatingHours(agent: Pick<OrbiAgent, "availability">, date = new Date()) {
+  if (agent.availability.trim().toLowerCase() === "24 horas") {
+    return true;
+  }
+
   const range = getAvailabilityRange(agent.availability);
 
   if (!range) {
