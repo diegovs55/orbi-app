@@ -15,6 +15,7 @@ import {
   deleteAgent,
   getAgentInitials,
   getAgentLocation,
+  getAgentLocationDiagnostics,
   getAgents,
   hasValidAgentId,
   updateAgent,
@@ -560,6 +561,7 @@ export function AdminAgents() {
           </p>
         )}
       </section>
+      <AgentLocationDebugPanel agents={sortedAgents} />
       {isMapOpen ? (
         <MapDialog
           point={mapPoint}
@@ -643,6 +645,58 @@ function MapDialog({
         </div>
       </section>
     </div>
+  );
+}
+
+function AgentLocationDebugPanel({ agents }: { agents: OrbiAgent[] }) {
+  return (
+    <section className="rounded-md border border-amber-300/20 bg-amber-300/[0.06] p-4">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-100">
+        Debug temporal · ubicación agentes
+      </p>
+      <p className="mt-2 text-xs leading-5 text-orbi-muted">
+        Fuente definitiva: operational_base_lat/operational_base_lng/radius_km. Si Supabase
+        aún no tiene esas columnas, se muestra fallback temporal con lat/lng.
+      </p>
+      <div className="mt-4 space-y-3">
+        {agents.length ? (
+          agents.map((agent) => {
+            const diagnostics = getAgentLocationDiagnostics(agent);
+
+            return (
+              <div
+                key={agent.id}
+                className="rounded-md border border-white/10 bg-orbi-black/45 p-3 text-xs leading-5 text-orbi-muted"
+              >
+                <div className="flex flex-wrap items-center gap-2 font-bold text-orbi-text">
+                  <span>{agent.name}</span>
+                  <span className="text-orbi-muted">id: {agent.id || "sin id"}</span>
+                  <span>status: {agent.status}</span>
+                  <span className={diagnostics.hasValidLocation ? "text-orbi-cyan" : "text-red-200"}>
+                    hasValidLocation: {String(diagnostics.hasValidLocation)}
+                  </span>
+                </div>
+                <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                  <span>
+                    operational_base_lat/lng:{" "}
+                    {formatDebugPair(agent.operationalBaseLat, agent.operationalBaseLng)}
+                  </span>
+                  <span>current_lat/lng: {formatDebugPair(agent.currentLat, agent.currentLng)}</span>
+                  <span>lat/lng: {formatDebugPair(agent.lat, agent.lng)}</span>
+                  <span>radius_km: {agent.radiusKm ?? "null"}</span>
+                </div>
+                <p className="mt-2 text-amber-100">Resultado: {diagnostics.reason}</p>
+                {diagnostics.fallbackWarning ? (
+                  <p className="mt-1 text-amber-100">{diagnostics.fallbackWarning}</p>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <p className="text-xs text-orbi-muted">No hay agentes cargados para auditar.</p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1134,4 +1188,8 @@ function getAgentLocationBadge(agent: OrbiAgent) {
   const label = agent.operationalBaseText || (location?.source === "current" ? "Ubicación actual" : "Base operativa válida");
 
   return `Base operativa: ${label} · radio ${agent.radiusKm || 20} km`;
+}
+
+function formatDebugPair(lat: number | null, lng: number | null) {
+  return `${lat ?? "null"}, ${lng ?? "null"}`;
 }

@@ -16,7 +16,14 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AGENT_STATUS, AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import {
+  AGENT_STATUS,
+  AgentServiceType,
+  getAgentLocation,
+  getAgentLocationDiagnostics,
+  getAgents,
+  OrbiAgent
+} from "@/lib/agents";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   ActiveMission,
@@ -126,6 +133,22 @@ type LocationTarget = "origin" | "destination";
 type MapPoint = {
   lat: number;
   lng: number;
+};
+
+type AgentMatchingDebugRow = {
+  id: string;
+  name: string;
+  status: string;
+  operationalBaseLat: number | null;
+  operationalBaseLng: number | null;
+  currentLat: number | null;
+  currentLng: number | null;
+  lat: number | null;
+  lng: number | null;
+  radiusKm: number;
+  hasValidLocation: boolean;
+  reason: string;
+  fallbackWarning: string;
 };
 
 type GeocodeState = Record<
@@ -414,7 +437,7 @@ export function ServiceRequestFlow() {
       }
 
       if (!validAgentPoint) {
-        return `${agent.name}: sin ubicación válida.`;
+        return `${agent.name}: sin ubicación válida. ${getAgentLocationDiagnostics(agent).reason}`;
       }
 
       if (distance !== null && distance > radius) {
@@ -424,6 +447,28 @@ export function ServiceRequestFlow() {
       return `${agent.name}: compatible${distance !== null ? ` a ${distance.toFixed(1)} km` : ""}.`;
     });
   }, [agents, details.originLat, details.originLng, selectedService]);
+
+  const matchingDebugRows = useMemo<AgentMatchingDebugRow[]>(() => {
+    return agents.map((agent) => {
+      const diagnostics = getAgentLocationDiagnostics(agent);
+
+      return {
+        id: agent.id,
+        name: agent.name,
+        status: agent.status,
+        operationalBaseLat: agent.operationalBaseLat,
+        operationalBaseLng: agent.operationalBaseLng,
+        currentLat: agent.currentLat,
+        currentLng: agent.currentLng,
+        lat: agent.lat,
+        lng: agent.lng,
+        radiusKm: agent.radiusKm,
+        hasValidLocation: diagnostics.hasValidLocation,
+        reason: diagnostics.reason,
+        fallbackWarning: diagnostics.fallbackWarning
+      };
+    });
+  }, [agents]);
 
   const catalogResults = useMemo(() => searchCatalog(catalogItems, searchQuery), [
     catalogItems,
@@ -1135,7 +1180,13 @@ export function ServiceRequestFlow() {
                   {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
                 </p>
               ) : null}
-              {matchingStats ? <MatchingDebug stats={matchingStats} diagnostics={matchingDiagnostics} /> : null}
+              {matchingStats ? (
+                <MatchingDebug
+                  stats={matchingStats}
+                  diagnostics={matchingDiagnostics}
+                  agents={matchingDebugRows}
+                />
+              ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 {compatibleAgents.map((agent) => (
                   <AgentOptionCard
@@ -1150,7 +1201,13 @@ export function ServiceRequestFlow() {
             </>
           ) : (
             <>
-              {matchingStats ? <MatchingDebug stats={matchingStats} diagnostics={matchingDiagnostics} /> : null}
+              {matchingStats ? (
+                <MatchingDebug
+                  stats={matchingStats}
+                  diagnostics={matchingDiagnostics}
+                  agents={matchingDebugRows}
+                />
+              ) : null}
               <StateCard
                 title="No hay agentes disponibles para este servicio o zona."
                 body={
@@ -1662,7 +1719,8 @@ function AgentOptionCard({
 
 function MatchingDebug({
   stats,
-  diagnostics
+  diagnostics,
+  agents
 }: {
   stats: {
     total: number;
@@ -1671,6 +1729,7 @@ function MatchingDebug({
     located: number;
   };
   diagnostics: string[];
+  agents: AgentMatchingDebugRow[];
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold text-orbi-muted">
@@ -1687,6 +1746,34 @@ function MatchingDebug({
           ))}
         </div>
       ) : null}
+      <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+        <p className="font-black uppercase tracking-[0.14em] text-amber-100">
+          Debug temporal Supabase → matching
+        </p>
+        {agents.map((agent) => (
+          <div key={agent.id} className="rounded-md border border-white/10 bg-orbi-black/35 p-3">
+            <div className="flex flex-wrap gap-2 text-orbi-text">
+              <span>{agent.name}</span>
+              <span>id: {agent.id || "sin id"}</span>
+              <span>status: {agent.status}</span>
+              <span className={agent.hasValidLocation ? "text-orbi-cyan" : "text-red-200"}>
+                hasValidLocation: {String(agent.hasValidLocation)}
+              </span>
+            </div>
+            <div className="mt-2 grid gap-1 sm:grid-cols-2">
+              <span>
+                operational_base_lat/lng:{" "}
+                {formatNullablePair(agent.operationalBaseLat, agent.operationalBaseLng)}
+              </span>
+              <span>current_lat/lng: {formatNullablePair(agent.currentLat, agent.currentLng)}</span>
+              <span>lat/lng: {formatNullablePair(agent.lat, agent.lng)}</span>
+              <span>radius_km: {agent.radiusKm}</span>
+            </div>
+            <p className="mt-2 text-amber-100">Razón: {agent.reason}</p>
+            {agent.fallbackWarning ? <p className="mt-1 text-amber-100">{agent.fallbackWarning}</p> : null}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2098,6 +2185,10 @@ function getValidCoordinatePair(source: CoordinatePairSource) {
   }
 
   return { lat, lng };
+}
+
+function formatNullablePair(lat: number | null, lng: number | null) {
+  return `${lat ?? "null"}, ${lng ?? "null"}`;
 }
 
 function toValidCoordinate(value: unknown) {
