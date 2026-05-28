@@ -617,7 +617,7 @@ type Analytics = ReturnType<typeof buildAnalytics>;
 
 function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], businesses: AffiliateBusiness[]) {
   const totalAgents = agents.length;
-  const agentsInOrbit = agents.filter((agent) => agent.status === AGENT_STATUS.ONLINE).length;
+  const agentsInOrbit = agents.filter((agent) => agent.status === AGENT_STATUS.ONLINE && agent.isOnOrbit).length;
   const agentsOutOrbit = Math.max(0, totalAgents - agentsInOrbit);
   const businessRanking = rankByBusiness(missions, businesses);
   const topBusiness = businessRanking[0] ?? {
@@ -669,7 +669,7 @@ function isValidRating(rating: number | null): rating is number {
 }
 
 function isRatedMission(mission: MissionRecord) {
-  return isValidRating(mission.rating);
+  return mission.missionStatus === "cumplida" && isValidRating(mission.rating);
 }
 
 function buildCountBars(

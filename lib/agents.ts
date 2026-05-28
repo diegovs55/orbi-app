@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
 const DELETED_AGENTS_KEY = "orbi_deleted_agent_ids";
+const ORBIT_AGENTS_KEY = "orbi_on_orbit_agent_ids";
 
 export const agentServiceTypes = [
   "Todos los servicios",
@@ -32,6 +33,7 @@ export type OrbiAgent = {
   serviceType: AgentServiceType;
   zone: string;
   status: AgentStatus;
+  isOnOrbit: boolean;
   trustLevel: AgentTrustLevel;
   phone: string;
   description: string;
@@ -76,6 +78,8 @@ type AgentRow = {
   operational_base_lng?: number | string | null;
   operational_base_text?: string | null;
   is_active?: boolean | null;
+  is_on_orbit?: boolean | null;
+  updated_at?: string | null;
   deleted_at?: string | null;
 };
 
@@ -85,6 +89,8 @@ type AgentUpdate = {
   initials?: string | null;
   zone?: string;
   status?: AgentStatus;
+  is_on_orbit?: boolean;
+  updated_at?: string;
   lat?: number | null;
   lng?: number | null;
   current_lat?: number | null;
@@ -109,6 +115,7 @@ type AgentOrbitUpdate = {
   serviceType?: AgentServiceType;
   availability?: string;
   operationalBaseText?: string;
+  isOnOrbit?: boolean;
 };
 
 type AgentInsert = {
@@ -118,6 +125,7 @@ type AgentInsert = {
   service_type: AgentServiceType;
   zone: string;
   status: AgentStatus;
+  is_on_orbit?: boolean;
   trust_level: AgentTrustLevel;
   phone: string;
   description: string;
@@ -136,7 +144,7 @@ type AgentInsert = {
 const agentSelectMinimal =
   "id,name,photo_url,initials,service_type,zone,status,trust_level,phone,description,vehicle,availability";
 const agentSelectWithLegacyLocationColumns = `${agentSelectMinimal},lat,lng,radius_km`;
-const agentSelectWithCoreLocationColumns = `${agentSelectMinimal},lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text,is_active,deleted_at`;
+const agentSelectWithCoreLocationColumns = `${agentSelectMinimal},lat,lng,radius_km,operational_base_lat,operational_base_lng,operational_base_text,is_on_orbit,updated_at,is_active,deleted_at`;
 const agentSelectWithCurrentLocationColumns = `${agentSelectWithCoreLocationColumns},current_lat,current_lng`;
 const agentSelectWithAllLocationColumns = `${agentSelectWithCurrentLocationColumns},latitude,longitude`;
 
@@ -221,7 +229,8 @@ export async function createAgent(agent: CreateAgentInput) {
     initials: agent.initials || null,
     service_type: agent.serviceType,
     zone: agent.zone,
-    status: AGENT_STATUS.ONLINE,
+    status: agent.status,
+    is_on_orbit: agent.isOnOrbit,
     trust_level: agent.trustLevel,
     phone: agent.phone,
     description: agent.description,
@@ -409,16 +418,20 @@ export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
   }
 
   const client = getSupabaseClient();
+  const isTakingOrbit = update.isOnOrbit ?? update.status === AGENT_STATUS.ONLINE;
   const nextLat = update.lat ?? null;
   const nextLng = update.lng ?? null;
+  const now = new Date().toISOString();
   const payload: AgentUpdate = {
     status: update.status,
-    lat: nextLat,
-    lng: nextLng,
-    current_lat: nextLat,
-    current_lng: nextLng,
-    operational_base_lat: nextLat,
-    operational_base_lng: nextLng,
+    is_on_orbit: isTakingOrbit,
+    updated_at: now,
+    lat: isTakingOrbit ? nextLat : null,
+    lng: isTakingOrbit ? nextLng : null,
+    current_lat: isTakingOrbit ? nextLat : null,
+    current_lng: isTakingOrbit ? nextLng : null,
+    operational_base_lat: isTakingOrbit ? nextLat : undefined,
+    operational_base_lng: isTakingOrbit ? nextLng : undefined,
     operational_base_text: update.operationalBaseText ?? "Ubicación actual del agente",
     radius_km: update.radiusKm,
     service_type: update.serviceType,
@@ -429,14 +442,18 @@ export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
     .from("agents")
     .update(payload)
     .eq("id", id)
-    .select(agentSelectWithAllLocationColumns)
+      .select(agentSelectWithAllLocationColumns)
     .maybeSingle();
+
+  setLocalAgentOrbit(id, isTakingOrbit);
 
   if (isMissingCoordinateColumnError(error)) {
     const fallback = await client
       .from("agents")
       .update({
         status: update.status,
+        is_on_orbit: payload.is_on_orbit,
+        updated_at: payload.updated_at,
         lat: payload.lat,
         lng: payload.lng,
         current_lat: payload.current_lat,
@@ -461,6 +478,8 @@ export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
         .from("agents")
         .update({
           status: update.status,
+          is_on_orbit: payload.is_on_orbit,
+          updated_at: payload.updated_at,
           lat: payload.lat,
           lng: payload.lng,
           operational_base_lat: payload.operational_base_lat,
@@ -551,6 +570,7 @@ export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
       serviceType: update.serviceType ?? "Mandados",
       zone: update.operationalBaseText ?? "Base operativa",
       status: update.status,
+      isOnOrbit: isTakingOrbit,
       trustLevel: "Aprendiz",
       phone: "",
       description: "",
@@ -569,6 +589,7 @@ export async function updateAgentOrbit(id: string, update: AgentOrbitUpdate) {
     }));
   }
 
+  setLocalAgentOrbit(id, isTakingOrbit);
   return mapAgentRow(data);
 }
 
@@ -584,16 +605,18 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
     initials: agent.initials || null,
     service_type: agent.serviceType,
     zone: agent.zone,
-    status: AGENT_STATUS.ONLINE,
+    status: agent.status,
+    is_on_orbit: agent.isOnOrbit,
+    updated_at: new Date().toISOString(),
     trust_level: agent.trustLevel,
     phone: agent.phone,
     description: agent.description,
     vehicle: agent.vehicle || null,
     availability: agent.availability || null,
-    lat: agent.lat,
-    lng: agent.lng,
-    current_lat: agent.currentLat ?? agent.lat ?? agent.operationalBaseLat,
-    current_lng: agent.currentLng ?? agent.lng ?? agent.operationalBaseLng,
+    lat: agent.operationalBaseLat ?? agent.lat,
+    lng: agent.operationalBaseLng ?? agent.lng,
+    current_lat: agent.isOnOrbit ? agent.currentLat ?? agent.lat ?? agent.operationalBaseLat : null,
+    current_lng: agent.isOnOrbit ? agent.currentLng ?? agent.lng ?? agent.operationalBaseLng : null,
     operational_base_lat: agent.operationalBaseLat ?? agent.lat,
     operational_base_lng: agent.operationalBaseLng ?? agent.lng,
     operational_base_text: agent.operationalBaseText || agent.zone,
@@ -897,6 +920,86 @@ export function getAgentLocationDiagnostics(
 
 export const getAgentLocation = getAgentOperationalBase;
 
+export function getAgentCurrentLocation(agent: Partial<OrbiAgent> & Record<string, unknown>) {
+  const currentLat = toFiniteNumber(agent.currentLat ?? agent.current_lat);
+  const currentLng = toFiniteNumber(agent.currentLng ?? agent.current_lng);
+
+  if (isValidCoordinatePair(currentLat, currentLng)) {
+    return { lat: currentLat, lng: currentLng };
+  }
+
+  if (agent.isOnOrbit ?? agent.is_on_orbit) {
+    const fallbackLat = toFiniteNumber(agent.lat);
+    const fallbackLng = toFiniteNumber(agent.lng);
+
+    if (isValidCoordinatePair(fallbackLat, fallbackLng)) {
+      return { lat: fallbackLat, lng: fallbackLng };
+    }
+  }
+
+  return null;
+}
+
+export function isAgentWithinOperatingHours(agent: Pick<OrbiAgent, "availability">, date = new Date()) {
+  const range = getAvailabilityRange(agent.availability);
+
+  if (!range) {
+    return true;
+  }
+
+  const nowMinutes = date.getHours() * 60 + date.getMinutes();
+  const startMinutes = timeToMinutes(range.start);
+  const endMinutes = timeToMinutes(range.end);
+
+  if (startMinutes === null || endMinutes === null || startMinutes === endMinutes) {
+    return true;
+  }
+
+  if (startMinutes < endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+  }
+
+  return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
+}
+
+export function getAgentOperatingEligibility(agent: OrbiAgent, serviceType: AgentServiceType, origin?: { lat: number; lng: number } | null) {
+  const location = getAgentLocation(agent);
+  const isServiceCompatible = agent.serviceType === "Todos los servicios" || agent.serviceType === serviceType;
+  const distanceKm =
+    origin && location ? calculateDistanceKm(origin.lat, origin.lng, location.lat, location.lng) : null;
+  const radiusKm = agent.radiusKm || 20;
+
+  if (agent.status !== AGENT_STATUS.ONLINE) {
+    return { eligible: false, reason: `fuera de servicio: ${agent.status}`, location, distanceKm };
+  }
+
+  if (!agent.isOnOrbit) {
+    return { eligible: false, reason: "fuera de órbita", location, distanceKm };
+  }
+
+  if (!isAgentWithinOperatingHours(agent)) {
+    return { eligible: false, reason: "fuera de horario", location, distanceKm };
+  }
+
+  if (!location) {
+    return { eligible: false, reason: "sin ubicación válida", location, distanceKm };
+  }
+
+  if (!origin) {
+    return { eligible: false, reason: "sin origen preciso para validar radio", location, distanceKm };
+  }
+
+  if (distanceKm !== null && distanceKm > radiusKm) {
+    return { eligible: false, reason: `fuera de radio operativo: ${distanceKm.toFixed(1)} km > ${radiusKm} km`, location, distanceKm };
+  }
+
+  if (!isServiceCompatible) {
+    return { eligible: false, reason: `servicio incompatible: ${agent.serviceType}`, location, distanceKm };
+  }
+
+  return { eligible: true, reason: "elegible", location, distanceKm };
+}
+
 export function hasValidAgentId(agent: Pick<OrbiAgent, "id"> | { id?: unknown }) {
   const id = typeof agent.id === "string" ? agent.id.trim() : "";
 
@@ -932,6 +1035,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
     serviceType: row.service_type,
     zone: row.zone,
     status: normalizeAgentStatus(row.status),
+    isOnOrbit: row.is_on_orbit ?? getLocalAgentOrbit(row.id),
     trustLevel: normalizeAgentLevel(row.trust_level),
     phone: row.phone,
     description: row.description,
@@ -960,6 +1064,7 @@ function agentToRow(id: string, agent: CreateAgentInput): AgentRow {
     service_type: agent.serviceType,
     zone: agent.zone,
     status: agent.status,
+    is_on_orbit: agent.isOnOrbit,
     trust_level: agent.trustLevel,
     phone: agent.phone,
     description: agent.description,
@@ -989,6 +1094,7 @@ function agentOrbitToRow(id: string, update: AgentOrbitUpdate, payload: AgentUpd
     service_type: update.serviceType ?? "Mandados",
     zone: baseText,
     status: update.status,
+    is_on_orbit: update.isOnOrbit ?? update.status === AGENT_STATUS.ONLINE,
     trust_level: "Aprendiz",
     phone: "",
     description: "",
@@ -1042,6 +1148,43 @@ function isActiveAgentRow(row: AgentRow) {
 
 function isNotLocallyDeleted(row: AgentRow) {
   return !getLocallyDeletedAgentIds().includes(row.id);
+}
+
+function getLocalAgentOrbit(id: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return getLocalOrbitAgentIds().includes(id);
+}
+
+function setLocalAgentOrbit(id: string, isOnOrbit: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const orbitIds = new Set(getLocalOrbitAgentIds());
+
+  if (isOnOrbit) {
+    orbitIds.add(id);
+  } else {
+    orbitIds.delete(id);
+  }
+
+  window.localStorage.setItem(ORBIT_AGENTS_KEY, JSON.stringify(Array.from(orbitIds)));
+}
+
+function getLocalOrbitAgentIds() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const value = JSON.parse(window.localStorage.getItem(ORBIT_AGENTS_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function markAgentDeletedLocally(id: string) {
@@ -1105,6 +1248,51 @@ function toFiniteNumber(value: unknown) {
   }
 
   return null;
+}
+
+function getAvailabilityRange(availability: string) {
+  const match = availability.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+
+  if (!match) {
+    return null;
+  }
+
+  return { start: match[1], end: match[2] };
+}
+
+function timeToMinutes(time: string) {
+  const match = time.match(/^(\d{2}):(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours > 23 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(latB - latA);
+  const dLng = toRadians(lngB - lngA);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(latA)) *
+      Math.cos(toRadians(latB)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
 }
 
 function getAgentUpdateErrorMessage(error: { message?: string; code?: string }) {

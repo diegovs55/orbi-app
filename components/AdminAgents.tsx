@@ -49,6 +49,7 @@ export function AdminAgents() {
   const [agentLat, setAgentLat] = useState("");
   const [agentLng, setAgentLng] = useState("");
   const [agentStatus, setAgentStatus] = useState<AgentStatus>(AGENT_STATUS.OFFLINE);
+  const [draftIsOnOrbit, setDraftIsOnOrbit] = useState(false);
   const [availabilityStart, setAvailabilityStart] = useState("");
   const [availabilityEnd, setAvailabilityEnd] = useState("");
   const [operationalBaseText, setOperationalBaseText] = useState("");
@@ -128,6 +129,7 @@ export function AdminAgents() {
       serviceType: String(data.get("serviceType")) as AgentServiceType,
       zone: operationalBaseText || String(data.get("zone") ?? "").trim(),
       status: agentStatus,
+      isOnOrbit: draftIsOnOrbit,
       trustLevel: String(data.get("trustLevel") || defaultAgentLevel) as AgentTrustLevel,
       phone: String(data.get("phone") ?? "").trim(),
       description: String(data.get("description") ?? "").trim(),
@@ -135,8 +137,8 @@ export function AdminAgents() {
       availability,
       lat: parseOptionalNumber(data.get("lat")),
       lng: parseOptionalNumber(data.get("lng")),
-      currentLat: parseOptionalNumber(data.get("lat")),
-      currentLng: parseOptionalNumber(data.get("lng")),
+      currentLat: draftIsOnOrbit ? parseOptionalNumber(data.get("lat")) : null,
+      currentLng: draftIsOnOrbit ? parseOptionalNumber(data.get("lng")) : null,
       latitude: null,
       longitude: null,
       operationalBaseLat: parseOptionalNumber(data.get("lat")),
@@ -149,7 +151,7 @@ export function AdminAgents() {
       return;
     }
 
-    if (newAgent.status === AGENT_STATUS.ONLINE && !hasValidCoordinates(newAgent.lat, newAgent.lng)) {
+    if (newAgent.isOnOrbit && !hasValidCoordinates(newAgent.lat, newAgent.lng)) {
       setAgentError("Para tomar órbita necesitas una ubicación operativa válida.");
       return;
     }
@@ -164,6 +166,7 @@ export function AdminAgents() {
       setAgentLat("");
       setAgentLng("");
       setAgentStatus(AGENT_STATUS.OFFLINE);
+      setDraftIsOnOrbit(false);
       setAvailabilityStart("");
       setAvailabilityEnd("");
       setOperationalBaseText("");
@@ -187,15 +190,17 @@ export function AdminAgents() {
       setAgentLng(position.longitude.toFixed(6));
       setOperationalBaseText("Ubicación actual del agente");
       setAgentStatus(AGENT_STATUS.ONLINE);
+      setDraftIsOnOrbit(true);
       setLocationMessage("Agente en órbita con ubicación operativa actualizada.");
     } catch {
       setAgentStatus(AGENT_STATUS.OFFLINE);
+      setDraftIsOnOrbit(false);
       setLocationMessage("No pudimos obtener la ubicación del agente. No se puede tomar órbita sin ubicación válida.");
     }
   }
 
   function handleExitOrbitDraft() {
-    setAgentStatus(AGENT_STATUS.OFFLINE);
+    setDraftIsOnOrbit(false);
     setLocationMessage("El agente quedará fuera de órbita al guardar.");
   }
 
@@ -211,6 +216,7 @@ export function AdminAgents() {
       const position = await getCurrentPosition();
       await updateAgentOrbit(agent.id, {
         status: AGENT_STATUS.ONLINE,
+        isOnOrbit: true,
         lat: position.latitude,
         lng: position.longitude,
         radiusKm: agent.radiusKm,
@@ -239,11 +245,11 @@ export function AdminAgents() {
     }
 
     try {
-      const operationalLocation = getAgentLocation(agent);
       await updateAgentOrbit(agent.id, {
-        status: AGENT_STATUS.OFFLINE,
-        lat: operationalLocation?.lat ?? agent.lat,
-        lng: operationalLocation?.lng ?? agent.lng,
+        status: agent.status,
+        isOnOrbit: false,
+        lat: null,
+        lng: null,
         radiusKm: agent.radiusKm,
         serviceType: agent.serviceType,
         availability: agent.availability,
@@ -519,6 +525,9 @@ export function AdminAgents() {
                     {agent.status}
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
+                    {agent.isOnOrbit ? "En órbita" : "Fuera de órbita"}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                     Nivel {agent.trustLevel}
                   </span>
                   {agent.vehicle ? (
@@ -672,6 +681,7 @@ function AgentLocationDebugPanel({ agents }: { agents: OrbiAgent[] }) {
                   <span>{agent.name}</span>
                   <span className="text-orbi-muted">id: {agent.id || "sin id"}</span>
                   <span>status: {agent.status}</span>
+                  <span>is_on_orbit: {String(agent.isOnOrbit)}</span>
                   <span className={diagnostics.hasValidLocation ? "text-orbi-cyan" : "text-red-200"}>
                     hasValidLocation: {String(diagnostics.hasValidLocation)}
                   </span>
@@ -725,6 +735,7 @@ function AgentEditDialog({
   const [description, setDescription] = useState(agent.description);
   const [trustLevel, setTrustLevel] = useState<AgentTrustLevel>(agent.trustLevel);
   const [status, setStatus] = useState<AgentStatus>(agent.status);
+  const [isOnOrbit, setIsOnOrbit] = useState(agent.isOnOrbit);
   const [mapPoint, setMapPoint] = useState({
     lat: initialLocation?.lat ?? zumpahuacanCenter.lat,
     lng: initialLocation?.lng ?? zumpahuacanCenter.lng
@@ -742,8 +753,9 @@ function AgentEditDialog({
       setLng(position.longitude.toFixed(6));
       setZone("Ubicación actual del agente");
       setStatus(AGENT_STATUS.ONLINE);
+      setIsOnOrbit(true);
     } catch {
-      setStatus(AGENT_STATUS.OFFLINE);
+      setIsOnOrbit(false);
       setError("No pudimos obtener la ubicación del agente. No se puede tomar órbita sin ubicación válida.");
     }
   }
@@ -758,7 +770,7 @@ function AgentEditDialog({
       return;
     }
 
-    if (status === AGENT_STATUS.ONLINE && !hasValidCoordinates(parsedLat, parsedLng)) {
+    if (isOnOrbit && !hasValidCoordinates(parsedLat, parsedLng)) {
       setError("No puedes dejar al agente en órbita sin una ubicación operativa válida.");
       return;
     }
@@ -780,6 +792,7 @@ function AgentEditDialog({
         serviceType,
         zone,
         status,
+        isOnOrbit,
         trustLevel,
         phone,
         description,
@@ -787,8 +800,8 @@ function AgentEditDialog({
         availability: formatAvailability(availabilityStart, availabilityEnd),
         lat: parsedLat,
         lng: parsedLng,
-        currentLat: status === AGENT_STATUS.ONLINE ? parsedLat : agent.currentLat,
-        currentLng: status === AGENT_STATUS.ONLINE ? parsedLng : agent.currentLng,
+        currentLat: isOnOrbit ? parsedLat : null,
+        currentLng: isOnOrbit ? parsedLng : null,
         latitude: agent.latitude,
         longitude: agent.longitude,
         operationalBaseLat: parsedLat,

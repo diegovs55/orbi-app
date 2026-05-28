@@ -19,6 +19,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AGENT_STATUS,
   AgentServiceType,
+  getAgentOperatingEligibility,
   getAgentLocation,
   getAgentLocationDiagnostics,
   getAgents,
@@ -140,6 +141,8 @@ type AgentMatchingDebugRow = {
   id: string;
   name: string;
   status: string;
+  isOnOrbit: boolean;
+  availability: string;
   operationalBaseLat: number | null;
   operationalBaseLng: number | null;
   currentLat: number | null;
@@ -290,35 +293,14 @@ export function ServiceRequestFlow() {
           lat: details.originLat,
           lng: details.originLng
         });
-        const agentPoint = getAgentLocation(agent);
-        const validAgentPoint = agentPoint ? getValidCoordinatePair(agentPoint) : null;
-        const agentHasCoordinates = validAgentPoint !== null;
-        const serviceMatches = isServiceCompatible(
-          agent.serviceType,
-          selectedService.compatibleType as AgentServiceType
+        const eligibility = getAgentOperatingEligibility(
+          agent,
+          selectedService.compatibleType as AgentServiceType,
+          userHasOrigin
         );
-        const statusMatches = agent.status === activeAgentStatus;
-        const distance =
-          userHasOrigin && validAgentPoint
-            ? calculateDistanceKm(
-                userHasOrigin.lat,
-                userHasOrigin.lng,
-                validAgentPoint.lat,
-                validAgentPoint.lng
-              )
-            : null;
+        const distance = eligibility.distanceKm;
         const radius = agent.radiusKm || 20;
-        let exclusionReason = "";
-
-        if (!serviceMatches) {
-          exclusionReason = `Servicio no compatible: ${agent.serviceType}`;
-        } else if (!statusMatches) {
-          exclusionReason = `Estado no operativo: ${agent.status}`;
-        } else if (!agentHasCoordinates) {
-          exclusionReason = "Agente sin lat/lng operativos válidos";
-        } else if (distance !== null && distance > radius) {
-          exclusionReason = `Fuera de radio operativo: ${distance.toFixed(1)} km > ${radius} km`;
-        }
+        const exclusionReason = eligibility.eligible ? "" : eligibility.reason;
 
         console.info("[Orbi matching]", {
           usuario: {
@@ -331,6 +313,8 @@ export function ServiceRequestFlow() {
             nombre: agent.name,
             service_type: agent.serviceType,
             status: agent.status,
+            is_on_orbit: agent.isOnOrbit,
+            availability: agent.availability,
             lat: agent.lat,
             lng: agent.lng,
             current_lat: agent.currentLat,
@@ -340,7 +324,7 @@ export function ServiceRequestFlow() {
             latitude: agent.latitude,
             longitude: agent.longitude,
             radius_km: radius,
-            tiene_ubicacion_operativa: agentHasCoordinates
+            tiene_ubicacion_operativa: Boolean(eligibility.location)
           },
           distancia_km: distance,
           incluido: !exclusionReason,
@@ -381,6 +365,7 @@ export function ServiceRequestFlow() {
       (agent) =>
         isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType) &&
         agent.status === activeAgentStatus &&
+        agent.isOnOrbit &&
         !getValidCoordinatePair(getAgentLocation(agent) ?? {})
     ).length;
   }, [agents, selectedService]);
@@ -390,7 +375,7 @@ export function ServiceRequestFlow() {
       return null;
     }
 
-    const activeAgents = agents.filter((agent) => agent.status === activeAgentStatus);
+    const activeAgents = agents.filter((agent) => agent.status === activeAgentStatus && agent.isOnOrbit);
     const serviceCompatibleAgents = activeAgents.filter((agent) =>
       isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType)
     );
@@ -419,10 +404,12 @@ export function ServiceRequestFlow() {
     return agents.map((agent) => {
       const agentPoint = getAgentLocation(agent);
       const validAgentPoint = agentPoint ? getValidCoordinatePair(agentPoint) : null;
-      const distance =
-        userOrigin && validAgentPoint
-          ? calculateDistanceKm(userOrigin.lat, userOrigin.lng, validAgentPoint.lat, validAgentPoint.lng)
-          : null;
+      const eligibility = getAgentOperatingEligibility(
+        agent,
+        selectedService.compatibleType as AgentServiceType,
+        userOrigin
+      );
+      const distance = eligibility.distanceKm;
       const radius = agent.radiusKm || 20;
       const serviceMatches = isServiceCompatible(
         agent.serviceType,
@@ -433,8 +420,16 @@ export function ServiceRequestFlow() {
         return `${agent.name}: fuera de servicio (${agent.status}).`;
       }
 
+      if (!agent.isOnOrbit) {
+        return `${agent.name}: fuera de órbita.`;
+      }
+
       if (!serviceMatches) {
         return `${agent.name}: servicio incompatible (${agent.serviceType}).`;
+      }
+
+      if (eligibility.reason === "fuera de horario") {
+        return `${agent.name}: fuera de horario (${agent.availability || "sin horario definido"}).`;
       }
 
       if (!validAgentPoint) {
@@ -457,6 +452,8 @@ export function ServiceRequestFlow() {
         id: agent.id,
         name: agent.name,
         status: agent.status,
+        isOnOrbit: agent.isOnOrbit,
+        availability: agent.availability,
         operationalBaseLat: agent.operationalBaseLat,
         operationalBaseLng: agent.operationalBaseLng,
         currentLat: agent.currentLat,
@@ -1757,6 +1754,8 @@ function MatchingDebug({
               <span>{agent.name}</span>
               <span>id: {agent.id || "sin id"}</span>
               <span>status: {agent.status}</span>
+              <span>is_on_orbit: {String(agent.isOnOrbit)}</span>
+              <span>horario: {agent.availability || "sin horario"}</span>
               <span className={agent.hasValidLocation ? "text-orbi-cyan" : "text-red-200"}>
                 hasValidLocation: {String(agent.hasValidLocation)}
               </span>

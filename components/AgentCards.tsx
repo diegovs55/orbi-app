@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AGENT_STATUS, AgentServiceType, getAgentLocation, getAgents, OrbiAgent } from "@/lib/agents";
+import {
+  AGENT_STATUS,
+  AgentServiceType,
+  getAgentCurrentLocation,
+  getAgentLocation,
+  getAgentOperatingEligibility,
+  getAgents,
+  OrbiAgent
+} from "@/lib/agents";
 import {
   ActiveMission,
   getActiveMission,
@@ -117,7 +125,7 @@ export function AgentCards() {
       return;
     }
 
-    const operationalLocation = getAgentLocation(agent);
+    const currentLocation = getAgentCurrentLocation(agent);
     const nextMission = updateActiveMission({
       status: "aceptada",
       selected_agent_id: agent.id,
@@ -125,8 +133,8 @@ export function AgentCards() {
       selected_agent_zone: agent.zone,
       selected_agent_vehicle: agent.vehicle,
       selected_agent_trust: agent.trustLevel,
-      selected_agent_lat: operationalLocation?.lat ?? agent.lat,
-      selected_agent_lng: operationalLocation?.lng ?? agent.lng,
+      selected_agent_lat: currentLocation?.lat ?? agent.currentLat ?? agent.lat,
+      selected_agent_lng: currentLocation?.lng ?? agent.currentLng ?? agent.lng,
       active_agent_id: agent.id,
       accepted_at: new Date().toISOString()
     });
@@ -436,7 +444,11 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
 
 function getAgentRatingStats(agentId: string) {
   const ratings = getMissionHistory()
-    .filter((mission) => (mission.rated_agent_id || mission.active_agent_id || mission.selected_agent_id) === agentId)
+    .filter(
+      (mission) =>
+        mission.status === "cumplida" &&
+        (mission.rated_agent_id || mission.active_agent_id || mission.selected_agent_id) === agentId
+    )
     .map((mission) => mission.rating)
     .filter((rating): rating is number => typeof rating === "number" && rating >= 1 && rating <= 5);
 
@@ -448,8 +460,8 @@ function getAgentRatingStats(agentId: string) {
 
 function formatAgentRating(ratingStats: { count: number; average: number }) {
   return ratingStats.count
-    ? `⭐ ${ratingStats.average.toFixed(1)} / 5 · ${ratingStats.count} misiones calificadas`
-    : "Sin calificaciones todavía";
+    ? `★★★★★ ${ratingStats.average.toFixed(1)} · ${ratingStats.count} ${ratingStats.count === 1 ? "misión calificada" : "misiones calificadas"}`
+    : "Sin calificaciones";
 }
 
 function AgentAvatar({ agent }: { agent: OrbiAgent }) {
@@ -486,29 +498,17 @@ function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: 
   }
 
   const isAssigned = isMissionActive(mission) && mission.active_agent_id === agent.id;
-  const isAgentActive = agent.status === AGENT_STATUS.ONLINE;
 
   if (isAssigned) {
     return true;
   }
 
-  return (
-    isMissionPending(mission) &&
-    isAgentActive &&
-    isServiceCompatible(agent.serviceType, mission.service_type) &&
-    hasValidAgentCoordinates(agent) &&
-    hasMissionOriginCoordinates(mission) &&
-    distance !== null &&
-    distance <= (agent.radiusKm || 20)
-  );
-}
+  const origin = hasMissionOriginCoordinates(mission)
+    ? { lat: mission.origin_lat as number, lng: mission.origin_lng as number }
+    : null;
+  const eligibility = getAgentOperatingEligibility(agent, getCompatibleServiceType(mission.service_type), origin);
 
-function isServiceCompatible(agentService: AgentServiceType, missionService: string) {
-  if (agentService === "Todos los servicios") {
-    return true;
-  }
-
-  return agentService === getCompatibleServiceType(missionService);
+  return isMissionPending(mission) && eligibility.eligible && distance !== null;
 }
 
 function getCompatibleServiceType(missionService: string): AgentServiceType {
@@ -522,11 +522,6 @@ function getCompatibleServiceType(missionService: string): AgentServiceType {
   };
 
   return serviceMap[missionService] ?? "Mandados";
-}
-
-function hasValidAgentCoordinates(agent: OrbiAgent) {
-  const point = getAgentLocation(agent);
-  return point !== null;
 }
 
 function hasMissionOriginCoordinates(mission: ActiveMission) {
