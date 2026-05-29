@@ -16,9 +16,9 @@ import {
   getAgentInitials,
   getAgentLocation,
   getAgentLocationDiagnostics,
+  getAgentOperationalLabel,
   getAgents,
   hasValidAgentId,
-  isAgentWithinOperatingHours,
   updateAgent,
   updateAgentOrbit
 } from "@/lib/agents";
@@ -30,6 +30,14 @@ const defaultAgentLevel: AgentTrustLevel = "Aprendiz";
 const timeOptions = buildTimeOptions();
 const showAgentDebug =
   process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_DEBUG_AGENT_MATCHING === "true";
+
+const operationalLabelStyles: Record<string, string> = {
+  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
+  "Fuera de horario": "border-yellow-300/15 bg-yellow-300/10 text-yellow-100",
+  "Fuera de servicio": "border-red-300/15 bg-red-400/10 text-red-200",
+  "Fuera de zona": "border-yellow-300/15 bg-yellow-300/10 text-yellow-100",
+  "Fuera de órbita": "border-white/10 bg-white/[0.04] text-orbi-muted"
+};
 
 const LocationPickerMap = dynamic(
   () => import("@/components/LocationPickerMap").then((mod) => mod.LocationPickerMap),
@@ -524,17 +532,14 @@ export function AdminAgents() {
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
-                    {agent.status}
+                  <span
+                    className={`rounded-full border px-3 py-1 ${
+                      operationalLabelStyles[getAgentOperationalLabel(agent)] ??
+                      "border-white/10 bg-white/[0.04] text-orbi-muted"
+                    }`}
+                  >
+                    {getAgentOperationalLabel(agent)}
                   </span>
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
-                    {agent.isOnOrbit ? "En órbita" : "Fuera de órbita"}
-                  </span>
-                  {!isAgentWithinOperatingHours(agent) ? (
-                    <span className="rounded-full border border-yellow-300/15 bg-yellow-300/10 px-3 py-1 text-yellow-100">
-                      Fuera de horario
-                    </span>
-                  ) : null}
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                     Nivel {agent.trustLevel}
                   </span>
@@ -1145,7 +1150,7 @@ function normalizeTimeToHHmm(value: string) {
 }
 
 function splitAvailability(availability: string) {
-  const rangeMatch = availability.match(/(.+?)\s+-\s+(.+)/);
+  const rangeMatch = availability.match(/(.+?)\s*-\s*(.+)/);
   if (rangeMatch) {
     return [rangeMatch[1], rangeMatch[2]];
   }

@@ -9,9 +9,9 @@ import {
   AgentServiceType,
   getAgentCurrentLocation,
   getAgentLocation,
+  getAgentOperationalLabel,
   getAgentOperatingEligibility,
   getAgents,
-  isAgentWithinOperatingHours,
   OrbiAgent
 } from "@/lib/agents";
 import {
@@ -29,6 +29,14 @@ import {
 const statusStyles: Record<OrbiAgent["status"], string> = {
   [AGENT_STATUS.ONLINE]: "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
   [AGENT_STATUS.OFFLINE]: "border-white/10 bg-white/5 text-orbi-muted"
+};
+
+const operationalLabelStyles: Record<string, string> = {
+  "En órbita": "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan",
+  "Fuera de horario": "border-yellow-300/15 bg-yellow-300/10 text-yellow-100",
+  "Fuera de servicio": "border-red-300/15 bg-red-400/10 text-red-200",
+  "Fuera de zona": "border-yellow-300/15 bg-yellow-300/10 text-yellow-100",
+  "Fuera de órbita": "border-white/10 bg-white/[0.04] text-orbi-muted"
 };
 
 export function AgentCards() {
@@ -228,18 +236,12 @@ export function AgentCards() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-xl font-black leading-tight text-orbi-text">{agent.name}</h2>
                   <span
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusStyles[agent.status]}`}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                      operationalLabelStyles[getAgentOperationalLabel(agent)] ?? statusStyles[agent.status]
+                    }`}
                   >
-                    {agent.status}
+                    {getAgentOperationalLabel(agent)}
                   </span>
-                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-bold text-orbi-muted">
-                    {agent.isOnOrbit ? "En órbita" : "Fuera de órbita"}
-                  </span>
-                  {!isAgentWithinOperatingHours(agent) ? (
-                    <span className="rounded-full border border-yellow-300/15 bg-yellow-300/10 px-2.5 py-1 text-[11px] font-bold text-yellow-100">
-                      Fuera de horario
-                    </span>
-                  ) : null}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
               </div>

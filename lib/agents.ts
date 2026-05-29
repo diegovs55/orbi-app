@@ -1005,6 +1005,41 @@ export function getAgentOperatingEligibility(agent: OrbiAgent, serviceType: Agen
   return { eligible: true, reason: "elegible", location, distanceKm };
 }
 
+export function getAgentOperationalLabel(
+  agent: OrbiAgent,
+  now = new Date(),
+  origin?: { lat: number; lng: number } | null
+) {
+  if (agent.status !== AGENT_STATUS.ONLINE) {
+    return "Fuera de servicio";
+  }
+
+  if (agent.isOnOrbit !== true) {
+    return "Fuera de órbita";
+  }
+
+  if (!isAgentWithinOperatingHours(agent, now)) {
+    return "Fuera de horario";
+  }
+
+  const location = getAgentLocation(agent);
+
+  if (!location) {
+    return "Fuera de órbita";
+  }
+
+  if (origin) {
+    const distanceKm = calculateDistanceKm(origin.lat, origin.lng, location.lat, location.lng);
+    const radiusKm = agent.radiusKm || 20;
+
+    if (distanceKm > radiusKm) {
+      return "Fuera de zona";
+    }
+  }
+
+  return "En órbita";
+}
+
 export function hasValidAgentId(agent: Pick<OrbiAgent, "id"> | { id?: unknown }) {
   const id = typeof agent.id === "string" ? agent.id.trim() : "";
 
