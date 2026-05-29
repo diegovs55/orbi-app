@@ -184,8 +184,13 @@ export function MissionOrbitTracker() {
   if (mission.status === "cumplida") {
     return (
       <section className="space-y-5">
-        <MissionSummary mission={mission} title="Misión cumplida" />
-        <MissionTimeline status={mission.status} />
+        <MissionClosedState
+          tone="waiting"
+          title="Misión cumplida"
+          body="Esta misión ya fue completada y quedó cerrada en Red Orbi."
+          primaryHref="/pedir"
+          primaryLabel="Crear nueva misión"
+        />
         <RatingPanel
           comment={ratingComment}
           message={ratingMessage}
@@ -195,12 +200,6 @@ export function MissionOrbitTracker() {
           onRatingChange={setRating}
           onSave={handleSaveRating}
         />
-        <Link
-          href="/pedir"
-          className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:w-auto"
-        >
-          Crear nueva misión
-        </Link>
       </section>
     );
   }

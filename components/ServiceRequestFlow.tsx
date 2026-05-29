@@ -135,6 +135,7 @@ const statusStyles: Record<OrbiAgent["status"], string> = {
 
 type LocationTarget = "origin" | "destination";
 type DraftSection = "pedido" | "destino" | "solicitante" | "resumen";
+type ConfirmedDraftSections = Record<"pedido" | "destino" | "solicitante", boolean>;
 
 type MapPoint = {
   lat: number;
@@ -221,6 +222,9 @@ export function ServiceRequestFlow() {
   const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
+  const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
+    getInitialConfirmedDraftSections(initialDraftMission)
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -527,11 +531,14 @@ export function ServiceRequestFlow() {
     : Boolean(details.detail.trim() && details.origin.trim());
   const destinationIsComplete = Boolean(destinationCoordinatePair);
   const requesterIsComplete = Boolean(details.requesterName.trim() && details.requesterPhone.trim());
-  const naturalDraftSection: DraftSection = !orderIsComplete
+  const orderIsConfirmed = confirmedDraftSections.pedido && orderIsComplete;
+  const destinationIsConfirmed = confirmedDraftSections.destino && destinationIsComplete;
+  const requesterIsConfirmed = confirmedDraftSections.solicitante && requesterIsComplete;
+  const naturalDraftSection: DraftSection = !orderIsConfirmed
     ? "pedido"
-    : !destinationIsComplete
+    : !destinationIsConfirmed
       ? "destino"
-      : !requesterIsComplete
+      : !requesterIsConfirmed
         ? "solicitante"
         : "resumen";
   const activeDraftSection = expandedDraftSection ?? naturalDraftSection;
@@ -549,6 +556,7 @@ export function ServiceRequestFlow() {
     setRequestStatusMessage("");
     setExpandedDraftSection(null);
     setIsCartDetailExpanded(false);
+    setConfirmedDraftSections(getInitialConfirmedDraftSections(null));
   }
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
@@ -594,6 +602,7 @@ export function ServiceRequestFlow() {
     setCartItems(nextCart);
     setExpandedDraftSection(null);
     setIsCartDetailExpanded(false);
+    setConfirmedDraftSections((currentSections) => ({ ...currentSections, pedido: false }));
     setDetails((currentDetails) => ({
       ...currentDetails,
       origin: product.businessBaseText || product.businessName,
@@ -611,6 +620,7 @@ export function ServiceRequestFlow() {
     setSelectedService(service);
     setExpandedDraftSection(null);
     setIsCartDetailExpanded(false);
+    setConfirmedDraftSections(getInitialConfirmedDraftSections(null));
     setCartItems([]);
     setCartMessage("");
     setDetails((currentDetails) => ({
@@ -624,12 +634,14 @@ export function ServiceRequestFlow() {
       item.product.id === productId ? { ...item, quantity: Math.max(1, quantity) } : item
     );
     setCartItems(nextCart);
+    setConfirmedDraftSections((currentSections) => ({ ...currentSections, pedido: false }));
     updateDetailsWithCart(nextCart);
   }
 
   function removeCartItem(productId: string) {
     const nextCart = cartItems.filter((item) => item.product.id !== productId);
     setCartItems(nextCart);
+    setConfirmedDraftSections((currentSections) => ({ ...currentSections, pedido: false }));
     updateDetailsWithCart(nextCart);
   }
 
@@ -656,6 +668,10 @@ export function ServiceRequestFlow() {
         ? { origin: value, originLat: null, originLng: null }
         : { destination: value, destinationLat: null, destinationLng: null })
     }));
+    setConfirmedDraftSections((currentSections) => ({
+      ...currentSections,
+      [target === "origin" ? "pedido" : "destino"]: false
+    }));
     updateGeocodeState(target, { isLoading: false, message: "", tone: "" });
   }
 
@@ -668,6 +684,10 @@ export function ServiceRequestFlow() {
       ...(target === "origin"
         ? { originLat: coords.latitude, originLng: coords.longitude }
         : { destinationLat: coords.latitude, destinationLng: coords.longitude })
+    }));
+    setConfirmedDraftSections((currentSections) => ({
+      ...currentSections,
+      [target === "origin" ? "pedido" : "destino"]: false
     }));
   }
 
@@ -1074,6 +1094,7 @@ export function ServiceRequestFlow() {
     setIsRequestReady(false);
     setSelectedAgent(null);
     setExpandedDraftSection(null);
+    setConfirmedDraftSections(getInitialConfirmedDraftSections(activeMission));
     setWaitingRequestMessage("");
     setShowWaitingCancelConfirm(false);
   }
@@ -1091,6 +1112,7 @@ export function ServiceRequestFlow() {
         selectedService={selectedService}
         details={details}
         cartItems={cartItems}
+        confirmedSections={confirmedDraftSections}
         isRequestReady={isRequestReady}
         selectedAgent={selectedAgent}
       />
@@ -1230,8 +1252,18 @@ export function ServiceRequestFlow() {
                   />
                 </>
               )}
+              <ContinueStepButton
+                disabled={!orderIsComplete}
+                onClick={() => {
+                  setConfirmedDraftSections((currentSections) => ({
+                    ...currentSections,
+                    pedido: true
+                  }));
+                  setExpandedDraftSection(null);
+                }}
+              />
             </FormSection>
-          ) : orderIsComplete ? (
+          ) : orderIsConfirmed ? (
             <OrderSummaryCard
               service={selectedService}
               details={details}
@@ -1239,12 +1271,16 @@ export function ServiceRequestFlow() {
               subtotal={cartSubtotal}
               onEdit={() => {
                 setIsCartDetailExpanded(Boolean(cartItems.length));
+                setConfirmedDraftSections((currentSections) => ({
+                  ...currentSections,
+                  pedido: false
+                }));
                 setExpandedDraftSection("pedido");
               }}
             />
           ) : null}
 
-          {orderIsComplete ? (
+          {orderIsConfirmed ? (
             activeDraftSection === "destino" ? (
               <FormSection title="Destino">
                 <LocationField
@@ -1263,21 +1299,49 @@ export function ServiceRequestFlow() {
                   mode={details.scheduleMode}
                   scheduledAt={details.scheduledAt}
                   onModeChange={(value) =>
-                    setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
+                    {
+                      setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }));
+                      setConfirmedDraftSections((currentSections) => ({
+                        ...currentSections,
+                        destino: false
+                      }));
+                    }
                   }
-                  onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
+                  onScheduledAtChange={(value) => {
+                    updateDetails("scheduledAt", value);
+                    setConfirmedDraftSections((currentSections) => ({
+                      ...currentSections,
+                      destino: false
+                    }));
+                  }}
+                />
+                <ContinueStepButton
+                  disabled={!destinationIsComplete}
+                  onClick={() => {
+                    setConfirmedDraftSections((currentSections) => ({
+                      ...currentSections,
+                      destino: true
+                    }));
+                    setExpandedDraftSection(null);
+                  }}
                 />
               </FormSection>
-            ) : destinationIsComplete ? (
+            ) : destinationIsConfirmed ? (
               <DestinationSummaryCard
                 destination={details.destination}
                 schedule={getDesiredTimeLabel(details)}
-                onEdit={() => setExpandedDraftSection("destino")}
+                onEdit={() => {
+                  setConfirmedDraftSections((currentSections) => ({
+                    ...currentSections,
+                    destino: false
+                  }));
+                  setExpandedDraftSection("destino");
+                }}
               />
             ) : null
           ) : null}
 
-          {orderIsComplete && destinationIsComplete ? (
+          {orderIsConfirmed && destinationIsConfirmed ? (
             activeDraftSection === "solicitante" ? (
               <FormSection title="Datos del solicitante">
                 {/* Future auth user profile autofill */}
@@ -1293,17 +1357,33 @@ export function ServiceRequestFlow() {
                   placeholder="55 0000 0000"
                   onChange={(value) => updateDetails("requesterPhone", value)}
                 />
+                <ContinueStepButton
+                  disabled={!requesterIsComplete}
+                  onClick={() => {
+                    setConfirmedDraftSections((currentSections) => ({
+                      ...currentSections,
+                      solicitante: true
+                    }));
+                    setExpandedDraftSection(null);
+                  }}
+                />
               </FormSection>
-            ) : requesterIsComplete ? (
+            ) : requesterIsConfirmed ? (
               <RequesterSummaryCard
                 name={details.requesterName}
                 phone={details.requesterPhone}
-                onEdit={() => setExpandedDraftSection("solicitante")}
+                onEdit={() => {
+                  setConfirmedDraftSections((currentSections) => ({
+                    ...currentSections,
+                    solicitante: false
+                  }));
+                  setExpandedDraftSection("solicitante");
+                }}
               />
             ) : null
           ) : null}
 
-          {orderIsComplete && destinationIsComplete && requesterIsComplete && activeDraftSection === "resumen" ? (
+          {orderIsConfirmed && destinationIsConfirmed && requesterIsConfirmed && activeDraftSection === "resumen" ? (
             <FormSection title="Resumen">
               <CompactCostSummary
                 isCatalogMission={isCatalogMission}
@@ -1364,6 +1444,14 @@ export function ServiceRequestFlow() {
             <StateCard title="No pudimos cargar agentes." body={agentError} tone="error" />
           ) : compatibleAgents.length ? (
             <>
+              <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+                  Agente disponible
+                </p>
+                <h2 className="mt-1 text-lg font-black text-orbi-text">
+                  Elige quién pondrá tu misión en órbita
+                </h2>
+              </div>
               {details.originLat === null || details.originLng === null ? (
                 <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
                   Sin ubicación precisa, mostramos agentes disponibles por servicio.
@@ -1602,18 +1690,24 @@ function StepHeader({
   selectedService,
   details,
   cartItems,
+  confirmedSections,
   isRequestReady,
   selectedAgent
 }: {
   selectedService: ServiceOption | null;
   details: RequestDetails;
   cartItems: CartItem[];
+  confirmedSections: ConfirmedDraftSections;
   isRequestReady: boolean;
   selectedAgent: OrbiAgent | null;
 }) {
-  const hasOrder = Boolean(cartItems.length || details.detail.trim());
-  const hasDestination = Boolean(getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }));
-  const hasRequester = Boolean(details.requesterName.trim() && details.requesterPhone.trim());
+  const hasOrder = confirmedSections.pedido && Boolean(cartItems.length || details.detail.trim());
+  const hasDestination =
+    confirmedSections.destino &&
+    Boolean(getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }));
+  const hasRequester =
+    confirmedSections.solicitante &&
+    Boolean(details.requesterName.trim() && details.requesterPhone.trim());
   const steps = [
     { label: "Servicio", active: !selectedService, done: Boolean(selectedService) },
     { label: "Pedido", active: Boolean(selectedService && !hasOrder), done: hasOrder },
@@ -1650,6 +1744,25 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{title}</h3>
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>
+  );
+}
+
+function ContinueStepButton({
+  disabled,
+  onClick
+}: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"
+    >
+      Continuar
+    </button>
   );
 }
 
@@ -2562,6 +2675,14 @@ function getInitialPaymentMethodFromMission(mission: ActiveMission | null): Paym
   return paymentMethods.includes(mission?.payment_method as PaymentMethod)
     ? (mission?.payment_method as PaymentMethod)
     : "Efectivo";
+}
+
+function getInitialConfirmedDraftSections(mission: ActiveMission | null): ConfirmedDraftSections {
+  return {
+    pedido: Boolean(mission),
+    destino: Boolean(mission),
+    solicitante: Boolean(mission)
+  };
 }
 
 function getDesiredTimeLabel(details: RequestDetails) {
