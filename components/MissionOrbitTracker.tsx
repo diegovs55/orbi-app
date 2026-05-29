@@ -3,8 +3,13 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Clock3, LocateFixed, PackageCheck, Radar, Route, ShieldCheck, UserRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { MissionPoint } from "@/components/MissionOrbitMap";
+import {
+  isCustomerRegistered,
+  registerCustomerAccount,
+  upsertGuestCustomerFromMission
+} from "@/lib/customers";
 import {
   ActiveMission,
   canTransitionMission,
@@ -52,6 +57,8 @@ export function MissionOrbitTracker() {
   const [ratingMessage, setRatingMessage] = useState("");
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingMessage, setWaitingMessage] = useState("");
+  const [customerIsRegistered, setCustomerIsRegistered] = useState<boolean | null>(null);
+  const [hideAccountInvite, setHideAccountInvite] = useState(false);
 
   useEffect(() => {
     return subscribeToMission(() => {
@@ -62,6 +69,26 @@ export function MissionOrbitTracker() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!mission?.requester_phone) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    isCustomerRegistered(mission.requester_phone).then((isRegistered) => {
+      if (isActive) {
+        setCustomerIsRegistered(isRegistered);
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [mission?.requester_phone, mission?.user_id]);
 
   function refreshAgentLocation() {
     if (!isMissionActive(mission)) {
@@ -110,6 +137,29 @@ export function MissionOrbitTracker() {
       setLastUpdated(new Date(nextMission.last_updated_at));
     }
     setRatingMessage("Calificación guardada para el agente.");
+  }
+
+  async function handleRegisterCustomer({
+    name,
+    phone,
+    email,
+    password
+  }: {
+    name: string;
+    phone: string;
+    email: string;
+    password: string;
+  }) {
+    if (!mission) {
+      return;
+    }
+
+    await upsertGuestCustomerFromMission(mission);
+    const customer = await registerCustomerAccount({ name, phone, email, password });
+    setCustomerIsRegistered(true);
+    setHideAccountInvite(true);
+    const refreshedMission = getActiveMission();
+    setMission(refreshedMission ? { ...refreshedMission, user_id: customer.userId } : refreshedMission);
   }
 
   function handleCancelWaitingMission() {
@@ -186,6 +236,7 @@ export function MissionOrbitTracker() {
 
   if (mission.status === "cumplida") {
     const shouldShowRatingPanel = !hasMissionRating(mission);
+    const shouldShowAccountInvite = customerIsRegistered === false && !hideAccountInvite;
 
     return (
       <section className="space-y-5">
@@ -205,6 +256,13 @@ export function MissionOrbitTracker() {
             onCommentChange={setRatingComment}
             onRatingChange={setRating}
             onSave={handleSaveRating}
+          />
+        ) : null}
+        {shouldShowAccountInvite ? (
+          <CreateAccountInvite
+            mission={mission}
+            onLater={() => setHideAccountInvite(true)}
+            onRegister={handleRegisterCustomer}
           />
         ) : null}
       </section>
@@ -509,6 +567,133 @@ function WaitingOrbitState({
         </div>
       )}
     </section>
+  );
+}
+
+function CreateAccountInvite({
+  mission,
+  onLater,
+  onRegister
+}: {
+  mission: ActiveMission;
+  onLater: () => void;
+  onRegister: (input: { name: string; phone: string; email: string; password: string }) => Promise<void>;
+}) {
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [name, setName] = useState(mission.requester_name);
+  const [phone, setPhone] = useState(mission.requester_phone);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+
+    if (!name.trim() || !phone.trim() || !email.trim() || !password) {
+      setMessage("Completa nombre, teléfono, correo y contraseña.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setMessage("Las contraseñas no coinciden.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await onRegister({ name, phone, email, password });
+      setMessage("Cuenta creada. Tu historial quedó guardado en Orbi.");
+    } catch (caughtError) {
+      setMessage(caughtError instanceof Error ? caughtError.message : "No fue posible crear la cuenta.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+        Guarda tu historial en Orbi
+      </p>
+      <h3 className="mt-1 text-lg font-black text-orbi-text">
+        ¿Quieres guardar tu historial, direcciones favoritas y futuras misiones?
+      </h3>
+      <p className="mt-2 text-sm leading-6 text-orbi-muted">
+        Crea tu cuenta para consultar tus misiones anteriores, guardar tus datos y agilizar tus próximos pedidos.
+      </p>
+      {!isFormOpen ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setIsFormOpen(true)}
+            className="min-h-11 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow"
+          >
+            Crear mi cuenta
+          </button>
+          <button
+            type="button"
+            onClick={onLater}
+            className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+          >
+            Más tarde
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="mt-4 grid gap-3 sm:grid-cols-2">
+          <AccountInput label="Nombre" value={name} onChange={setName} />
+          <AccountInput label="Teléfono" value={phone} onChange={setPhone} />
+          <AccountInput label="Correo electrónico" value={email} onChange={setEmail} type="email" />
+          <AccountInput label="Contraseña" value={password} onChange={setPassword} type="password" />
+          <AccountInput
+            label="Confirmar contraseña"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            type="password"
+          />
+          {message ? (
+            <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3 text-sm font-bold text-orbi-cyan sm:col-span-2">
+              {message}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="min-h-11 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow disabled:opacity-60 sm:col-span-2"
+          >
+            {isSaving ? "Creando cuenta..." : "Crear mi cuenta"}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function AccountInput({
+  label,
+  value,
+  onChange,
+  type = "text"
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-orbi-text">
+      {label}
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60"
+        required
+      />
+    </label>
   );
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
+import { getCustomers, OrbiCustomer } from "@/lib/customers";
 import {
   ActiveMission,
   getActiveMission,
@@ -22,6 +23,7 @@ type MissionRecord = {
   date: string;
   service: string;
   requester: string;
+  requesterPhone?: string;
   agent: string;
   agentId: string;
   origin: string;
@@ -195,6 +197,7 @@ export function AdminControlPanel() {
   const [missionHistory, setMissionHistory] = useState<ActiveMission[]>(() => getMissionHistory());
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
+  const [customers, setCustomers] = useState<OrbiCustomer[]>([]);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("Últimos 7 días");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -210,7 +213,7 @@ export function AdminControlPanel() {
   useEffect(() => {
     let isActive = true;
 
-    Promise.allSettled([getAgents(), getBusinesses()]).then(([agentsResult, businessesResult]) => {
+    Promise.allSettled([getAgents(), getBusinesses(), getCustomers()]).then(([agentsResult, businessesResult, customersResult]) => {
       if (!isActive) {
         return;
       }
@@ -221,6 +224,10 @@ export function AdminControlPanel() {
 
       if (businessesResult.status === "fulfilled") {
         setBusinesses(businessesResult.value);
+      }
+
+      if (customersResult.status === "fulfilled") {
+        setCustomers(customersResult.value);
       }
     });
 
@@ -241,9 +248,10 @@ export function AdminControlPanel() {
     return filterMissionsByTime(missions, timeFilter, today, customStart, customEnd);
   }, [customEnd, customStart, missions, timeFilter, today]);
 
-  const analytics = useMemo(() => buildAnalytics(filteredMissions, agents, businesses), [
+  const analytics = useMemo(() => buildAnalytics(filteredMissions, agents, businesses, customers), [
     agents,
     businesses,
+    customers,
     filteredMissions
   ]);
 
@@ -310,6 +318,10 @@ export function AdminControlPanel() {
         <MetricCard icon={Gauge} label="Ticket promedio" value={analytics.averageTicket} prefix="$" />
         <MetricCard icon={Gauge} label="Ganancia promedio" value={analytics.averageProfit} prefix="$" />
         <MetricCard icon={ShieldCheck} label="Calificación promedio" value={analytics.averageRating} suffix="/5" />
+        <MetricCard icon={UsersRound} label="Total usuarios" value={analytics.totalUsers} />
+        <MetricCard icon={UsersRound} label="Usuarios registrados" value={analytics.registeredUsers} />
+        <MetricCard icon={UsersRound} label="Usuarios no registrados" value={analytics.guestUsers} />
+        <MetricCard icon={UsersRound} label="Conversión a cuenta" value={analytics.accountConversion} suffix="%" />
         <MetricCard icon={Gauge} label="Meta de misiones" value={missionGoal} />
         <ProgressCard value={analytics.totalMissions} goal={missionGoal} />
       </div>
@@ -327,6 +339,7 @@ export function AdminControlPanel() {
       </div>
 
       <CatalogAnalyticsPanel analytics={analytics} />
+      <UsersPanel analytics={analytics} />
 
       <MissionHistoryTable missions={filteredMissions} />
       <RatingsPanel missions={filteredMissions} />
@@ -491,6 +504,41 @@ function CatalogAnalyticsPanel({ analytics }: { analytics: Analytics }) {
   );
 }
 
+function UsersPanel({ analytics }: { analytics: Analytics }) {
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-4 shadow-soft">
+      <div className="mb-4 flex items-center gap-2 text-orbi-cyan">
+        <UsersRound aria-hidden="true" className="h-4 w-4" />
+        <h3 className="text-sm font-black text-orbi-text">Usuarios y conversión</h3>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <MiniStat label="Total usuarios" value={analytics.totalUsers} />
+        <MiniStat label="Registrados" value={analytics.registeredUsers} />
+        <MiniStat label="No registrados" value={analytics.guestUsers} />
+        <MiniStat label="Conversión %" value={analytics.accountConversion} />
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <RankingList
+          title="Pedidos por usuario"
+          items={analytics.customerRanking.map((customer) => ({
+            label: customer.name || customer.phone,
+            value: customer.totalOrders,
+            detail: `${customer.isRegistered ? "Registrado" : "No registrado"} · Última compra: ${formatDate(customer.lastOrderAt)}`
+          }))}
+        />
+        <RankingList
+          title="Total comprado por usuario"
+          items={analytics.customerRanking.map((customer) => ({
+            label: customer.name || customer.phone,
+            value: customer.totalSpent,
+            detail: `${customer.totalOrders} pedido(s) · Más reciente: ${customer.favorite}`
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
 function RankingList({
   title,
   items
@@ -615,7 +663,12 @@ function DateInput({ label, value, onChange }: { label: string; value: string; o
 
 type Analytics = ReturnType<typeof buildAnalytics>;
 
-function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], businesses: AffiliateBusiness[]) {
+function buildAnalytics(
+  missions: MissionRecord[],
+  agents: OrbiAgent[],
+  businesses: AffiliateBusiness[],
+  customers: OrbiCustomer[]
+) {
   const totalAgents = agents.length;
   const agentsInOrbit = agents.filter((agent) => agent.status === AGENT_STATUS.ONLINE && agent.isOnOrbit).length;
   const agentsOutOrbit = Math.max(0, totalAgents - agentsInOrbit);
@@ -631,6 +684,7 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
   const totalRevenue = missions.reduce((total, mission) => total + mission.price, 0);
   const totalCost = missions.reduce((total, mission) => total + mission.agentCost, 0);
   const totalProfit = totalRevenue - totalCost;
+  const customerStats = buildCustomerStats(missions, customers);
 
   return {
     totalMissions: missions.length,
@@ -645,6 +699,13 @@ function buildAnalytics(missions: MissionRecord[], agents: OrbiAgent[], business
     averageRating: ratedMissions.length
       ? ratedMissions.reduce((total, mission) => total + (mission.rating ?? 0), 0) / ratedMissions.length
       : 0,
+    totalUsers: customerStats.totalUsers,
+    registeredUsers: customerStats.registeredUsers,
+    guestUsers: customerStats.guestUsers,
+    accountConversion: customerStats.totalUsers
+      ? (customerStats.registeredUsers / customerStats.totalUsers) * 100
+      : 0,
+    customerRanking: customerStats.ranking,
     categoryBars: buildCountBars(missions, ["Mandado", "Entrega", "Traslado", "Compra local", "Pago o trámite"], "service"),
     paymentBars: buildCountBars(missions, ["Efectivo", "Transferencia", "Tarjeta"], "paymentMethod"),
     totalAgents,
@@ -717,6 +778,69 @@ function rankByLabel(missions: MissionRecord[], key: "requester") {
     }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
+}
+
+function buildCustomerStats(missions: MissionRecord[], customers: OrbiCustomer[]) {
+  const byPhone = new Map<
+    string,
+    {
+      name: string;
+      phone: string;
+      isRegistered: boolean;
+      totalOrders: number;
+      totalSpent: number;
+      lastOrderAt: string;
+      favorite: string;
+    }
+  >();
+
+  customers.forEach((customer) => {
+    byPhone.set(normalizePhone(customer.phone), {
+      name: customer.name,
+      phone: customer.phone,
+      isRegistered: customer.isRegistered,
+      totalOrders: customer.totalOrders,
+      totalSpent: customer.totalSpent,
+      lastOrderAt: customer.lastOrderAt,
+      favorite: "Sin datos"
+    });
+  });
+
+  missions.forEach((mission) => {
+    const key = normalizePhone(mission.requesterPhone || mission.requester);
+    const current = byPhone.get(key) ?? {
+      name: mission.requester,
+      phone: key,
+      isRegistered: false,
+      totalOrders: 0,
+      totalSpent: 0,
+      lastOrderAt: mission.date,
+      favorite: "Sin datos"
+    };
+
+    byPhone.set(key, {
+      ...current,
+      name: current.name || mission.requester,
+      totalOrders: Math.max(current.totalOrders, 0) + 1,
+      totalSpent: current.totalSpent + mission.price,
+      lastOrderAt:
+        new Date(mission.date).getTime() > new Date(current.lastOrderAt).getTime()
+          ? mission.date
+          : current.lastOrderAt,
+      favorite: mission.product || mission.service
+    });
+  });
+
+  const ranking = Array.from(byPhone.values())
+    .sort((a, b) => b.totalSpent - a.totalSpent)
+    .slice(0, 6);
+
+  return {
+    totalUsers: byPhone.size,
+    registeredUsers: Array.from(byPhone.values()).filter((customer) => customer.isRegistered).length,
+    guestUsers: Array.from(byPhone.values()).filter((customer) => !customer.isRegistered).length,
+    ranking
+  };
 }
 
 function averageByLabel(
@@ -877,6 +1001,7 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     date: mission.last_updated_at || today.toISOString(),
     service: mission.service_type,
     requester: mission.requester_name,
+    requesterPhone: mission.requester_phone,
     agent: mission.selected_agent_name,
     agentId: mission.active_agent_id || mission.selected_agent_id,
     origin: mission.origin_text,
@@ -976,6 +1101,10 @@ function normalizePaymentMethod(method: string): MissionRecord["paymentMethod"] 
   }
 
   return "Efectivo";
+}
+
+function normalizePhone(phone: string) {
+  return phone.replace(/\D/g, "");
 }
 
 function formatMetricValue(value: number) {

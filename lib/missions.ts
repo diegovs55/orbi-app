@@ -29,6 +29,11 @@ export type ActiveMission = {
   destination_lng: number | null;
   requester_name: string;
   requester_phone: string;
+  customer_name?: string;
+  customer_phone?: string;
+  guest_name?: string;
+  guest_phone?: string;
+  user_id?: string;
   detail: string;
   business_id?: string;
   product_id?: string;
@@ -66,6 +71,7 @@ export type ActiveMission = {
   accepted_at?: string;
   payment_status: string;
   payment_method: string;
+  total_amount?: number;
   precio_servicio?: number;
   costo_agente?: number;
   ganancia_orbi?: number;
@@ -77,6 +83,7 @@ export type ActiveMission = {
   estimated_orbit: string;
   status: MissionStatus;
   mission_status?: MissionStatus | string;
+  created_at?: string;
   last_updated_at: string;
   updated_at: string;
 };
@@ -131,6 +138,12 @@ export function createMission(mission: CreateMissionInput) {
     id: crypto.randomUUID(),
     status: normalizeMissionStatus(mission.status ?? mission.mission_status),
     mission_status: undefined,
+    customer_name: mission.customer_name || mission.requester_name,
+    customer_phone: mission.customer_phone || mission.requester_phone,
+    guest_name: mission.guest_name || mission.requester_name,
+    guest_phone: mission.guest_phone || mission.requester_phone,
+    total_amount: mission.total_amount ?? mission.total ?? mission.precio_servicio ?? 0,
+    created_at: mission.created_at || now,
     last_updated_at: now,
     updated_at: now
   };
@@ -221,6 +234,31 @@ export function subscribeToMission(callback: () => void) {
   };
 }
 
+export function associateMissionsToUserByPhone(phone: string, userId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const normalizedPhone = normalizePhone(phone);
+  const activeMission = getActiveMission();
+  if (activeMission && normalizePhone(activeMission.requester_phone) === normalizedPhone) {
+    saveActiveMission({
+      ...activeMission,
+      user_id: userId,
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  const history = getMissionHistory();
+  const nextHistory = history.map((mission) =>
+    normalizePhone(mission.requester_phone) === normalizedPhone
+      ? { ...mission, user_id: userId, updated_at: new Date().toISOString() }
+      : mission
+  );
+  window.localStorage.setItem(MISSION_HISTORY_KEY, JSON.stringify(nextHistory));
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+}
+
 function saveMissionToHistory(mission: ActiveMission) {
   const history = getMissionHistory();
   const nextHistory = [
@@ -240,9 +278,19 @@ function normalizeMission(mission: unknown) {
     ...rawMission,
     status,
     mission_status: undefined,
+    customer_name: rawMission.customer_name || rawMission.requester_name,
+    customer_phone: rawMission.customer_phone || rawMission.requester_phone,
+    guest_name: rawMission.guest_name || rawMission.requester_name,
+    guest_phone: rawMission.guest_phone || rawMission.requester_phone,
+    total_amount: rawMission.total_amount ?? rawMission.total ?? rawMission.precio_servicio ?? 0,
+    created_at: rawMission.created_at || updatedAt,
     updated_at: updatedAt,
     last_updated_at: rawMission.last_updated_at || updatedAt
   };
+}
+
+function normalizePhone(phone: string) {
+  return phone.replace(/\D/g, "");
 }
 
 function normalizeMissionStatus(status: unknown): MissionStatus {

@@ -28,6 +28,7 @@ import {
   OrbiAgent
 } from "@/lib/agents";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
+import { upsertGuestCustomerFromMission } from "@/lib/customers";
 import {
   ActiveMission,
   createMission,
@@ -943,7 +944,7 @@ export function ServiceRequestFlow() {
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
   }
 
-  function handleSendMissionToAgent() {
+  async function handleSendMissionToAgent() {
     if (!selectedService || !selectedAgent) {
       return;
     }
@@ -972,6 +973,10 @@ export function ServiceRequestFlow() {
       destination_lng: details.destinationLng,
       requester_name: details.requesterName,
       requester_phone: details.requesterPhone,
+      customer_name: details.requesterName,
+      customer_phone: details.requesterPhone,
+      guest_name: details.requesterName,
+      guest_phone: details.requesterPhone,
       detail: ticketDetail,
       business_id: cartBusiness?.businessId,
       product_id: cartItems[0]?.product.id,
@@ -992,6 +997,7 @@ export function ServiceRequestFlow() {
       subtotal_productos: cartSubtotal || undefined,
       service_fee: currentServiceFee ?? undefined,
       total: servicePrice,
+      total_amount: servicePrice,
       distance_km: routeDistance,
       pricing_rule: isCatalogMission ? pricingRule : undefined,
       product_ids: cartItems.map((item) => item.product.id),
@@ -1014,10 +1020,11 @@ export function ServiceRequestFlow() {
     });
 
     setActiveMission(mission);
+    void upsertGuestCustomerFromMission(mission);
     setRequestStatusMessage("Solicitud enviada. Esperando confirmación del agente.");
   }
 
-  function handleCreateWaitingRequest() {
+  async function handleCreateWaitingRequest() {
     if (!selectedService) {
       return;
     }
@@ -1049,6 +1056,10 @@ export function ServiceRequestFlow() {
       destination_lng: details.destinationLng,
       requester_name: details.requesterName,
       requester_phone: details.requesterPhone,
+      customer_name: details.requesterName,
+      customer_phone: details.requesterPhone,
+      guest_name: details.requesterName,
+      guest_phone: details.requesterPhone,
       detail: ticketDetail,
       business_id: cartBusiness?.businessId,
       product_id: cartItems[0]?.product.id,
@@ -1069,6 +1080,7 @@ export function ServiceRequestFlow() {
       subtotal_productos: cartSubtotal || undefined,
       service_fee: currentServiceFee ?? undefined,
       total: servicePrice,
+      total_amount: servicePrice,
       distance_km: routeDistance,
       pricing_rule: isCatalogMission ? pricingRule : undefined,
       product_ids: cartItems.map((item) => item.product.id),
@@ -1086,6 +1098,7 @@ export function ServiceRequestFlow() {
     });
 
     setActiveMission(mission);
+    void upsertGuestCustomerFromMission(mission);
     setWaitingRequestMessage("Solicitud en espera. Te avisaremos cuando un agente compatible pueda tomarla.");
     setShowWaitingCancelConfirm(false);
   }
