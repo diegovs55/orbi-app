@@ -6,6 +6,7 @@ import {
   LocateFixed,
   MapPin,
   PackageCheck,
+  Radar,
   RefreshCw,
   Search,
   Send,
@@ -33,7 +34,8 @@ import {
   getActiveMission,
   getMissionStatusLabel,
   isMissionActive,
-  subscribeToMission
+  subscribeToMission,
+  updateActiveMission
 } from "@/lib/missions";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
@@ -183,13 +185,20 @@ const showAgentMatchingDebug =
   process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_DEBUG_AGENT_MATCHING === "true";
 
 export function ServiceRequestFlow() {
-  const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
+  const initialDraftMission = getInitialWaitingMission();
+  const [selectedService, setSelectedService] = useState<ServiceOption | null>(() =>
+    getInitialServiceFromMission(initialDraftMission)
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>(() =>
+    getInitialCartItemsFromMission(initialDraftMission)
+  );
   const [cartMessage, setCartMessage] = useState("");
   const [catalogError, setCatalogError] = useState("");
-  const [details, setDetails] = useState<RequestDetails>(emptyDetails);
+  const [details, setDetails] = useState<RequestDetails>(() =>
+    getInitialDetailsFromMission(initialDraftMission)
+  );
   const [isRequestReady, setIsRequestReady] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(null);
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
@@ -200,12 +209,18 @@ export function ServiceRequestFlow() {
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Pago al finalizar la misión");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(() =>
+    getInitialPaymentStatusFromMission(initialDraftMission)
+  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() =>
+    getInitialPaymentMethodFromMission(initialDraftMission)
+  );
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
   const [expandedDraftSection, setExpandedDraftSection] = useState<DraftSection | null>(null);
   const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
+  const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
+  const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -982,6 +997,94 @@ export function ServiceRequestFlow() {
     setRequestStatusMessage("Solicitud enviada. Esperando confirmación del agente.");
   }
 
+  function handleCreateWaitingRequest() {
+    if (!selectedService) {
+      return;
+    }
+
+    if (activeMission?.status === "por_tomar" && !activeMission.selected_agent_id) {
+      setWaitingRequestMessage("Solicitud en espera. Seguimos buscando disponibilidad compatible.");
+      return;
+    }
+
+    const cost = estimateMissionCost(null);
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
+
+    if (isCatalogMission && currentServiceFee === null) {
+      setLocationError(logisticsStatusMessage);
+      return;
+    }
+
+    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
+    const ticketDetail = isCatalogMission
+      ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
+      : details.detail;
+    const mission = createMission({
+      service_type: selectedService.label,
+      origin_text: details.origin,
+      origin_lat: details.originLat,
+      origin_lng: details.originLng,
+      destination_text: details.destination,
+      destination_lat: details.destinationLat,
+      destination_lng: details.destinationLng,
+      requester_name: details.requesterName,
+      requester_phone: details.requesterPhone,
+      detail: ticketDetail,
+      business_id: cartBusiness?.businessId,
+      product_id: cartItems[0]?.product.id,
+      business_lat: cartBusiness?.businessLat,
+      business_lng: cartBusiness?.businessLng,
+      product_name: cartItems.map((item) => item.product.name).join(", ") || undefined,
+      business_name: cartBusiness?.businessName,
+      product_price: cartSubtotal || undefined,
+      items: cartItems.map((item) => ({
+        product_id: item.product.id,
+        product_name: item.product.name,
+        business_id: item.product.businessId,
+        business_name: item.product.businessName,
+        quantity: item.quantity,
+        price: item.product.price,
+        subtotal: item.product.price * item.quantity
+      })),
+      subtotal_productos: cartSubtotal || undefined,
+      service_fee: currentServiceFee ?? undefined,
+      total: servicePrice,
+      distance_km: routeDistance,
+      pricing_rule: isCatalogMission ? pricingRule : undefined,
+      product_ids: cartItems.map((item) => item.product.id),
+      sector: cartBusiness?.sector,
+      categoria_producto: cartItems[0]?.product.category,
+      selected_agent_id: "",
+      selected_agent_name: "",
+      payment_status: paymentStatus,
+      payment_method: paymentMethod,
+      precio_servicio: servicePrice,
+      costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
+      ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
+      estimated_orbit: "Por confirmar con el agente",
+      status: "por_tomar"
+    });
+
+    setActiveMission(mission);
+    setWaitingRequestMessage("Solicitud en espera. Te avisaremos cuando un agente compatible pueda tomarla.");
+    setShowWaitingCancelConfirm(false);
+  }
+
+  function handleModifyWaitingRequest() {
+    setIsRequestReady(false);
+    setSelectedAgent(null);
+    setExpandedDraftSection(null);
+    setWaitingRequestMessage("");
+    setShowWaitingCancelConfirm(false);
+  }
+
+  function handleCancelWaitingRequest() {
+    const nextMission = updateActiveMission({ status: "cancelada" });
+    setActiveMission(nextMission);
+    setWaitingRequestMessage("Solicitud cancelada. No fue asignada a ningún agente.");
+    setShowWaitingCancelConfirm(false);
+  }
+
   return (
     <div className="space-y-5">
       <StepHeader
@@ -1299,19 +1402,24 @@ export function ServiceRequestFlow() {
                   agents={matchingDebugRows}
                 />
               ) : null}
-              <StateCard
-                title="No hay agentes disponibles para este servicio o zona."
-                body={
-                  invalidOperationalLocationCount
-                    ? `${invalidOperationalLocationCount} agente(s) coinciden por servicio y estado, pero fueron excluidos por no tener lat/lng válidos.`
-                    : "Cambia el servicio o ajusta tu ubicación para buscar de nuevo."
-                }
-                actionLabel="Cambiar servicio o ajustar ubicación"
-                onAction={() => {
-                  setSelectedAgent(null);
-                  setIsRequestReady(false);
-                }}
-              />
+              {activeMission?.status === "cancelada" ? (
+                <StateCard
+                  title="Solicitud cancelada"
+                  body="Solicitud cancelada. No fue asignada a ningún agente."
+                  actionLabel="Modificar solicitud"
+                  onAction={handleModifyWaitingRequest}
+                />
+              ) : (
+                <WaitingRequestCard
+                  message={waitingRequestMessage}
+                  showCancelConfirm={showWaitingCancelConfirm}
+                  onWait={handleCreateWaitingRequest}
+                  onModify={handleModifyWaitingRequest}
+                  onCancel={() => setShowWaitingCancelConfirm(true)}
+                  onConfirmCancel={handleCancelWaitingRequest}
+                  onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+                />
+              )}
             </>
           )}
         </section>
@@ -2295,6 +2403,165 @@ function StateCard({
       ) : null}
     </div>
   );
+}
+
+function WaitingRequestCard({
+  message,
+  showCancelConfirm,
+  onWait,
+  onModify,
+  onCancel,
+  onConfirmCancel,
+  onKeepWaiting
+}: {
+  message: string;
+  showCancelConfirm: boolean;
+  onWait: () => void;
+  onModify: () => void;
+  onCancel: () => void;
+  onConfirmCancel: () => void;
+  onKeepWaiting: () => void;
+}) {
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-8">
+      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
+        <Radar aria-hidden="true" className="h-7 w-7" />
+      </div>
+      <h2 className="text-center text-2xl font-black text-orbi-text">Solicitud en espera</h2>
+      <p className="mx-auto mt-3 max-w-lg text-center text-sm leading-6 text-orbi-muted">
+        No hay agentes compatibles disponibles en este momento. Tu solicitud aún no ha sido asignada.
+      </p>
+      {message ? (
+        <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-center text-sm font-bold text-emerald-200">
+          {message}
+        </p>
+      ) : null}
+      {showCancelConfirm ? (
+        <div className="mt-5 rounded-md border border-red-300/20 bg-red-400/10 p-4">
+          <h3 className="font-black text-red-100">¿Deseas cancelar esta solicitud?</h3>
+          <p className="mt-2 text-sm leading-6 text-red-100/85">
+            No ha sido asignada a ningún agente y no existe ningún cobro pendiente.
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onConfirmCancel}
+              className="min-h-11 rounded-md border border-red-300/25 bg-red-400/15 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
+            >
+              Sí, cancelar solicitud
+            </button>
+            <button
+              type="button"
+              onClick={onKeepWaiting}
+              className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+            >
+              Seguir esperando
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={onWait}
+            className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            Esperar disponibilidad
+          </button>
+          <button
+            type="button"
+            onClick={onModify}
+            className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+          >
+            Modificar solicitud
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+          >
+            Cancelar solicitud
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function getInitialWaitingMission() {
+  const mission = getActiveMission();
+
+  return mission?.status === "por_tomar" && !mission.selected_agent_id ? mission : null;
+}
+
+function getInitialServiceFromMission(mission: ActiveMission | null) {
+  if (!mission) {
+    return null;
+  }
+
+  return services.find((item) => item.label === mission.service_type) ?? services[0];
+}
+
+function getInitialCartItemsFromMission(mission: ActiveMission | null): CartItem[] {
+  if (!mission?.items?.length) {
+    return [];
+  }
+
+  return mission.items.map((item) => ({
+    product: {
+      id: item.product_id,
+      businessId: item.business_id,
+      businessName: item.business_name,
+      businessZone: "",
+      businessBaseText: mission.origin_text,
+      businessLat: mission.business_lat ?? mission.origin_lat,
+      businessLng: mission.business_lng ?? mission.origin_lng,
+      sector: (mission.sector as CatalogSearchResult["sector"]) || "Otro",
+      name: item.product_name,
+      description: item.product_name,
+      category: (mission.categoria_producto as CatalogSearchResult["category"]) || "Otro",
+      price: item.price,
+      available: true,
+      status: "disponible",
+      availability: "",
+      availabilityInherited: true,
+      searchTags: item.product_name,
+      serviceType: "Compra local"
+    },
+    quantity: item.quantity
+  }));
+}
+
+function getInitialDetailsFromMission(mission: ActiveMission | null): RequestDetails {
+  if (!mission) {
+    return emptyDetails;
+  }
+
+  return {
+    origin: mission.origin_text,
+    originLat: mission.origin_lat,
+    originLng: mission.origin_lng,
+    destination: mission.destination_text,
+    destinationLat: mission.destination_lat,
+    destinationLng: mission.destination_lng,
+    detail: mission.detail,
+    scheduleMode: "asap",
+    scheduledAt: "",
+    requesterName: mission.requester_name,
+    requesterPhone: mission.requester_phone
+  };
+}
+
+function getInitialPaymentStatusFromMission(mission: ActiveMission | null): PaymentStatus {
+  return paymentStatuses.includes(mission?.payment_status as PaymentStatus)
+    ? (mission?.payment_status as PaymentStatus)
+    : "Pago al finalizar la misión";
+}
+
+function getInitialPaymentMethodFromMission(mission: ActiveMission | null): PaymentMethod {
+  return paymentMethods.includes(mission?.payment_method as PaymentMethod)
+    ? (mission?.payment_method as PaymentMethod)
+    : "Efectivo";
 }
 
 function getDesiredTimeLabel(details: RequestDetails) {

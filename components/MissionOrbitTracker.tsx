@@ -50,6 +50,8 @@ export function MissionOrbitTracker() {
   const [rating, setRating] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingMessage, setRatingMessage] = useState("");
+  const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
+  const [waitingMessage, setWaitingMessage] = useState("");
 
   useEffect(() => {
     return subscribeToMission(() => {
@@ -107,6 +109,16 @@ export function MissionOrbitTracker() {
     setRatingMessage("Calificación guardada para el agente.");
   }
 
+  function handleCancelWaitingMission() {
+    const nextMission = updateActiveMission({ status: "cancelada" });
+    setMission(nextMission);
+    setWaitingMessage("Solicitud cancelada. No fue asignada a ningún agente.");
+    setShowWaitingCancelConfirm(false);
+    if (nextMission?.last_updated_at) {
+      setLastUpdated(new Date(nextMission.last_updated_at));
+    }
+  }
+
   const nextStatus = mission ? getNextMissionStatus(mission.status) : null;
 
   if (!mission) {
@@ -125,6 +137,22 @@ export function MissionOrbitTracker() {
         >
           Crear nueva misión
         </Link>
+      </section>
+    );
+  }
+
+  if (mission.status === "por_tomar" && !mission.selected_agent_id) {
+    return (
+      <section className="space-y-5">
+        <MissionSummary mission={mission} title="Solicitud en espera" />
+        <WaitingOrbitState
+          message={waitingMessage}
+          showCancelConfirm={showWaitingCancelConfirm}
+          onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
+          onCancel={() => setShowWaitingCancelConfirm(true)}
+          onConfirmCancel={handleCancelWaitingMission}
+          onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+        />
       </section>
     );
   }
@@ -283,15 +311,15 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
           </p>
         </div>
         <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-          {getMissionStatusLabel(mission.status)}
+          {getOrbitVisualStatusLabel(mission)}
         </span>
       </div>
 
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
-        <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name} />
+        <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name || "Pendiente de asignación"} />
         <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
-        <MissionTile icon={Radar} label="Estado de misión" value={getMissionStatusLabel(mission.status)} />
+        <MissionTile icon={Radar} label="Estado de misión" value={getOrbitVisualStatusLabel(mission)} />
         <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
         <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
         <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
@@ -398,6 +426,86 @@ function RatingPanel({
   );
 }
 
+function WaitingOrbitState({
+  message,
+  showCancelConfirm,
+  onWait,
+  onCancel,
+  onConfirmCancel,
+  onKeepWaiting
+}: {
+  message: string;
+  showCancelConfirm: boolean;
+  onWait: () => void;
+  onCancel: () => void;
+  onConfirmCancel: () => void;
+  onKeepWaiting: () => void;
+}) {
+  return (
+    <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-8">
+      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
+        <Radar aria-hidden="true" className="h-7 w-7" />
+      </div>
+      <h2 className="text-2xl font-black text-orbi-text">Solicitud en espera</h2>
+      <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-orbi-muted">
+        No hay agentes compatibles disponibles en este momento. Tu solicitud aún no ha sido asignada.
+      </p>
+      {message ? (
+        <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
+          {message}
+        </p>
+      ) : null}
+      {showCancelConfirm ? (
+        <div className="mt-5 rounded-md border border-red-300/20 bg-red-400/10 p-4 text-left">
+          <h3 className="font-black text-red-100">¿Deseas cancelar esta solicitud?</h3>
+          <p className="mt-2 text-sm leading-6 text-red-100/85">
+            No ha sido asignada a ningún agente y no existe ningún cobro pendiente.
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onConfirmCancel}
+              className="min-h-11 rounded-md border border-red-300/25 bg-red-400/15 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
+            >
+              Sí, cancelar solicitud
+            </button>
+            <button
+              type="button"
+              onClick={onKeepWaiting}
+              className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+            >
+              Seguir esperando
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={onWait}
+            className="inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            Esperar disponibilidad
+          </button>
+          <Link
+            href="/pedir"
+            className="inline-flex min-h-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+          >
+            Modificar solicitud
+          </Link>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex min-h-12 items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+          >
+            Cancelar solicitud
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function MissionClosedState({
   title,
   body,
@@ -474,6 +582,30 @@ function getNextMissionStatus(status: MissionStatus) {
   }
 
   return null;
+}
+
+function getOrbitVisualStatusLabel(mission: ActiveMission) {
+  if (mission.status === "por_tomar" && !mission.selected_agent_id) {
+    return "Pendiente de asignación";
+  }
+
+  if (mission.status === "por_tomar" || mission.status === "aceptada") {
+    return "Asignada";
+  }
+
+  if (mission.status === "en_mision") {
+    return "En curso";
+  }
+
+  if (mission.status === "cumplida") {
+    return "Completada";
+  }
+
+  if (mission.status === "cancelada" || mission.status === "archivada") {
+    return "Cancelada";
+  }
+
+  return getMissionStatusLabel(mission.status);
 }
 
 function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {
