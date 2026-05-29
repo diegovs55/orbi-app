@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AGENT_STATUS,
@@ -963,6 +964,8 @@ export function ServiceRequestFlow() {
     <div className="space-y-5">
       <StepHeader
         selectedService={selectedService}
+        details={details}
+        cartItems={cartItems}
         isRequestReady={isRequestReady}
         selectedAgent={selectedAgent}
       />
@@ -1063,83 +1066,103 @@ export function ServiceRequestFlow() {
       {selectedService && !isRequestReady ? (
         <form
           onSubmit={handleDetailsSubmit}
-          className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:grid-cols-2 sm:p-6"
+          className="space-y-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-6"
         >
-          <SelectedService service={selectedService} onReset={resetFlow} />
-          {isCatalogMission ? (
-            <LocalCart
-              items={cartItems}
-              serviceFee={serviceFee}
-              distance={routeDistance}
-              hasValidDestination={Boolean(destinationCoordinatePair)}
-              logisticsStatusMessage={logisticsStatusMessage}
-              onQuantityChange={updateCartQuantity}
-              onRemove={removeCartItem}
-            />
-          ) : (
+          <FormSection title="Tu pedido">
+            <SelectedService service={selectedService} onReset={resetFlow} />
+            {isCatalogMission ? (
+              <LocalCart
+                items={cartItems}
+                serviceFee={serviceFee}
+                distance={routeDistance}
+                hasValidDestination={Boolean(destinationCoordinatePair)}
+                logisticsStatusMessage={logisticsStatusMessage}
+                onQuantityChange={updateCartQuantity}
+                onRemove={removeCartItem}
+              />
+            ) : (
+              <>
+                <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
+                  Detalle de la solicitud
+                  <textarea
+                    className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+                    value={details.detail}
+                    placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
+                    onChange={(event) => updateDetails("detail", event.target.value)}
+                    required
+                  />
+                </label>
+                <LocationField
+                  label="Punto de origen"
+                  value={details.origin}
+                  placeholder="Dirección o referencia de salida"
+                  lat={details.originLat}
+                  lng={details.originLng}
+                  buttonLabel="Usar mi ubicación"
+                  geocodeState={geocodeState.origin}
+                  onChange={(value) => updateLocationText("origin", value)}
+                  onUseLocation={() => handleUseCurrentLocation("origin")}
+                  onOpenMap={() => handleOpenMap("origin")}
+                />
+              </>
+            )}
+          </FormSection>
+
+          <FormSection title="Destino">
             <LocationField
-              label="Punto de origen"
-              value={details.origin}
-              placeholder="Dirección o referencia de salida"
-              lat={details.originLat}
-              lng={details.originLng}
-              buttonLabel="Usar mi ubicación"
-              geocodeState={geocodeState.origin}
-              onChange={(value) => updateLocationText("origin", value)}
-              onUseLocation={() => handleUseCurrentLocation("origin")}
-              onOpenMap={() => handleOpenMap("origin")}
+              label="Punto de destino"
+              value={details.destination}
+              placeholder="Dirección o referencia de llegada"
+              lat={details.destinationLat}
+              lng={details.destinationLng}
+              buttonLabel="Usar ubicación actual como destino"
+              geocodeState={geocodeState.destination}
+              onChange={(value) => updateLocationText("destination", value)}
+              onUseLocation={() => handleUseCurrentLocation("destination")}
+              onOpenMap={() => handleOpenMap("destination")}
             />
-          )}
-          <LocationField
-            label="Punto de destino"
-            value={details.destination}
-            placeholder="Dirección o referencia de llegada"
-            lat={details.destinationLat}
-            lng={details.destinationLng}
-            buttonLabel="Usar ubicación actual como destino"
-            geocodeState={geocodeState.destination}
-            onChange={(value) => updateLocationText("destination", value)}
-            onUseLocation={() => handleUseCurrentLocation("destination")}
-            onOpenMap={() => handleOpenMap("destination")}
-          />
-          <ScheduleField
-            mode={details.scheduleMode}
-            scheduledAt={details.scheduledAt}
-            onModeChange={(value) =>
-              setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
-            }
-            onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
-          />
-          {/* Future auth user profile autofill */}
-          <RequestInput
-            label="Nombre del solicitante"
-            value={details.requesterName}
-            placeholder="Tu nombre"
-            onChange={(value) => updateDetails("requesterName", value)}
-          />
-          <RequestInput
-            label="Teléfono del solicitante"
-            value={details.requesterPhone}
-            placeholder="55 0000 0000"
-            onChange={(value) => updateDetails("requesterPhone", value)}
-          />
+            <ScheduleField
+              mode={details.scheduleMode}
+              scheduledAt={details.scheduledAt}
+              onModeChange={(value) =>
+                setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
+              }
+              onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
+            />
+          </FormSection>
+
+          <FormSection title="Datos del solicitante">
+            {/* Future auth user profile autofill */}
+            <RequestInput
+              label="Nombre del solicitante"
+              value={details.requesterName}
+              placeholder="Tu nombre"
+              onChange={(value) => updateDetails("requesterName", value)}
+            />
+            <RequestInput
+              label="Teléfono del solicitante"
+              value={details.requesterPhone}
+              placeholder="55 0000 0000"
+              onChange={(value) => updateDetails("requesterPhone", value)}
+            />
+          </FormSection>
+
+          <FormSection title="Resumen">
+            <CompactCostSummary
+              isCatalogMission={isCatalogMission}
+              subtotal={cartSubtotal}
+              serviceFee={serviceFee}
+              logisticsStatusMessage={logisticsStatusMessage}
+              selectedService={selectedService.label}
+              destinationReady={Boolean(destinationCoordinatePair)}
+            />
+          </FormSection>
+
           {locationError ? (
-            <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100 sm:col-span-2">
+            <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
               {locationError}
             </p>
           ) : null}
-          {isCatalogMission ? null : (
-            <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
-              Detalle de la solicitud
-              <textarea
-                className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
-                value={details.detail}
-                placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
-                onChange={(event) => updateDetails("detail", event.target.value)}
-                required
-              />
-            </label>
-          )}
           <button
             type="submit"
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
@@ -1160,7 +1183,14 @@ export function ServiceRequestFlow() {
             actionLabel="Editar solicitud"
           />
 
-          {isLoadingAgents ? (
+          {!destinationCoordinatePair ? (
+            <StateCard
+              title="Define el destino para calcular servicio y buscar agentes."
+              body="El destino permite calcular la misión y encontrar agentes dentro de radio operativo."
+              actionLabel="Agregar destino"
+              onAction={() => setIsRequestReady(false)}
+            />
+          ) : isLoadingAgents ? (
             <StateCard title="Buscando agentes compatibles..." body="Estamos revisando disponibilidad en Red Orbi." />
           ) : agentError ? (
             <StateCard title="No pudimos cargar agentes." body={agentError} tone="error" />
@@ -1397,35 +1427,56 @@ export function ServiceRequestFlow() {
 
 function StepHeader({
   selectedService,
+  details,
+  cartItems,
   isRequestReady,
   selectedAgent
 }: {
   selectedService: ServiceOption | null;
+  details: RequestDetails;
+  cartItems: CartItem[];
   isRequestReady: boolean;
   selectedAgent: OrbiAgent | null;
 }) {
+  const hasOrder = Boolean(cartItems.length || details.detail.trim());
+  const hasDestination = Boolean(getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }));
+  const hasRequester = Boolean(details.requesterName.trim() && details.requesterPhone.trim());
   const steps = [
-    { label: "Servicio", active: true, done: Boolean(selectedService) },
-    { label: "Ficha", active: Boolean(selectedService), done: isRequestReady },
-    { label: "Agente", active: isRequestReady, done: Boolean(selectedAgent) },
-    { label: "Confirmar misión", active: Boolean(selectedAgent), done: false }
+    { label: "Servicio", active: !selectedService, done: Boolean(selectedService) },
+    { label: "Pedido", active: Boolean(selectedService && !hasOrder), done: hasOrder },
+    { label: "Destino", active: Boolean(selectedService && hasOrder && !hasDestination), done: hasDestination },
+    { label: "Solicitante", active: Boolean(selectedService && hasDestination && !hasRequester), done: hasRequester },
+    { label: "Agente", active: Boolean(isRequestReady && !selectedAgent), done: Boolean(selectedAgent) },
+    { label: "Confirmación", active: Boolean(selectedAgent), done: false }
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
       {steps.map((step) => (
         <div
           key={step.label}
           className={`rounded-md border px-2 py-2 text-center text-[11px] font-bold ${
-            step.done || step.active
-              ? "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan"
+            step.active
+              ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan shadow-[0_0_18px_rgba(31,139,255,0.12)]"
+              : step.done
+                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
               : "border-white/10 bg-white/[0.03] text-orbi-muted"
           }`}
         >
+          {step.done && !step.active ? "✓ " : null}
           {step.label}
         </div>
       ))}
     </div>
+  );
+}
+
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-4">
+      <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{title}</h3>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
   );
 }
 
@@ -1566,17 +1617,38 @@ function LocalCart({
   onQuantityChange: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const subtotal = getCartSubtotal(items);
   const business = items[0]?.product;
+  const firstItem = items[0];
   const hasValidBusinessOrigin = business
     ? Boolean(getValidCoordinatePair({ lat: business.businessLat, lng: business.businessLng }))
     : false;
 
   return (
     <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-        Ticket de misión
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+            Ticket de misión
+          </p>
+          <p className="mt-2 text-lg font-black text-orbi-text">
+            {items.length} {items.length === 1 ? "producto agregado" : "productos agregados"}
+          </p>
+          {firstItem ? (
+            <p className="mt-1 text-sm leading-6 text-orbi-muted">
+              {firstItem.quantity}x {firstItem.product.name} · {firstItem.product.businessName} · Subtotal ${subtotal}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsExpanded((currentValue) => !currentValue)}
+          className="shrink-0 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+        >
+          {isExpanded ? "Ocultar detalle" : "Ver detalle"}
+        </button>
+      </div>
       {business ? (
         <div className="mt-3 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
           <p className="font-black text-orbi-text">{business.businessName}</p>
@@ -1590,45 +1662,47 @@ function LocalCart({
           ) : null}
         </div>
       ) : null}
-      <div className="mt-3 space-y-2">
-        {items.map((item) => {
-          const subtotalItem = item.product.price * item.quantity;
-          return (
-            <div key={item.product.id} className="rounded-md border border-white/10 bg-orbi-black/25 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-bold text-orbi-text">{item.product.name}</p>
-                  <p className="mt-1 text-xs text-orbi-muted">
-                    {item.product.businessName} · ${item.product.price} c/u
-                  </p>
+      {isExpanded ? (
+        <div className="mt-3 space-y-2">
+          {items.map((item) => {
+            const subtotalItem = item.product.price * item.quantity;
+            return (
+              <div key={item.product.id} className="rounded-md border border-white/10 bg-orbi-black/25 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-orbi-text">{item.product.name}</p>
+                    <p className="mt-1 text-xs text-orbi-muted">
+                      {item.product.businessName} · ${item.product.price} c/u
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(item.product.id)}
+                    className="rounded-md border border-red-300/15 bg-red-400/10 px-2 py-1 text-xs font-bold text-red-200"
+                  >
+                    Quitar
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onRemove(item.product.id)}
-                  className="rounded-md border border-red-300/15 bg-red-400/10 px-2 py-1 text-xs font-bold text-red-200"
-                >
-                  Quitar
-                </button>
+                <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
+                  <label className="text-xs font-semibold text-orbi-muted">
+                    Cantidad
+                    <input
+                      min={1}
+                      type="number"
+                      value={item.quantity}
+                      onChange={(event) => onQuantityChange(item.product.id, Number(event.target.value))}
+                      className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text outline-none"
+                    />
+                  </label>
+                  <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-sm font-black text-orbi-cyan">
+                    ${subtotalItem}
+                  </span>
+                </div>
               </div>
-              <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
-                <label className="text-xs font-semibold text-orbi-muted">
-                  Cantidad
-                  <input
-                    min={1}
-                    type="number"
-                    value={item.quantity}
-                    onChange={(event) => onQuantityChange(item.product.id, Number(event.target.value))}
-                    className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text outline-none"
-                  />
-                </label>
-                <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-sm font-black text-orbi-cyan">
-                  ${subtotalItem}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
         <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
         <InfoTile
@@ -1984,6 +2058,47 @@ function InfoTile({ label, value }: { label: string; value: string }) {
       <p className="font-semibold text-orbi-muted">{label}</p>
       <p className="mt-1 font-black text-orbi-text">{value}</p>
     </div>
+  );
+}
+
+function CompactCostSummary({
+  isCatalogMission,
+  subtotal,
+  serviceFee,
+  logisticsStatusMessage,
+  selectedService,
+  destinationReady
+}: {
+  isCatalogMission: boolean;
+  subtotal: number;
+  serviceFee: number | null;
+  logisticsStatusMessage: string;
+  selectedService: string;
+  destinationReady: boolean;
+}) {
+  if (!isCatalogMission) {
+    return (
+      <div className="rounded-md border border-white/10 bg-white/[0.04] p-3 sm:col-span-2">
+        <p className="text-sm font-black text-orbi-text">{selectedService}</p>
+        <p className="mt-1 text-xs leading-5 text-orbi-muted">
+          El costo se estima con el agente según distancia, tiempo y detalle de la misión.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
+      <InfoTile
+        label="Servicio/logística"
+        value={serviceFee === null ? logisticsStatusMessage : `$${serviceFee}`}
+      />
+      <InfoTile
+        label="Total a pagar"
+        value={serviceFee === null ? (destinationReady ? logisticsStatusMessage : "Define destino") : `$${subtotal + serviceFee}`}
+      />
+    </>
   );
 }
 
