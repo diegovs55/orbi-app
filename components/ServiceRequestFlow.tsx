@@ -132,6 +132,7 @@ const statusStyles: Record<OrbiAgent["status"], string> = {
 };
 
 type LocationTarget = "origin" | "destination";
+type DraftSection = "pedido" | "destino" | "solicitante" | "resumen";
 
 type MapPoint = {
   lat: number;
@@ -203,6 +204,8 @@ export function ServiceRequestFlow() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
+  const [expandedDraftSection, setExpandedDraftSection] = useState<DraftSection | null>(null);
+  const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -504,6 +507,19 @@ export function ServiceRequestFlow() {
     hasDestination: Boolean(destinationCoordinatePair),
     distance: routeDistance
   });
+  const orderIsComplete = isCatalogMission
+    ? cartItems.length > 0
+    : Boolean(details.detail.trim() && details.origin.trim());
+  const destinationIsComplete = Boolean(destinationCoordinatePair);
+  const requesterIsComplete = Boolean(details.requesterName.trim() && details.requesterPhone.trim());
+  const naturalDraftSection: DraftSection = !orderIsComplete
+    ? "pedido"
+    : !destinationIsComplete
+      ? "destino"
+      : !requesterIsComplete
+        ? "solicitante"
+        : "resumen";
+  const activeDraftSection = expandedDraftSection ?? naturalDraftSection;
 
   function resetFlow() {
     setSelectedService(null);
@@ -516,6 +532,8 @@ export function ServiceRequestFlow() {
     setPaymentStatus("Pago al finalizar la misión");
     setPaymentMethod("Efectivo");
     setRequestStatusMessage("");
+    setExpandedDraftSection(null);
+    setIsCartDetailExpanded(false);
   }
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
@@ -559,6 +577,8 @@ export function ServiceRequestFlow() {
       : [...cartItems, { product, quantity: 1 }];
     setSelectedService(service);
     setCartItems(nextCart);
+    setExpandedDraftSection(null);
+    setIsCartDetailExpanded(false);
     setDetails((currentDetails) => ({
       ...currentDetails,
       origin: product.businessBaseText || product.businessName,
@@ -574,6 +594,8 @@ export function ServiceRequestFlow() {
     const serviceLabel = label === "Servicio personalizado" ? "Mandado" : label;
     const service = services.find((item) => item.label === serviceLabel) ?? services[0];
     setSelectedService(service);
+    setExpandedDraftSection(null);
+    setIsCartDetailExpanded(false);
     setCartItems([]);
     setCartMessage("");
     setDetails((currentDetails) => ({
@@ -1068,107 +1090,150 @@ export function ServiceRequestFlow() {
           onSubmit={handleDetailsSubmit}
           className="space-y-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-6"
         >
-          <FormSection title="Tu pedido">
-            <SelectedService service={selectedService} onReset={resetFlow} />
-            {isCatalogMission ? (
-              <LocalCart
-                items={cartItems}
-                serviceFee={serviceFee}
-                distance={routeDistance}
-                hasValidDestination={Boolean(destinationCoordinatePair)}
-                logisticsStatusMessage={logisticsStatusMessage}
-                onQuantityChange={updateCartQuantity}
-                onRemove={removeCartItem}
-              />
-            ) : (
-              <>
-                <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
-                  Detalle de la solicitud
-                  <textarea
-                    className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
-                    value={details.detail}
-                    placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
-                    onChange={(event) => updateDetails("detail", event.target.value)}
-                    required
-                  />
-                </label>
-                <LocationField
-                  label="Punto de origen"
-                  value={details.origin}
-                  placeholder="Dirección o referencia de salida"
-                  lat={details.originLat}
-                  lng={details.originLng}
-                  buttonLabel="Usar mi ubicación"
-                  geocodeState={geocodeState.origin}
-                  onChange={(value) => updateLocationText("origin", value)}
-                  onUseLocation={() => handleUseCurrentLocation("origin")}
-                  onOpenMap={() => handleOpenMap("origin")}
+          {activeDraftSection === "pedido" ? (
+            <FormSection title="Tu pedido">
+              <SelectedService service={selectedService} onReset={resetFlow} />
+              {isCatalogMission ? (
+                <LocalCart
+                  items={cartItems}
+                  isExpanded={isCartDetailExpanded}
+                  onExpandedChange={setIsCartDetailExpanded}
+                  onQuantityChange={updateCartQuantity}
+                  onRemove={removeCartItem}
                 />
-              </>
-            )}
-          </FormSection>
-
-          <FormSection title="Destino">
-            <LocationField
-              label="Punto de destino"
-              value={details.destination}
-              placeholder="Dirección o referencia de llegada"
-              lat={details.destinationLat}
-              lng={details.destinationLng}
-              buttonLabel="Usar ubicación actual como destino"
-              geocodeState={geocodeState.destination}
-              onChange={(value) => updateLocationText("destination", value)}
-              onUseLocation={() => handleUseCurrentLocation("destination")}
-              onOpenMap={() => handleOpenMap("destination")}
-            />
-            <ScheduleField
-              mode={details.scheduleMode}
-              scheduledAt={details.scheduledAt}
-              onModeChange={(value) =>
-                setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
-              }
-              onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
-            />
-          </FormSection>
-
-          <FormSection title="Datos del solicitante">
-            {/* Future auth user profile autofill */}
-            <RequestInput
-              label="Nombre del solicitante"
-              value={details.requesterName}
-              placeholder="Tu nombre"
-              onChange={(value) => updateDetails("requesterName", value)}
-            />
-            <RequestInput
-              label="Teléfono del solicitante"
-              value={details.requesterPhone}
-              placeholder="55 0000 0000"
-              onChange={(value) => updateDetails("requesterPhone", value)}
-            />
-          </FormSection>
-
-          <FormSection title="Resumen">
-            <CompactCostSummary
-              isCatalogMission={isCatalogMission}
+              ) : (
+                <>
+                  <label className="block text-sm font-semibold text-orbi-text sm:col-span-2">
+                    Detalle de la solicitud
+                    <textarea
+                      className="mt-2 min-h-24 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+                      value={details.detail}
+                      placeholder="Describe qué necesitas, instrucciones, referencias o notas importantes"
+                      onChange={(event) => updateDetails("detail", event.target.value)}
+                      required
+                    />
+                  </label>
+                  <LocationField
+                    label="Punto de origen"
+                    value={details.origin}
+                    placeholder="Dirección o referencia de salida"
+                    lat={details.originLat}
+                    lng={details.originLng}
+                    buttonLabel="Usar mi ubicación"
+                    geocodeState={geocodeState.origin}
+                    onChange={(value) => updateLocationText("origin", value)}
+                    onUseLocation={() => handleUseCurrentLocation("origin")}
+                    onOpenMap={() => handleOpenMap("origin")}
+                  />
+                </>
+              )}
+            </FormSection>
+          ) : orderIsComplete ? (
+            <OrderSummaryCard
+              service={selectedService}
+              details={details}
+              cartItems={cartItems}
               subtotal={cartSubtotal}
-              serviceFee={serviceFee}
-              logisticsStatusMessage={logisticsStatusMessage}
-              selectedService={selectedService.label}
-              destinationReady={Boolean(destinationCoordinatePair)}
+              onEdit={() => {
+                setIsCartDetailExpanded(Boolean(cartItems.length));
+                setExpandedDraftSection("pedido");
+              }}
             />
-          </FormSection>
+          ) : null}
+
+          {orderIsComplete ? (
+            activeDraftSection === "destino" ? (
+              <FormSection title="Destino">
+                <LocationField
+                  label="Punto de destino"
+                  value={details.destination}
+                  placeholder="Dirección o referencia de llegada"
+                  lat={details.destinationLat}
+                  lng={details.destinationLng}
+                  buttonLabel="Usar ubicación actual como destino"
+                  geocodeState={geocodeState.destination}
+                  onChange={(value) => updateLocationText("destination", value)}
+                  onUseLocation={() => handleUseCurrentLocation("destination")}
+                  onOpenMap={() => handleOpenMap("destination")}
+                />
+                <ScheduleField
+                  mode={details.scheduleMode}
+                  scheduledAt={details.scheduledAt}
+                  onModeChange={(value) =>
+                    setDetails((currentDetails) => ({ ...currentDetails, scheduleMode: value }))
+                  }
+                  onScheduledAtChange={(value) => updateDetails("scheduledAt", value)}
+                />
+              </FormSection>
+            ) : destinationIsComplete ? (
+              <DestinationSummaryCard
+                destination={details.destination}
+                schedule={getDesiredTimeLabel(details)}
+                onEdit={() => setExpandedDraftSection("destino")}
+              />
+            ) : null
+          ) : null}
+
+          {orderIsComplete && destinationIsComplete ? (
+            activeDraftSection === "solicitante" ? (
+              <FormSection title="Datos del solicitante">
+                {/* Future auth user profile autofill */}
+                <RequestInput
+                  label="Nombre del solicitante"
+                  value={details.requesterName}
+                  placeholder="Tu nombre"
+                  onChange={(value) => updateDetails("requesterName", value)}
+                />
+                <RequestInput
+                  label="Teléfono del solicitante"
+                  value={details.requesterPhone}
+                  placeholder="55 0000 0000"
+                  onChange={(value) => updateDetails("requesterPhone", value)}
+                />
+              </FormSection>
+            ) : requesterIsComplete ? (
+              <RequesterSummaryCard
+                name={details.requesterName}
+                phone={details.requesterPhone}
+                onEdit={() => setExpandedDraftSection("solicitante")}
+              />
+            ) : null
+          ) : null}
+
+          {orderIsComplete && destinationIsComplete && requesterIsComplete && activeDraftSection === "resumen" ? (
+            <FormSection title="Resumen">
+              <CompactCostSummary
+                isCatalogMission={isCatalogMission}
+                subtotal={cartSubtotal}
+                serviceFee={serviceFee}
+                logisticsStatusMessage={logisticsStatusMessage}
+                selectedService={selectedService.label}
+                destinationReady={Boolean(destinationCoordinatePair)}
+              />
+              <button
+                type="submit"
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
+              >
+                Ver agentes compatibles
+              </button>
+            </FormSection>
+          ) : null}
+
+          {expandedDraftSection && expandedDraftSection !== naturalDraftSection ? (
+            <button
+              type="button"
+              onClick={() => setExpandedDraftSection(null)}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+            >
+              Continuar
+            </button>
+          ) : null}
 
           {locationError ? (
             <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
               {locationError}
             </p>
           ) : null}
-          <button
-            type="submit"
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
-          >
-            Ver agentes compatibles
-          </button>
         </form>
       ) : null}
 
@@ -1517,6 +1582,114 @@ function SelectedService({
   );
 }
 
+function OrderSummaryCard({
+  service,
+  details,
+  cartItems,
+  subtotal,
+  onEdit
+}: {
+  service: ServiceOption;
+  details: RequestDetails;
+  cartItems: CartItem[];
+  subtotal: number;
+  onEdit: () => void;
+}) {
+  const itemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+  const firstItem = cartItems[0];
+  const summary = cartItems.length
+    ? `${itemCount} ${itemCount === 1 ? "producto" : "productos"} · ${firstItem?.product.businessName ?? service.label}`
+    : shortenText(details.detail || service.description, 72);
+
+  return (
+    <CompactStepCard
+      eyebrow="Tu pedido"
+      title={service.label}
+      body={summary}
+      meta={cartItems.length ? `Subtotal $${subtotal}` : `Origen: ${shortenText(details.origin, 64)}`}
+      actionLabel={cartItems.length ? "Ver detalle" : "Cambiar"}
+      onAction={onEdit}
+    />
+  );
+}
+
+function DestinationSummaryCard({
+  destination,
+  schedule,
+  onEdit
+}: {
+  destination: string;
+  schedule: string;
+  onEdit: () => void;
+}) {
+  return (
+    <CompactStepCard
+      eyebrow="Destino"
+      title="Destino seleccionado"
+      body={shortenText(destination, 86)}
+      meta={schedule}
+      actionLabel="Cambiar"
+      onAction={onEdit}
+    />
+  );
+}
+
+function RequesterSummaryCard({
+  name,
+  phone,
+  onEdit
+}: {
+  name: string;
+  phone: string;
+  onEdit: () => void;
+}) {
+  return (
+    <CompactStepCard
+      eyebrow="Datos del solicitante"
+      title={name}
+      body={phone}
+      actionLabel="Cambiar"
+      onAction={onEdit}
+    />
+  );
+}
+
+function CompactStepCard({
+  eyebrow,
+  title,
+  body,
+  meta,
+  actionLabel,
+  onAction
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  meta?: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <section className="rounded-md border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{eyebrow}</p>
+          <h3 className="mt-1 font-black text-orbi-text">{title}</h3>
+          <p className="mt-1 text-sm leading-6 text-orbi-muted">{body}</p>
+          {meta ? <p className="mt-1 text-xs font-bold text-orbi-cyan">{meta}</p> : null}
+        </div>
+        <button
+          type="button"
+          onClick={onAction}
+          className="shrink-0 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+        >
+          {actionLabel}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function CatalogSuggestions({
   query,
   results,
@@ -1602,22 +1775,17 @@ function CatalogSuggestions({
 
 function LocalCart({
   items,
-  serviceFee,
-  distance,
-  hasValidDestination,
-  logisticsStatusMessage,
+  isExpanded,
+  onExpandedChange,
   onQuantityChange,
   onRemove
 }: {
   items: CartItem[];
-  serviceFee: number | null;
-  distance: number | null;
-  hasValidDestination: boolean;
-  logisticsStatusMessage: string;
+  isExpanded: boolean;
+  onExpandedChange: (isExpanded: boolean) => void;
   onQuantityChange: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const subtotal = getCartSubtotal(items);
   const business = items[0]?.product;
   const firstItem = items[0];
@@ -1643,7 +1811,7 @@ function LocalCart({
         </div>
         <button
           type="button"
-          onClick={() => setIsExpanded((currentValue) => !currentValue)}
+          onClick={() => onExpandedChange(!isExpanded)}
           className="shrink-0 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
         >
           {isExpanded ? "Ocultar detalle" : "Ver detalle"}
@@ -1703,32 +1871,9 @@ function LocalCart({
           })}
         </div>
       ) : null}
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-        <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
-        <InfoTile
-          label="Servicio/logística"
-          value={serviceFee === null ? logisticsStatusMessage : `$${serviceFee}`}
-        />
-        <InfoTile
-          label="Total a pagar"
-          value={serviceFee === null ? logisticsStatusMessage : `$${subtotal + serviceFee}`}
-        />
-      </div>
-      {distance !== null ? (
-        <p className="mt-2 text-xs font-semibold text-orbi-muted">
-          Distancia origen-destino: {distance.toFixed(1)} km · Regla {pricingRule}
-        </p>
-      ) : null}
-      {!hasValidDestination || !hasValidBusinessOrigin || (distance !== null && distance > 30) ? (
-        <p className="mt-2 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-2 text-xs font-semibold text-yellow-100">
-          {logisticsStatusMessage}
-        </p>
-      ) : null}
-      {distance !== null && distance > 50 ? (
-        <p className="mt-2 rounded-md border border-red-300/15 bg-red-400/10 p-2 text-xs font-semibold text-red-100">
-          La distancia parece fuera de zona. Revisa origen y destino.
-        </p>
-      ) : null}
+      <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-black text-orbi-text">
+        Subtotal productos: ${subtotal}
+      </p>
     </div>
   );
 }
@@ -2172,6 +2317,16 @@ function formatCoordinates(lat: number | null, lng: number | null) {
 
 function formatDistance(distance: number | null) {
   return distance === null ? "Sin ubicación operativa registrada." : `${distance.toFixed(1)} km`;
+}
+
+function shortenText(value: string, maxLength: number) {
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length <= maxLength) {
+    return normalizedValue;
+  }
+
+  return `${normalizedValue.slice(0, maxLength - 1).trim()}…`;
 }
 
 function getEstimatedOrbit(distance: number | null) {
