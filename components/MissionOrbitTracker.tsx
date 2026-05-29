@@ -106,6 +106,9 @@ export function MissionOrbitTracker() {
       rated_at: new Date().toISOString()
     });
     setMission(nextMission);
+    if (nextMission?.last_updated_at) {
+      setLastUpdated(new Date(nextMission.last_updated_at));
+    }
     setRatingMessage("Calificación guardada para el agente.");
   }
 
@@ -182,6 +185,8 @@ export function MissionOrbitTracker() {
   }
 
   if (mission.status === "cumplida") {
+    const shouldShowRatingPanel = !hasMissionRating(mission);
+
     return (
       <section className="space-y-5">
         <MissionClosedState
@@ -191,15 +196,17 @@ export function MissionOrbitTracker() {
           primaryHref="/pedir"
           primaryLabel="Crear nueva misión"
         />
-        <RatingPanel
-          comment={ratingComment}
-          message={ratingMessage}
-          rating={rating}
-          savedRating={mission.rating ?? null}
-          onCommentChange={setRatingComment}
-          onRatingChange={setRating}
-          onSave={handleSaveRating}
-        />
+        {shouldShowRatingPanel ? (
+          <RatingPanel
+            comment={ratingComment}
+            message={ratingMessage}
+            rating={rating}
+            savedRating={mission.rating ?? null}
+            onCommentChange={setRatingComment}
+            onRatingChange={setRating}
+            onSave={handleSaveRating}
+          />
+        ) : null}
       </section>
     );
   }
@@ -605,6 +612,10 @@ function getOrbitVisualStatusLabel(mission: ActiveMission) {
   }
 
   return getMissionStatusLabel(mission.status);
+}
+
+function hasMissionRating(mission: ActiveMission) {
+  return typeof mission.rating === "number" && mission.rating >= 1 && mission.rating <= 5;
 }
 
 function getMissionPoint(lat: number | null | undefined, lng: number | null | undefined) {
