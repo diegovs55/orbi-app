@@ -16,6 +16,7 @@ type LinkButtonProps = BaseProps & {
 type NativeButtonProps = BaseProps & {
   href?: never;
   type?: "button" | "submit";
+  disabled?: boolean;
 };
 
 export function OrbiButton(props: LinkButtonProps | NativeButtonProps) {
@@ -44,8 +45,10 @@ export function OrbiButton(props: LinkButtonProps | NativeButtonProps) {
     );
   }
 
+  const disabled = "disabled" in props ? props.disabled : false;
+
   return (
-    <button type={props.type ?? "button"} className={classes}>
+    <button type={props.type ?? "button"} className={classes} disabled={disabled}>
       {content}
     </button>
   );

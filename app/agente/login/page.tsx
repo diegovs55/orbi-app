@@ -1,8 +1,73 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
-import { FormField } from "@/components/FormField";
 import { OrbiButton } from "@/components/OrbiButton";
+import { supabase } from "@/lib/supabase";
+
+const inputClasses =
+  "mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15";
 
 export default function AgentLoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setError("");
+    setMessage("");
+
+    if (!email.trim() || !password) {
+      setError("Ingresa tu correo y contraseña para continuar.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    setIsSubmitting(false);
+
+    if (authError) {
+      setError(authError.message || "No fue posible iniciar sesión. Revisa tus datos.");
+      return;
+    }
+
+    if (data.session) {
+      router.push("/agente");
+      return;
+    }
+
+    setError("No se pudo iniciar sesión. Intenta de nuevo");
+  }
+
+  async function handleResetPassword() {
+    setError("");
+    setMessage("");
+
+    if (!email.trim()) {
+      setError("Ingresa tu correo para recibir el enlace de recuperación.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/agente/reset-password`
+    });
+    setIsSubmitting(false);
+
+    if (resetError) {
+      setError(resetError.message || "No fue posible enviar el correo de recuperación.");
+      return;
+    }
+
+    setMessage("Revisa tu correo para restablecer la contraseña. Si no llega, revisa la bandeja de spam.");
+  }
+
   return (
     <div className="min-h-screen bg-orbi-black text-orbi-text">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10 sm:px-8 lg:px-12">
@@ -47,30 +112,47 @@ export default function AgentLoginPage() {
               </p>
             </div>
 
-            <form className="mt-8 space-y-6">
-              <FormField
-                label="Correo electrónico"
-                name="email"
-                type="email"
-                placeholder="tu@correo.com"
-              />
+            <form onSubmit={handleLogin} className="mt-8 space-y-6">
+              <label className="block text-sm font-semibold text-orbi-text">
+                Correo electrónico
+                <input
+                  className={inputClasses}
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="tu@correo.com"
+                  required
+                />
+              </label>
 
-              <FormField
-                label="Contraseña"
-                name="password"
-                type="password"
-                placeholder="Contraseña segura"
-              />
+              <label className="block text-sm font-semibold text-orbi-text">
+                Contraseña
+                <input
+                  className={inputClasses}
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Contraseña segura"
+                  required
+                />
+              </label>
 
               <div className="flex items-center justify-between text-sm font-semibold text-orbi-muted">
                 <span>¿Olvidaste tu clave?</span>
-                <a href="#" className="text-orbi-cyan hover:text-white">
+                <button
+                  type="button"
+                  onClick={handleResetPassword}
+                  className="text-orbi-cyan hover:text-white"
+                >
                   Recuperar acceso
-                </a>
+                </button>
               </div>
 
-              <OrbiButton type="submit" className="w-full text-base">
-                Entrar
+              {error ? <p className="text-sm font-semibold text-red-300">{error}</p> : null}
+              {message ? <p className="text-sm font-semibold text-orbi-cyan">{message}</p> : null}
+
+              <OrbiButton type="submit" className="w-full text-base" disabled={isSubmitting}>
+                {isSubmitting ? "Procesando..." : "Entrar"}
               </OrbiButton>
             </form>
           </section>
