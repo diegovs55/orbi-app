@@ -55,8 +55,9 @@ export default function AgentLoginPage() {
     }
 
     setIsSubmitting(true);
+    const resetUrl = `${window.location.origin}/agente/reset-password`;
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/agente/reset-password`
+      redirectTo: resetUrl
     });
     setIsSubmitting(false);
 
