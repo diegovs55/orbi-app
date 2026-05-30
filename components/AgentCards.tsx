@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Orbit, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Orbit, RefreshCw, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AGENT_STATUS,
   AgentServiceType,
@@ -44,9 +44,36 @@ export function AgentCards() {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [availabilityRefreshAt, setAvailabilityRefreshAt] = useState(() => new Date());
   const [profileAgent, setProfileAgent] = useState<OrbiAgent | null>(null);
   const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
   const [missionMessage, setMissionMessage] = useState("");
+
+  const refreshAgents = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (silent) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+
+    try {
+      const nextAgents = await getAgents();
+      setAgents(nextAgents);
+      setAvailabilityRefreshAt(new Date());
+      setError("");
+    } catch (caughtError: unknown) {
+      setAgents([]);
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible cargar los agentes Orbi."
+      );
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -67,6 +94,7 @@ export function AgentCards() {
 
         window.clearTimeout(timeoutId);
         setAgents(nextAgents);
+        setAvailabilityRefreshAt(new Date());
         setError("");
       })
       .catch((caughtError: unknown) => {
@@ -96,6 +124,26 @@ export function AgentCards() {
   }, []);
 
   useEffect(() => {
+    function refreshOnFocus() {
+      void refreshAgents({ silent: true });
+    }
+
+    function refreshOnVisibility() {
+      if (document.visibilityState === "visible") {
+        void refreshAgents({ silent: true });
+      }
+    }
+
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+
+    return () => {
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+    };
+  }, [refreshAgents]);
+
+  useEffect(() => {
     return subscribeToMission(() => setMission(getActiveMission()));
   }, []);
 
@@ -110,7 +158,7 @@ export function AgentCards() {
 
     return sortedAgents
       .map((agent) => ({ agent, distance: getAgentDistanceFromMission(agent, mission) }))
-      .filter(({ agent, distance }) => canAgentSeeMission(agent, mission, distance))
+      .filter(({ agent, distance }) => canAgentSeeMission(agent, mission, distance, availabilityRefreshAt))
       .sort((a, b) => {
         if (a.distance === null && b.distance === null) {
           return a.agent.name.localeCompare(b.agent.name);
@@ -127,7 +175,7 @@ export function AgentCards() {
         return a.distance - b.distance;
       })
       .map(({ agent }) => agent);
-  }, [mission, sortedAgents]);
+  }, [availabilityRefreshAt, mission, sortedAgents]);
 
   function handleAcceptMission(agent: OrbiAgent) {
     if (!mission) {
@@ -154,7 +202,7 @@ export function AgentCards() {
   }
 
   function handleCancelMission(agent: OrbiAgent) {
-    if (!mission || !canAgentSeeMission(agent, mission, getAgentDistanceFromMission(agent, mission))) {
+    if (!mission || !canAgentSeeMission(agent, mission, getAgentDistanceFromMission(agent, mission), availabilityRefreshAt)) {
       return;
     }
 
@@ -224,8 +272,29 @@ export function AgentCards() {
         onCancel={handleCancelMission}
       />
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3">
+        <div>
+          <p className="text-sm font-black text-orbi-text">Disponibilidad recalculada</p>
+          <p className="mt-1 text-xs text-orbi-muted">
+            Última revisión: {availabilityRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refreshAgents({ silent: true })}
+          disabled={isRefreshing}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw aria-hidden="true" className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Actualizando..." : "Refrescar agentes"}
+        </button>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
-        {sortedAgents.map((agent) => (
+        {sortedAgents.map((agent) => {
+          const operationalLabel = getAgentOperationalLabel(agent, availabilityRefreshAt);
+
+          return (
           <article
             key={agent.id}
             className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
@@ -237,10 +306,10 @@ export function AgentCards() {
                   <h2 className="text-xl font-black leading-tight text-orbi-text">{agent.name}</h2>
                   <span
                     className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                      operationalLabelStyles[getAgentOperationalLabel(agent)] ?? statusStyles[agent.status]
+                      operationalLabelStyles[operationalLabel] ?? statusStyles[agent.status]
                     }`}
                   >
-                    {getAgentOperationalLabel(agent)}
+                    {operationalLabel}
                   </span>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
@@ -261,7 +330,8 @@ export function AgentCards() {
               Ver perfil
             </button>
           </article>
-        ))}
+          );
+        })}
       </div>
 
       {profileAgent ? (
@@ -503,7 +573,7 @@ function InfoTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: number | null) {
+function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: number | null, now = new Date()) {
   if (isMissionClosed(mission)) {
     return false;
   }
@@ -517,7 +587,7 @@ function canAgentSeeMission(agent: OrbiAgent, mission: ActiveMission, distance: 
   const origin = hasMissionOriginCoordinates(mission)
     ? { lat: mission.origin_lat as number, lng: mission.origin_lng as number }
     : null;
-  const eligibility = getAgentOperatingEligibility(agent, getCompatibleServiceType(mission.service_type), origin);
+  const eligibility = getAgentOperatingEligibility(agent, getCompatibleServiceType(mission.service_type), origin, now);
 
   return isMissionPending(mission) && eligibility.eligible && distance !== null;
 }
