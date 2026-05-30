@@ -27,6 +27,7 @@ export type AgentTrustLevel = (typeof agentLevels)[number];
 
 export type OrbiAgent = {
   id: string;
+  authUserId?: string;
   name: string;
   photoUrl: string;
   initials: string;
@@ -56,6 +57,7 @@ export type CreateAgentInput = Omit<OrbiAgent, "id">;
 
 type AgentRow = {
   id: string;
+  auth_user_id?: string | null;
   name: string;
   photo_url: string | null;
   initials: string | null;
@@ -105,6 +107,7 @@ type AgentUpdate = {
   phone?: string;
   description?: string;
   vehicle?: string | null;
+  auth_user_id?: string | null;
 };
 
 type AgentOrbitUpdate = {
@@ -139,6 +142,7 @@ type AgentInsert = {
   operational_base_lat?: number | null;
   operational_base_lng?: number | null;
   operational_base_text?: string | null;
+  auth_user_id?: string | null;
 };
 
 const agentSelectMinimal =
@@ -220,6 +224,25 @@ export async function getAgents() {
   return (data ?? []).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
 }
 
+export async function getAgentByAuthUserId(authUserId: string) {
+  if (!authUserId.trim()) {
+    return null;
+  }
+
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("agents")
+    .select(`${agentSelectWithAllLocationColumns},auth_user_id`)
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message ?? "No fue posible recuperar el agente por authUserId.");
+  }
+
+  return data ? mapAgentRow(data) : null;
+}
+
 export async function createAgent(agent: CreateAgentInput) {
   const client = getSupabaseClient();
 
@@ -243,7 +266,8 @@ export async function createAgent(agent: CreateAgentInput) {
     operational_base_lat: agent.operationalBaseLat ?? agent.lat,
     operational_base_lng: agent.operationalBaseLng ?? agent.lng,
     operational_base_text: agent.operationalBaseText || agent.zone,
-    radius_km: agent.radiusKm || 20
+    radius_km: agent.radiusKm || 20,
+    auth_user_id: agent.authUserId ?? null
   };
 
   const { data, error } = await client
@@ -621,7 +645,8 @@ export async function updateAgent(id: string, agent: CreateAgentInput) {
     operational_base_lat: agent.operationalBaseLat ?? agent.lat,
     operational_base_lng: agent.operationalBaseLng ?? agent.lng,
     operational_base_text: agent.operationalBaseText || agent.zone,
-    radius_km: agent.radiusKm
+    radius_km: agent.radiusKm,
+    auth_user_id: agent.authUserId ?? null
   };
 
   const { data, error } = await client
@@ -1074,6 +1099,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
 
   return {
     id: row.id,
+    authUserId: row.auth_user_id ?? undefined,
     name: row.name,
     photoUrl: row.photo_url ?? "",
     initials: row.initials ?? getAgentInitials(row.name),
@@ -1103,6 +1129,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
 function agentToRow(id: string, agent: CreateAgentInput): AgentRow {
   return {
     id,
+    auth_user_id: agent.authUserId ?? null,
     name: agent.name,
     photo_url: agent.photoUrl || null,
     initials: agent.initials || getAgentInitials(agent.name),
