@@ -967,7 +967,12 @@ export function isAgentWithinOperatingHours(agent: Pick<OrbiAgent, "availability
   return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
 }
 
-export function getAgentOperatingEligibility(agent: OrbiAgent, serviceType: AgentServiceType, origin?: { lat: number; lng: number } | null) {
+export function getAgentOperatingEligibility(
+  agent: OrbiAgent,
+  serviceType: AgentServiceType,
+  origin?: { lat: number; lng: number } | null,
+  now = new Date()
+) {
   const location = getAgentLocation(agent);
   const isServiceCompatible = agent.serviceType === "Todos los servicios" || agent.serviceType === serviceType;
   const distanceKm =
@@ -982,7 +987,7 @@ export function getAgentOperatingEligibility(agent: OrbiAgent, serviceType: Agen
     return { eligible: false, reason: "fuera de órbita", location, distanceKm };
   }
 
-  if (!isAgentWithinOperatingHours(agent)) {
+  if (!isAgentWithinOperatingHours(agent, now)) {
     return { eligible: false, reason: "fuera de horario", location, distanceKm };
   }
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { Edit3, LocateFixed, MapPin, Plus, Trash2, UserRound, X } from "lucide-react";
+import { Edit3, LocateFixed, MapPin, Plus, RefreshCw, Trash2, UserRound, X } from "lucide-react";
 import {
   AGENT_STATUS,
   AgentServiceType,
@@ -56,6 +56,8 @@ export function AdminAgents() {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshingAgents, setIsRefreshingAgents] = useState(false);
+  const [availabilityRefreshAt, setAvailabilityRefreshAt] = useState(() => new Date());
   const [agentError, setAgentError] = useState("");
   const [agentLat, setAgentLat] = useState("");
   const [agentLng, setAgentLng] = useState("");
@@ -69,6 +71,33 @@ export function AdminAgents() {
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<OrbiAgent | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
+
+  const refreshAgents = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (silent) {
+      setIsRefreshingAgents(true);
+    } else {
+      setIsLoading(true);
+    }
+
+    try {
+      const nextAgents = await getAgents();
+      setAgents(nextAgents);
+      setAvailabilityRefreshAt(new Date());
+      setAgentError("");
+      return nextAgents;
+    } catch (caughtError: unknown) {
+      setAgents([]);
+      setAgentError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No fue posible cargar los agentes Orbi."
+      );
+      return [];
+    } finally {
+      setIsLoading(false);
+      setIsRefreshingAgents(false);
+    }
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -89,6 +118,7 @@ export function AdminAgents() {
 
         window.clearTimeout(timeoutId);
         setAgents(nextAgents);
+        setAvailabilityRefreshAt(new Date());
         setAgentError("");
       })
       .catch((caughtError: unknown) => {
@@ -171,8 +201,8 @@ export function AdminAgents() {
     setAgentError("");
 
     try {
-      const savedAgent = await createAgent(newAgent);
-      setAgents((currentAgents) => [savedAgent, ...currentAgents]);
+      await createAgent(newAgent);
+      await refreshAgents({ silent: true });
       form.reset();
       setAgentLat("");
       setAgentLng("");
@@ -235,8 +265,7 @@ export function AdminAgents() {
         availability: agent.availability,
         operationalBaseText: "Ubicación actual del agente"
       });
-      const refreshedAgents = await getAgents();
-      setAgents(refreshedAgents);
+      await refreshAgents({ silent: true });
       setLocationMessage(`${agent.name} tomó órbita con ubicación operativa actualizada.`);
     } catch (caughtError) {
       setAgentError(
@@ -266,7 +295,7 @@ export function AdminAgents() {
         availability: agent.availability,
         operationalBaseText: agent.operationalBaseText || agent.zone
       });
-      setAgents(await getAgents());
+      await refreshAgents({ silent: true });
       setLocationMessage(`${agent.name} salió de órbita.`);
     } catch (caughtError) {
       setAgentError(
@@ -287,7 +316,7 @@ export function AdminAgents() {
 
     try {
       await deleteAgent(id);
-      setAgents((currentAgents) => currentAgents.filter((agent) => agent.id !== id));
+      await refreshAgents({ silent: true });
     } catch (caughtError) {
       setAgentError(
         caughtError instanceof Error ? caughtError.message : "No fue posible eliminar el agente."
@@ -478,11 +507,27 @@ export function AdminAgents() {
       </form>
 
       <section className="rounded-md border border-white/10 bg-orbi-panel/70 p-4 shadow-soft backdrop-blur sm:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-black text-orbi-text">Agentes guardados</h2>
-          <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-            {agents.length}
-          </span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-orbi-text">Agentes guardados</h2>
+            <p className="mt-1 text-xs text-orbi-muted">
+              Disponibilidad recalculada: {availabilityRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
+              {agents.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => void refreshAgents({ silent: true })}
+              disabled={isRefreshingAgents}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw aria-hidden="true" className={`h-4 w-4 ${isRefreshingAgents ? "animate-spin" : ""}`} />
+              {isRefreshingAgents ? "Actualizando..." : "Refrescar"}
+            </button>
+          </div>
         </div>
 
         {agentError ? (
@@ -497,7 +542,10 @@ export function AdminAgents() {
           </p>
         ) : sortedAgents.length ? (
           <div className="space-y-3">
-            {sortedAgents.map((agent) => (
+            {sortedAgents.map((agent) => {
+              const operationalLabel = getAgentOperationalLabel(agent, availabilityRefreshAt);
+
+              return (
               <article
                 key={agent.id}
                 className="rounded-md border border-orbi-cyan/12 bg-white/[0.04] p-4"
@@ -534,11 +582,11 @@ export function AdminAgents() {
                 <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                   <span
                     className={`rounded-full border px-3 py-1 ${
-                      operationalLabelStyles[getAgentOperationalLabel(agent)] ??
+                      operationalLabelStyles[operationalLabel] ??
                       "border-white/10 bg-white/[0.04] text-orbi-muted"
                     }`}
                   >
-                    {getAgentOperationalLabel(agent)}
+                    {operationalLabel}
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-orbi-muted">
                     Nivel {agent.trustLevel}
@@ -575,7 +623,8 @@ export function AdminAgents() {
                   </button>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
@@ -597,7 +646,7 @@ export function AdminAgents() {
           agent={editingAgent}
           onClose={() => setEditingAgent(null)}
           onSaved={async () => {
-            setAgents(await getAgents());
+            await refreshAgents({ silent: true });
             setEditingAgent(null);
           }}
         />
