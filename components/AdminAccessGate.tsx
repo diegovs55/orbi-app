@@ -1,31 +1,79 @@
 "use client";
 
-import { FormEvent, ReactNode, useState, useSyncExternalStore } from "react";
+import { FormEvent, ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { LockKeyhole, LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { signIn, signOut } from "@/lib/auth";
 
-const ADMIN_PASSWORD = "orbi2026";
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
 export function AdminAccessGate({ children }: { children: ReactNode }) {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    let active = true;
 
-    if (password.trim() !== ADMIN_PASSWORD) {
-      setError("Contraseña incorrecta.");
-      return;
+    async function syncSession() {
+      try {
+        const {
+          data: { user }
+        } = await supabase.auth.getUser();
+
+        if (!active) return;
+        setAuthUser(user ? { id: user.id, email: user.email ?? null } : null);
+
+        if (user) {
+          window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+        } else {
+          window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        }
+
+        window.dispatchEvent(new Event("orbi-admin-session-change"));
+      } catch {
+        if (!active) return;
+        setAuthUser(null);
+        window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        window.dispatchEvent(new Event("orbi-admin-session-change"));
+      }
     }
 
-    window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-    window.dispatchEvent(new Event("orbi-admin-session-change"));
-    setPassword("");
+    if (typeof window !== "undefined") {
+      void syncSession();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
+
+    try {
+      await signIn(email.trim(), password);
+      window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+      window.dispatchEvent(new Event("orbi-admin-session-change"));
+      setEmail("");
+      setPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible iniciar sesión.");
+    }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    setError("");
+
+    try {
+      await signOut();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible cerrar sesión.");
+    }
+
     window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
     window.dispatchEvent(new Event("orbi-admin-session-change"));
   }
@@ -41,9 +89,20 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
         </div>
         <h2 className="text-xl font-black text-orbi-text">Acceso operativo</h2>
         <p className="mt-2 text-sm leading-6 text-orbi-muted">
-          Ingresa la contraseña para ver métricas, misiones, catálogo, negocios, agentes y estadísticas.
+          Ingresa tu correo y contraseña para acceder a estadísticas, misiones y gestión de catálogo.
         </p>
         <label className="mt-5 block text-sm font-semibold text-orbi-text">
+          Correo electrónico
+          <input
+            className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="admin@orbi.local"
+            required
+          />
+        </label>
+        <label className="mt-4 block text-sm font-semibold text-orbi-text">
           Contraseña
           <input
             className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
@@ -67,21 +126,37 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between gap-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
-        <div>
-          <p className="text-sm font-black text-orbi-text">Administrador activo</p>
-          <p className="mt-1 text-xs text-orbi-muted">
-            Panel completo listo para operar la red, aun cuando algunos datos estén vacíos.
-          </p>
+      <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-black text-orbi-text">Administrador activo</p>
+            <p className="mt-1 text-xs text-orbi-muted">
+              Panel completo listo para operar la red, aun cuando algunos datos estén vacíos.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-text transition hover:border-orbi-cyan/35 hover:bg-white/10"
+          >
+            <LogOut aria-hidden="true" className="h-4 w-4" />
+            Salir
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-text transition hover:border-orbi-cyan/35 hover:bg-white/10"
-        >
-          <LogOut aria-hidden="true" className="h-4 w-4" />
-          Salir
-        </button>
+        <div className="mt-4 rounded-md border border-white/10 bg-orbi-black/10 px-4 py-3 text-sm text-orbi-text">
+          {authUser ? (
+            <div className="space-y-1">
+              <p>
+                <span className="font-semibold">ID:</span> {authUser.id}
+              </p>
+              <p>
+                <span className="font-semibold">Email:</span> {authUser.email ?? "(sin email)"}
+              </p>
+            </div>
+          ) : (
+            <p className="font-semibold text-red-300">Usuario no autenticado</p>
+          )}
+        </div>
       </div>
       {children}
     </div>

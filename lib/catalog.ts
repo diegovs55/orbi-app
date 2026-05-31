@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { assertAuthenticated } from "@/lib/auth";
 
 const businessSelectWithLocation =
   "id,name,category,description,zone,address,phone,lat,lng,status,rating,opening_time,closing_time,created_at,updated_at";
@@ -163,17 +164,10 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
     id: crypto.randomUUID()
   };
 
+  await assertAuthenticated();
+
   if (!supabase) {
     throw new Error("Supabase no está disponible para guardar el negocio.");
-  }
-
-  try {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-    console.log("Supabase user:", user);
-  } catch (err) {
-    console.log("Error fetching Supabase user:", err);
   }
 
   const { data, error } = await supabase
@@ -199,6 +193,8 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
     ...input,
     id: crypto.randomUUID()
   };
+
+  await assertAuthenticated();
 
   if (!supabase) {
     throw new Error("Supabase no está disponible para guardar el producto.");
@@ -227,6 +223,8 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
 export async function updateCatalogBusiness(input: CatalogBusiness) {
   const business = input;
 
+  await assertAuthenticated();
+
   if (!supabase) {
     throw new Error("Supabase no está disponible para actualizar el negocio.");
   }
@@ -246,6 +244,8 @@ export async function updateCatalogBusiness(input: CatalogBusiness) {
 export async function updateCatalogProduct(input: CatalogProduct) {
   const product = input;
 
+  await assertAuthenticated();
+
   if (!supabase) {
     throw new Error("Supabase no está disponible para actualizar el producto.");
   }
@@ -263,6 +263,8 @@ export async function updateCatalogProduct(input: CatalogProduct) {
 }
 
 export async function deleteCatalogBusiness(id: string) {
+  await assertAuthenticated();
+
   if (!supabase) {
     throw new Error("Supabase no está disponible para eliminar el negocio.");
   }
@@ -278,6 +280,8 @@ export async function deleteCatalogBusiness(id: string) {
 }
 
 export async function deleteCatalogProduct(id: string) {
+  await assertAuthenticated();
+
   if (!supabase) {
     throw new Error("Supabase no está disponible para eliminar el producto.");
   }

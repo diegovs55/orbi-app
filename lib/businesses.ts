@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { assertAuthenticated } from "@/lib/auth";
 
 const DELETED_BUSINESSES_KEY = "orbi_deleted_business_ids";
 
@@ -60,6 +61,7 @@ export async function getBusinesses() {
 }
 
 export async function createBusiness(business: CreateBusinessInput) {
+  await assertAuthenticated();
   const client = getSupabaseClient();
 
   const parsedRating = (() => {
@@ -90,6 +92,7 @@ export async function createBusiness(business: CreateBusinessInput) {
 }
 
 export async function deleteBusiness(id: string) {
+  await assertAuthenticated();
   const client = getSupabaseClient();
   markBusinessDeletedLocally(id);
 

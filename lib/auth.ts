@@ -38,6 +38,26 @@ export async function getCurrentAgent() {
   return await getCurrentAgentByAuthUserId(user.id);
 }
 
+export async function signIn(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) {
+    throw new Error(error.message ?? "No fue posible iniciar sesión.");
+  }
+}
+
+export async function assertAuthenticated() {
+  const user = await getCurrentUser();
+  if (!user?.id) {
+    throw new Error("Acceso denegado. Inicia sesión para continuar.");
+  }
+
+  return user;
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
 
