@@ -13,18 +13,25 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [authUser, setAuthUser] = useState<{ id: string; email: string | null } | null>(null);
+  const [sessionExists, setSessionExists] = useState(false);
 
   useEffect(() => {
     let active = true;
 
     async function syncSession() {
       try {
-        const {
-          data: { user }
-        } = await supabase.auth.getUser();
+        const [{ data: userData }, { data: sessionData }] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase.auth.getSession()
+        ]);
 
         if (!active) return;
+
+        const user = userData.user;
+        const session = sessionData.session;
+
         setAuthUser(user ? { id: user.id, email: user.email ?? null } : null);
+        setSessionExists(Boolean(session));
 
         if (user) {
           window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
@@ -36,6 +43,7 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
       } catch {
         if (!active) return;
         setAuthUser(null);
+        setSessionExists(false);
         window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
         window.dispatchEvent(new Event("orbi-admin-session-change"));
       }
@@ -50,12 +58,26 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
+async function refreshAuthState() {
+      const [{ data: userData }, { data: sessionData }] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase.auth.getSession()
+      ]);
 
-    try {
-      await signIn(email.trim(), password);
+      const user = userData.user;
+      const session = sessionData.session;
+
+      setAuthUser(user ? { id: user.id, email: user.email ?? null } : null);
+      setSessionExists(Boolean(session));
+    }
+
+    async function handleLogin(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      setError("");
+
+      try {
+        await signIn(email.trim(), password);
+        await refreshAuthState();
       window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
       window.dispatchEvent(new Event("orbi-admin-session-change"));
       setEmail("");
@@ -74,6 +96,8 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
       setError(err instanceof Error ? err.message : "No fue posible cerrar sesión.");
     }
 
+    setAuthUser(null);
+    setSessionExists(false);
     window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
     window.dispatchEvent(new Event("orbi-admin-session-change"));
   }
@@ -144,18 +168,20 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
           </button>
         </div>
         <div className="mt-4 rounded-md border border-white/10 bg-orbi-black/10 px-4 py-3 text-sm text-orbi-text">
-          {authUser ? (
-            <div className="space-y-1">
-              <p>
-                <span className="font-semibold">ID:</span> {authUser.id}
-              </p>
-              <p>
-                <span className="font-semibold">Email:</span> {authUser.email ?? "(sin email)"}
-              </p>
+          <div className="space-y-2">
+            <div>
+              <span className="font-semibold">Auth user id:</span> {authUser?.id ?? "-"}
             </div>
-          ) : (
-            <p className="font-semibold text-red-300">Usuario no autenticado</p>
-          )}
+            <div>
+              <span className="font-semibold">Auth email:</span> {authUser?.email ?? "-"}
+            </div>
+            <div>
+              <span className="font-semibold">Session exists:</span> {sessionExists ? "true" : "false"}
+            </div>
+            {!authUser && !sessionExists ? (
+              <p className="font-semibold text-red-300">Usuario no autenticado</p>
+            ) : null}
+          </div>
         </div>
       </div>
       {children}
