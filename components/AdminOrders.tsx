@@ -15,41 +15,6 @@ type Order = {
   status: OrderStatus;
 };
 
-const initialOrders: Order[] = [
-  {
-    id: "ORB-001",
-    customer: "Ana López",
-    type: "Pedir algo",
-    detail: "Café frío y pan dulce",
-    zone: "Centro",
-    status: "Recibido"
-  },
-  {
-    id: "ORB-002",
-    customer: "Carlos Méndez",
-    type: "Ponerme en órbita",
-    detail: "Traslado de oficina a cowork",
-    zone: "Norte",
-    status: "En órbita"
-  },
-  {
-    id: "ORB-003",
-    customer: "María Ruiz",
-    type: "Mandado",
-    detail: "Recolección de documentos",
-    zone: "Poniente",
-    status: "En camino"
-  },
-  {
-    id: "ORB-004",
-    customer: "Luis Torres",
-    type: "Farmacia",
-    detail: "Compra de medicamento",
-    zone: "Sur",
-    status: "Entregado"
-  }
-];
-
 const statusStyles: Record<OrderStatus, string> = {
   Recibido: "border-white/10 bg-white/5 text-orbi-muted",
   "En órbita": "border-orbi-cyan/30 bg-orbi-cyan/10 text-orbi-cyan",
@@ -58,7 +23,7 @@ const statusStyles: Record<OrderStatus, string> = {
 };
 
 export function AdminOrders() {
-  const [orders, setOrders] = useState(initialOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   const counts = useMemo(() => {
     return states.map((state) => ({
@@ -101,7 +66,14 @@ export function AdminOrders() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
+              {orders.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-orbi-muted">
+                  No hay pedidos registrados.
+                </td>
+              </tr>
+            ) : (
+              orders.map((order) => (
                 <tr key={order.id} className="border-b border-white/5 last:border-b-0">
                   <td className="px-4 py-4 font-bold text-orbi-cyan">{order.id}</td>
                   <td className="px-4 py-4 text-orbi-text">{order.customer}</td>
@@ -132,8 +104,9 @@ export function AdminOrders() {
                     </div>
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              ))
+            )}
+          </tbody>
           </table>
         </div>
       </div>

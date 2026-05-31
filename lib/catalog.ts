@@ -141,18 +141,15 @@ export async function getCatalogBusinesses() {
 }
 
 export async function getCatalogBusinessesWithOptions({
-  includeDemo = true
+  includeDemo = false
 }: {
   includeDemo?: boolean;
 } = {}) {
+  void includeDemo;
   const localBusinesses = readLocalCatalogBusinesses();
   const remoteBusinesses = await getRemoteCatalogBusinesses();
 
-  if (remoteBusinesses.length || localBusinesses.length) {
-    return mergeBusinesses([...remoteBusinesses, ...localBusinesses]);
-  }
-
-  return includeDemo ? demoBusinesses : [];
+  return mergeBusinesses([...remoteBusinesses, ...localBusinesses]);
 }
 
 export async function getCatalogProducts() {
@@ -161,17 +158,16 @@ export async function getCatalogProducts() {
 
 export async function getCatalogProductsWithOptions({
   includeUnavailable = false,
-  includeDemo = true
+  includeDemo = false
 }: {
   includeUnavailable?: boolean;
   includeDemo?: boolean;
 } = {}) {
+  void includeDemo;
   const businesses = await getCatalogBusinessesWithOptions({ includeDemo });
   const localProducts = readLocalCatalogProducts();
   const remoteProducts = await getRemoteCatalogProducts(businesses);
-  const products = mergeProducts([...remoteProducts, ...localProducts], businesses, includeUnavailable);
-
-  return products.length || !includeDemo ? products : demoProducts;
+  return mergeProducts([...remoteProducts, ...localProducts], businesses, includeUnavailable);
 }
 
 export async function getCatalogItems() {
@@ -665,132 +661,3 @@ function toFiniteNumber(value: unknown) {
   return null;
 }
 
-const demoBusinesses: CatalogBusiness[] = [
-  {
-    id: "demo-regina-cafe",
-    name: "Regina Café",
-    category: "Alimentos y bebidas",
-    zone: "Centro",
-    baseText: "Centro de Zumpahuacán",
-    phone: "",
-    lat: 18.8349,
-    lng: -99.5818,
-    status: "activo",
-    estimatedTime: "15-25 min",
-    rating: "Sin calificación todavía",
-    availability: "08:00 - 20:00",
-    availabilityStart: "08:00",
-    availabilityEnd: "20:00"
-  },
-  {
-    id: "demo-farmacia-san-antonio",
-    name: "Farmacia San Antonio",
-    category: "Farmacia",
-    zone: "Centro",
-    baseText: "Centro de Zumpahuacán",
-    phone: "",
-    lat: 18.8349,
-    lng: -99.5818,
-    status: "activo",
-    estimatedTime: "15-25 min",
-    rating: "Sin calificación todavía",
-    availability: "09:00 - 21:00",
-    availabilityStart: "09:00",
-    availabilityEnd: "21:00"
-  },
-  {
-    id: "demo-papeleria-centro",
-    name: "Papelería Centro",
-    category: "Papelería",
-    zone: "Centro",
-    baseText: "Centro de Zumpahuacán",
-    phone: "",
-    lat: 18.8349,
-    lng: -99.5818,
-    status: "activo",
-    estimatedTime: "15-25 min",
-    rating: "Sin calificación todavía",
-    availability: "09:00 - 19:00",
-    availabilityStart: "09:00",
-    availabilityEnd: "19:00"
-  }
-];
-
-const demoProducts: CatalogProduct[] = [
-  {
-    id: "demo-frappe-moka",
-    businessId: "demo-regina-cafe",
-    businessName: "Regina Café",
-    businessZone: "Centro",
-    businessBaseText: "Centro de Zumpahuacán",
-    businessLat: 18.8349,
-    businessLng: -99.5818,
-    sector: "Alimentos y bebidas",
-    name: "Frappe moka",
-    description: "Bebida fría preparada al momento.",
-    category: "Bebida fría",
-    price: 65,
-    available: true,
-    status: "disponible",
-    availability: "08:00 - 20:00",
-    availabilityInherited: true,
-    searchTags: "frappe café cafe moka bebida desayuno snacks"
-  },
-  {
-    id: "demo-frappe-oreo",
-    businessId: "demo-regina-cafe",
-    businessName: "Regina Café",
-    businessZone: "Centro",
-    businessBaseText: "Centro de Zumpahuacán",
-    businessLat: 18.8349,
-    businessLng: -99.5818,
-    sector: "Alimentos y bebidas",
-    name: "Frappe oreo",
-    description: "Frappe dulce con galleta.",
-    category: "Bebida fría",
-    price: 70,
-    available: true,
-    status: "disponible",
-    availability: "08:00 - 20:00",
-    availabilityInherited: true,
-    searchTags: "frappe oreo café cafe bebida"
-  },
-  {
-    id: "demo-medicina",
-    businessId: "demo-farmacia-san-antonio",
-    businessName: "Farmacia San Antonio",
-    businessZone: "Centro",
-    businessBaseText: "Centro de Zumpahuacán",
-    businessLat: 18.8349,
-    businessLng: -99.5818,
-    sector: "Farmacia",
-    name: "Medicamento general",
-    description: "Compra asistida de medicamento sujeto a disponibilidad.",
-    category: "Medicamento",
-    price: 0,
-    available: true,
-    status: "disponible",
-    availability: "09:00 - 21:00",
-    availabilityInherited: true,
-    searchTags: "medicina medicamento farmacia dolor urgente"
-  },
-  {
-    id: "demo-impresiones",
-    businessId: "demo-papeleria-centro",
-    businessName: "Papelería Centro",
-    businessZone: "Centro",
-    businessBaseText: "Centro de Zumpahuacán",
-    businessLat: 18.8349,
-    businessLng: -99.5818,
-    sector: "Papelería",
-    name: "Impresiones",
-    description: "Impresiones y copias para entrega local.",
-    category: "Papelería",
-    price: 5,
-    available: true,
-    status: "disponible",
-    availability: "09:00 - 19:00",
-    availabilityInherited: true,
-    searchTags: "impresiones copias papelería papeleria útiles utiles"
-  }
-];

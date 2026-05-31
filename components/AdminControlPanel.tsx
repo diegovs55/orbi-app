@@ -68,129 +68,6 @@ const timeFilters: TimeFilter[] = [
 
 const missionGoal = 50;
 
-const fallbackMissions: MissionRecord[] = [
-  {
-    id: "ORB-1042",
-    date: "2026-05-26T10:20:00.000Z",
-    service: "Mandado",
-    requester: "Ana López",
-    agent: "Diego Ramírez",
-    agentId: "agent-01",
-    origin: "Centro",
-    destination: "La Ascensión",
-    paymentMethod: "Efectivo",
-    paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "cumplida",
-    price: 95,
-    agentCost: 65,
-    orbiProfit: 30,
-    rating: 5,
-    ratingComment: "Entrega rápida y clara.",
-    detail: "Compra de café y pan dulce",
-    businessId: "fallback-regina-cafe",
-    productId: "fallback-cafe-snacks",
-    business: "Regina Café",
-    product: "Café y snacks",
-    businessCategory: "Café y comida"
-  },
-  {
-    id: "ORB-1041",
-    date: "2026-05-25T16:45:00.000Z",
-    service: "Entrega",
-    requester: "Carlos Méndez",
-    agent: "Sofía Torres",
-    agentId: "agent-02",
-    origin: "Papelería Centro",
-    destination: "Zumpahuacán",
-    paymentMethod: "Transferencia",
-    paymentStatus: "Esta misión requiere pago al inicio",
-    missionStatus: "en_mision",
-    price: 80,
-    agentCost: 55,
-    orbiProfit: 25,
-    rating: null,
-    ratingComment: "",
-    detail: "Impresiones urgentes",
-    businessId: "fallback-papeleria-centro",
-    productId: "fallback-impresiones",
-    business: "Papelería Centro",
-    product: "Impresiones",
-    businessCategory: "Papelería"
-  },
-  {
-    id: "ORB-1040",
-    date: "2026-05-23T09:15:00.000Z",
-    service: "Traslado",
-    requester: "María Ruiz",
-    agent: "Luis Ortega",
-    agentId: "agent-03",
-    origin: "Norte",
-    destination: "Centro",
-    paymentMethod: "Tarjeta",
-    paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "aceptada",
-    price: 120,
-    agentCost: 84,
-    orbiProfit: 36,
-    rating: 4.6,
-    ratingComment: "Buen seguimiento.",
-    detail: "Traslado local",
-    businessId: "fallback-orbi-directo",
-    productId: "fallback-traslado-local",
-    business: "Orbi directo",
-    product: "Traslado local",
-    businessCategory: "Traslados"
-  },
-  {
-    id: "ORB-1039",
-    date: "2026-05-18T18:30:00.000Z",
-    service: "Compra local",
-    requester: "Luis Torres",
-    agent: "Diego Ramírez",
-    agentId: "agent-01",
-    origin: "Farmacia San Antonio",
-    destination: "Barrio Alto",
-    paymentMethod: "Efectivo",
-    paymentStatus: "Pago al finalizar la misión",
-    missionStatus: "cumplida",
-    price: 110,
-    agentCost: 77,
-    orbiProfit: 33,
-    rating: 4.8,
-    ratingComment: "Muy atento.",
-    detail: "Medicamento y artículos urgentes",
-    businessId: "fallback-farmacia-san-antonio",
-    productId: "fallback-medicamento",
-    business: "Farmacia San Antonio",
-    product: "Medicamento",
-    businessCategory: "Farmacia"
-  },
-  {
-    id: "ORB-1038",
-    date: "2026-05-12T13:10:00.000Z",
-    service: "Pago o trámite",
-    requester: "Fernanda Silva",
-    agent: "Sofía Torres",
-    agentId: "agent-02",
-    origin: "Centro",
-    destination: "Tesorería",
-    paymentMethod: "Transferencia",
-    paymentStatus: "Esta misión requiere pago al inicio",
-    missionStatus: "cancelada",
-    price: 0,
-    agentCost: 0,
-    orbiProfit: 0,
-    rating: null,
-    ratingComment: "Cancelada por cambio de horario.",
-    detail: "Pago de servicio",
-    businessId: "fallback-orbi-directo",
-    productId: "fallback-tramite",
-    business: "Orbi directo",
-    product: "Trámite",
-    businessCategory: "Trámites"
-  }
-];
-
 export function AdminControlPanel() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
@@ -241,7 +118,7 @@ export function AdminControlPanel() {
     const realMissions = [...currentMission, ...missionHistory]
       .filter((mission, index, list) => list.findIndex((item) => item.id === mission.id) === index)
       .map((mission) => mapActiveMission(mission, today));
-    return realMissions.length ? realMissions : fallbackMissions;
+    return realMissions;
   }, [activeMission, missionHistory, today]);
 
   const filteredMissions = useMemo(() => {
@@ -273,7 +150,7 @@ export function AdminControlPanel() {
             </p>
           </div>
           <span className="w-fit rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-            Datos MVP + fallback
+            Datos reales
           </span>
         </div>
       </div>
@@ -580,30 +457,38 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
             </tr>
           </thead>
           <tbody>
-            {missions.map((mission) => (
-              <tr key={mission.id} className="border-b border-white/5 last:border-b-0">
-                <td className="px-4 py-4 text-orbi-muted">{formatDate(mission.date)}</td>
-                <td className="px-4 py-4 font-bold text-orbi-cyan">{mission.service}</td>
-                <td className="px-4 py-4 text-orbi-text">{mission.requester}</td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.agent}</td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.origin}</td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.destination}</td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.paymentMethod}</td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.paymentStatus}</td>
-                <td className="px-4 py-4 text-orbi-muted">${mission.price}</td>
-                <td className="px-4 py-4 text-orbi-muted">${mission.agentCost}</td>
-                <td className="px-4 py-4 text-orbi-muted">${mission.orbiProfit}</td>
-                <td className="px-4 py-4">
-                  <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
-                    {getMissionStatusLabel(mission.missionStatus)}
-                  </span>
+            {missions.length === 0 ? (
+              <tr>
+                <td colSpan={14} className="px-4 py-8 text-center text-sm text-orbi-muted">
+                  No hay misiones registradas.
                 </td>
-                <td className="px-4 py-4 text-orbi-muted">
-                  {mission.rating ? `${mission.rating.toFixed(1)} / 5` : "Pendiente"}
-                </td>
-                <td className="px-4 py-4 text-orbi-muted">{mission.detail}</td>
               </tr>
-            ))}
+            ) : (
+              missions.map((mission) => (
+                <tr key={mission.id} className="border-b border-white/5 last:border-b-0">
+                  <td className="px-4 py-4 text-orbi-muted">{formatDate(mission.date)}</td>
+                  <td className="px-4 py-4 font-bold text-orbi-cyan">{mission.service}</td>
+                  <td className="px-4 py-4 text-orbi-text">{mission.requester}</td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.agent}</td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.origin}</td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.destination}</td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.paymentMethod}</td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.paymentStatus}</td>
+                  <td className="px-4 py-4 text-orbi-muted">${mission.price}</td>
+                  <td className="px-4 py-4 text-orbi-muted">${mission.agentCost}</td>
+                  <td className="px-4 py-4 text-orbi-muted">${mission.orbiProfit}</td>
+                  <td className="px-4 py-4">
+                    <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
+                      {getMissionStatusLabel(mission.missionStatus)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-orbi-muted">
+                    {mission.rating ? `${mission.rating.toFixed(1)} / 5` : "Pendiente"}
+                  </td>
+                  <td className="px-4 py-4 text-orbi-muted">{mission.detail}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -674,10 +559,10 @@ function buildAnalytics(
   const agentsOutOrbit = Math.max(0, totalAgents - agentsInOrbit);
   const businessRanking = rankByBusiness(missions, businesses);
   const topBusiness = businessRanking[0] ?? {
-    name: businesses[0]?.name ?? "Orbi directo",
+    name: businesses[0]?.name ?? "Sin datos",
     missions: 0,
     product: "Sin datos",
-    category: businesses[0]?.category ?? "Red local"
+    category: businesses[0]?.category ?? "Sin datos"
   };
   const completedMissions = missions.filter((mission) => mission.missionStatus === "cumplida");
   const ratedMissions = missions.filter(isRatedMission);
@@ -1017,8 +902,8 @@ function mapActiveMission(mission: ActiveMission, today: Date): MissionRecord {
     detail: mission.detail,
     businessId: mission.business_id,
     productId: mission.product_id,
-    business: mission.business_name || "Orbi directo",
-    product: mission.product_name || mission.service_type,
+    business: mission.business_name || "Sin datos",
+    product: mission.product_name || mission.service_type || "Sin datos",
     items: mission.items,
     businessCategory: mission.sector || (mission.service_type === "Pago o trámite" ? "Trámites" : mission.service_type),
     productPrice: mission.product_price ?? 0,
