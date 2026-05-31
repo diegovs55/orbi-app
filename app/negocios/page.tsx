@@ -6,7 +6,7 @@ export default function NegociosPage() {
     <PageShell
       eyebrow="Negocios afiliados"
       title="Categorías listas para validar demanda."
-      description="Datos simulados para presentar una red local activa mientras se confirma el primer grupo de aliados."
+      description="Catálogo activo de negocios afiliados en vivo desde public.businesses."
     >
       <AffiliatedBusinesses />
     </PageShell>

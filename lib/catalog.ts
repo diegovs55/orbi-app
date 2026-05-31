@@ -152,6 +152,10 @@ export async function getCatalogBusinessesWithOptions({
   return mergeBusinesses([...remoteBusinesses, ...localBusinesses]);
 }
 
+export async function getLiveCatalogBusinesses() {
+  return getRemoteCatalogBusinesses();
+}
+
 export async function getCatalogProducts() {
   return getCatalogProductsWithOptions();
 }
@@ -168,6 +172,16 @@ export async function getCatalogProductsWithOptions({
   const localProducts = readLocalCatalogProducts();
   const remoteProducts = await getRemoteCatalogProducts(businesses);
   return mergeProducts([...remoteProducts, ...localProducts], businesses, includeUnavailable);
+}
+
+export async function getLiveCatalogProducts({ includeUnavailable = false } = {}) {
+  const businesses = await getLiveCatalogBusinesses();
+  const remoteProducts = await getRemoteCatalogProducts(businesses);
+  return mergeProducts(remoteProducts, businesses, includeUnavailable);
+}
+
+export async function getLiveCatalogItems() {
+  return getLiveCatalogProducts();
 }
 
 export async function getCatalogItems() {

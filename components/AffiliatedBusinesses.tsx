@@ -7,8 +7,8 @@ import {
   CatalogBusiness,
   CatalogProduct,
   businessSectors,
-  getCatalogBusinessesWithOptions,
-  getCatalogProductsWithOptions
+  getLiveCatalogBusinesses,
+  getLiveCatalogProducts
 } from "@/lib/catalog";
 import { subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 
@@ -60,10 +60,7 @@ export function AffiliatedBusinesses() {
   useEffect(() => {
     let isActive = true;
 
-    Promise.all([
-      getCatalogBusinessesWithOptions({ includeDemo: false }),
-      getCatalogProductsWithOptions({ includeDemo: false })
-    ])
+    Promise.all([getLiveCatalogBusinesses(), getLiveCatalogProducts()])
       .then(([nextBusinesses, nextProducts]) => {
         if (!isActive) {
           return;
@@ -111,10 +108,7 @@ export function AffiliatedBusinesses() {
     return subscribeToBusinesses(() => {
       let isActive = true;
 
-      Promise.all([
-        getCatalogBusinessesWithOptions({ includeDemo: false }),
-        getCatalogProductsWithOptions({ includeDemo: false })
-      ])
+      Promise.all([getLiveCatalogBusinesses(), getLiveCatalogProducts()])
         .then(([nextBusinesses, nextProducts]) => {
           if (!isActive) {
             return;
@@ -154,10 +148,7 @@ export function AffiliatedBusinesses() {
     return subscribeToProducts(() => {
       let isActive = true;
 
-      Promise.all([
-        getCatalogBusinessesWithOptions({ includeDemo: false }),
-        getCatalogProductsWithOptions({ includeDemo: false })
-      ])
+      Promise.all([getLiveCatalogBusinesses(), getLiveCatalogProducts()])
         .then(([nextBusinesses, nextProducts]) => {
           if (!isActive) {
             return;
