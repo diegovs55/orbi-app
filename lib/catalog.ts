@@ -588,10 +588,6 @@ function buildBusinessPayload(business: CatalogBusiness) {
     category: business.category,
     description: business.baseText || `${business.category} en ${business.zone}`,
     estimated_time: business.estimatedTime,
-    availability: business.availability,
-    horario_disponible: business.availability,
-    horario_operativo_inicio: business.availabilityStart,
-    horario_operativo_fin: business.availabilityEnd,
     status: business.status === "activo" ? "Disponible" : "No disponible",
     rating: null,
     is_active: business.status === "activo"
