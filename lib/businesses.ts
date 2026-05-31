@@ -31,18 +31,14 @@ type BusinessRow = {
   name: string;
   category: BusinessCategory;
   description: string;
-  estimated_time: string;
   status: BusinessStatus;
   rating: string | number;
-  is_active?: boolean | null;
-  deleted_at?: string | null;
 };
 
 type BusinessInsert = {
   name: string;
   category: BusinessCategory;
   description: string;
-  estimated_time: string;
   status: BusinessStatus;
   rating: string;
 };
@@ -52,25 +48,11 @@ export async function getBusinesses() {
 
   const { data, error } = await client
     .from("businesses")
-    .select("id,name,category,description,estimated_time,status,rating,is_active,deleted_at")
+    .select("id,name,category,description,status,rating")
     .order("category", { ascending: true })
     .order("name", { ascending: true });
 
   if (error) {
-    if (isMissingSoftDeleteColumnError(error)) {
-      const fallback = await client
-        .from("businesses")
-        .select("id,name,category,description,estimated_time,status,rating")
-        .order("category", { ascending: true })
-        .order("name", { ascending: true });
-
-      if (fallback.error) {
-        throw new Error(fallback.error.message);
-      }
-
-      return (fallback.data ?? []).filter(isNotLocallyDeleted).map(mapBusinessRow);
-    }
-
     throw new Error(error.message);
   }
 
@@ -84,7 +66,6 @@ export async function createBusiness(business: CreateBusinessInput) {
     name: business.name,
     category: business.category,
     description: business.description,
-    estimated_time: business.estimatedTime,
     status: business.status,
     rating: business.rating
   };
@@ -92,7 +73,7 @@ export async function createBusiness(business: CreateBusinessInput) {
   const { data, error } = await client
     .from("businesses")
     .insert(payload)
-    .select("id,name,category,description,estimated_time,status,rating")
+    .select("id,name,category,description,status,rating")
     .single();
 
   if (error) {
@@ -111,7 +92,7 @@ export async function deleteBusiness(id: string) {
   if (error) {
     const softDelete = await client
       .from("businesses")
-      .update({ is_active: false, deleted_at: new Date().toISOString() })
+      .update({ status: "No disponible" })
       .eq("id", id);
 
     if (softDelete.error) {
@@ -126,14 +107,14 @@ function mapBusinessRow(row: BusinessRow): AffiliateBusiness {
     name: row.name,
     category: row.category,
     description: row.description,
-    estimatedTime: row.estimated_time,
+    estimatedTime: "",
     status: row.status,
     rating: String(row.rating)
   };
 }
 
 function isActiveBusinessRow(row: BusinessRow) {
-  return row.deleted_at === null && row.is_active !== false;
+  return row.status !== "No disponible";
 }
 
 function isNotLocallyDeleted(row: BusinessRow) {
@@ -161,17 +142,6 @@ function getLocallyDeletedBusinessIds() {
   } catch {
     return [];
   }
-}
-
-function isMissingSoftDeleteColumnError(error: { message?: string; code?: string } | null) {
-  if (!error) {
-    return false;
-  }
-
-  return (
-    error.code === "42703" ||
-    /is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
-  );
 }
 
 function getSupabaseClient() {
