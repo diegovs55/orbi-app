@@ -34,6 +34,34 @@ export const productCategories = [
   "Otro"
 ] as const;
 
+const productColumns = new Set([
+  "id",
+  "business_id",
+  "negocio_id",
+  "name",
+  "nombre_producto",
+  "description",
+  "descripcion",
+  "category",
+  "categoria_producto",
+  "price",
+  "precio_venta",
+  "available",
+  "disponible",
+  "is_available",
+  "status",
+  "estado",
+  "availability_status",
+  "availability",
+  "horario_disponible",
+  "availability_inherited",
+  "search_tags",
+  "etiquetas_busqueda",
+  "deleted_at",
+  "created_at",
+  "updated_at"
+]);
+
 export type BusinessSector = (typeof businessSectors)[number];
 export type ProductCategory = (typeof productCategories)[number];
 export type CatalogBusinessStatus = "activo" | "inactivo";
@@ -220,20 +248,26 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
     id: crypto.randomUUID()
   };
 
-  try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from("products")
-        .insert(buildProductPayload(product))
-        .select("id")
-        .maybeSingle();
+  if (supabase) {
+    const payload = buildProductPayload(product);
+    const { data, error } = await supabase
+      .from("products")
+      .insert(payload)
+      .select()
+      .single();
 
-      if (!error && data?.id) {
-        product.id = data.id;
-      }
+    if (error) {
+      throw new Error(error.message);
     }
-  } catch {
-    // Local fallback keeps the MVP usable while Supabase schema catches up.
+
+    if (!data?.id) {
+      throw new Error("No se pudo confirmar el producto en Supabase.");
+    }
+
+    product.id = data.id;
+    product.businessId = data.business_id || product.businessId;
+  } else {
+    throw new Error("Supabase no está disponible para guardar el producto.");
   }
 
   saveLocalCatalogProducts([product, ...readLocalCatalogProducts()]);
@@ -261,15 +295,15 @@ export async function updateCatalogBusiness(input: CatalogBusiness) {
 export async function updateCatalogProduct(input: CatalogProduct) {
   const product = input;
 
-  try {
-    if (supabase) {
-      await supabase
-        .from("products")
-        .update(buildProductPayload(product))
-        .eq("id", product.id);
+  if (supabase) {
+    const { error } = await supabase
+      .from("products")
+      .update(buildProductPayload(product))
+      .eq("id", product.id);
+
+    if (error) {
+      throw new Error(error.message);
     }
-  } catch {
-    // Local fallback keeps the MVP editable while Supabase schema catches up.
   }
 
   saveLocalCatalogProducts(upsertById(readLocalCatalogProducts(), product));
@@ -584,29 +618,73 @@ function buildBusinessPayload(business: CatalogBusiness) {
 }
 
 function buildProductPayload(product: CatalogProduct) {
-  return {
-    business_id: product.businessId,
-    negocio_id: product.businessId,
-    name: product.name,
-    nombre_producto: product.name,
-    description: product.description,
-    descripcion: product.description,
-    category: product.category,
-    categoria_producto: product.category,
-    price: product.price,
-    precio_venta: product.price,
-    available: product.available,
-    disponible: product.available,
-    is_available: product.available,
-    status: product.status,
-    estado: product.status,
-    availability_status: product.status,
-    availability: product.availabilityInherited ? "" : product.availability,
-    horario_disponible: product.availabilityInherited ? "" : product.availability,
-    availability_inherited: product.availabilityInherited,
-    search_tags: product.searchTags,
-    etiquetas_busqueda: product.searchTags
-  };
+  const payload: Record<string, unknown> = {};
+
+  if (productColumns.has("business_id")) {
+    payload.business_id = product.businessId;
+  }
+  if (productColumns.has("negocio_id")) {
+    payload.negocio_id = product.businessId;
+  }
+  if (productColumns.has("name")) {
+    payload.name = product.name;
+  }
+  if (productColumns.has("nombre_producto")) {
+    payload.nombre_producto = product.name;
+  }
+  if (productColumns.has("description")) {
+    payload.description = product.description;
+  }
+  if (productColumns.has("descripcion")) {
+    payload.descripcion = product.description;
+  }
+  if (productColumns.has("category")) {
+    payload.category = product.category;
+  }
+  if (productColumns.has("categoria_producto")) {
+    payload.categoria_producto = product.category;
+  }
+  if (productColumns.has("price")) {
+    payload.price = product.price;
+  }
+  if (productColumns.has("precio_venta")) {
+    payload.precio_venta = product.price;
+  }
+  if (productColumns.has("available")) {
+    payload.available = product.available;
+  }
+  if (productColumns.has("disponible")) {
+    payload.disponible = product.available;
+  }
+  if (productColumns.has("is_available")) {
+    payload.is_available = product.available;
+  }
+  if (productColumns.has("status")) {
+    payload.status = product.status;
+  }
+  if (productColumns.has("estado")) {
+    payload.estado = product.status;
+  }
+  if (productColumns.has("availability_status")) {
+    payload.availability_status = product.status;
+  }
+  if (productColumns.has("availability")) {
+    payload.availability = product.availabilityInherited ? "" : product.availability;
+  }
+  if (productColumns.has("horario_disponible")) {
+    payload.horario_disponible = product.availabilityInherited ? "" : product.availability;
+  }
+  if (productColumns.has("availability_inherited")) {
+    payload.availability_inherited = product.availabilityInherited;
+  }
+  if (productColumns.has("search_tags")) {
+    payload.search_tags = product.searchTags;
+  }
+  if (productColumns.has("etiquetas_busqueda")) {
+    payload.etiquetas_busqueda = product.searchTags;
+  }
+
+  return payload;
 }
 
 function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
