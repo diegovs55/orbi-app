@@ -1,3 +1,5 @@
+import { subscribeToTableChanges } from "@/lib/supabase";
+
 export const missionStatuses = [
   "por_tomar",
   "aceptada",
@@ -228,9 +230,12 @@ export function subscribeToMission(callback: () => void) {
   window.addEventListener("storage", callback);
   window.addEventListener(MISSION_CHANGE_EVENT, callback);
 
+  const unsubscribeRealtime = subscribeToTableChanges("missions", callback);
+
   return () => {
     window.removeEventListener("storage", callback);
     window.removeEventListener(MISSION_CHANGE_EVENT, callback);
+    unsubscribeRealtime();
   };
 }
 

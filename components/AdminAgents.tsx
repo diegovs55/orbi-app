@@ -22,6 +22,7 @@ import {
   updateAgent,
   updateAgentOrbit
 } from "@/lib/agents";
+import { subscribeToAgents } from "@/lib/supabase";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
@@ -146,6 +147,12 @@ export function AdminAgents() {
       window.clearTimeout(timeoutId);
     };
   }, []);
+
+  useEffect(() => {
+    return subscribeToAgents(() => {
+      void refreshAgents({ silent: true });
+    });
+  }, [refreshAgents]);
 
   const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => a.name.localeCompare(b.name));

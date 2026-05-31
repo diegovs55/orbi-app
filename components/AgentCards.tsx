@@ -14,6 +14,7 @@ import {
   getAgents,
   OrbiAgent
 } from "@/lib/agents";
+import { subscribeToAgents } from "@/lib/supabase";
 import {
   ActiveMission,
   getActiveMission,
@@ -141,6 +142,12 @@ export function AgentCards() {
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshOnVisibility);
     };
+  }, [refreshAgents]);
+
+  useEffect(() => {
+    return subscribeToAgents(() => {
+      void refreshAgents({ silent: true });
+    });
   }, [refreshAgents]);
 
   useEffect(() => {

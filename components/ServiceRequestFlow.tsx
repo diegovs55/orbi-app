@@ -27,6 +27,7 @@ import {
   getAgents,
   OrbiAgent
 } from "@/lib/agents";
+import { subscribeToAgents } from "@/lib/supabase";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import { upsertGuestCustomerFromMission } from "@/lib/customers";
 import {
@@ -271,6 +272,32 @@ export function ServiceRequestFlow() {
     return () => {
       isActive = false;
       window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const unsubscribe = subscribeToAgents(async () => {
+      if (!isActive) {
+        return;
+      }
+
+      try {
+        const nextAgents = await getAgents();
+        if (!isActive) {
+          return;
+        }
+
+        setAgents(nextAgents);
+        setAgentError("");
+      } catch {
+        // Keep the current agent list if realtime refresh fails.
+      }
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
     };
   }, []);
 

@@ -11,6 +11,7 @@ import {
   deleteBusiness,
   getBusinesses
 } from "@/lib/businesses";
+import { subscribeToBusinesses } from "@/lib/supabase";
 
 const ADMIN_PASSWORD = "orbi2026";
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -56,6 +57,41 @@ export function AdminBusinesses() {
 
     return () => {
       isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const unsubscribe = subscribeToBusinesses(async () => {
+      if (!isActive) {
+        return;
+      }
+
+      try {
+        const nextBusinesses = await getBusinesses();
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses(nextBusinesses);
+        setBusinessError("");
+      } catch (caughtError: unknown) {
+        if (!isActive) {
+          return;
+        }
+
+        setBusinesses([]);
+        setBusinessError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "No fue posible cargar los negocios guardados."
+        );
+      }
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
     };
   }, []);
 

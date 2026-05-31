@@ -5,6 +5,7 @@ import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound }
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import { getCustomers, OrbiCustomer } from "@/lib/customers";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers } from "@/lib/supabase";
 import {
   ActiveMission,
   getActiveMission,
@@ -90,7 +91,13 @@ export function AdminControlPanel() {
   useEffect(() => {
     let isActive = true;
 
-    Promise.allSettled([getAgents(), getBusinesses(), getCustomers()]).then(([agentsResult, businessesResult, customersResult]) => {
+    async function refreshData() {
+      const [agentsResult, businessesResult, customersResult] = await Promise.allSettled([
+        getAgents(),
+        getBusinesses(),
+        getCustomers()
+      ]);
+
       if (!isActive) {
         return;
       }
@@ -106,10 +113,25 @@ export function AdminControlPanel() {
       if (customersResult.status === "fulfilled") {
         setCustomers(customersResult.value);
       }
+    }
+
+    void refreshData();
+
+    const unsubscribeAgents = subscribeToAgents(() => {
+      void refreshData();
+    });
+    const unsubscribeBusinesses = subscribeToBusinesses(() => {
+      void refreshData();
+    });
+    const unsubscribeCustomers = subscribeToCustomers(() => {
+      void refreshData();
     });
 
     return () => {
       isActive = false;
+      unsubscribeAgents();
+      unsubscribeBusinesses();
+      unsubscribeCustomers();
     };
   }, []);
 
