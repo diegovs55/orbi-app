@@ -167,6 +167,15 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
     throw new Error("Supabase no está disponible para guardar el negocio.");
   }
 
+  try {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    console.log("Supabase user:", user);
+  } catch (err) {
+    console.log("Error fetching Supabase user:", err);
+  }
+
   const { data, error } = await supabase
     .from("businesses")
     .insert(buildBusinessPayload(business))
