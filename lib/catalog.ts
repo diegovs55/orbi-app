@@ -572,18 +572,8 @@ function saveLocalCatalogProducts(products: CatalogProduct[]) {
 }
 
 function buildBusinessPayload(business: CatalogBusiness) {
+  // Send only well-known columns to public.businesses to avoid schema cache errors.
   return {
-    nombre_negocio: business.name,
-    categoria_negocio: business.category,
-    zona: business.zone,
-    base_text: business.baseText,
-    direccion: business.baseText,
-    telefono: business.phone,
-    location_lat: business.lat,
-    location_lng: business.lng,
-    ubicacion_lat: business.lat,
-    ubicacion_lng: business.lng,
-    estado: business.status,
     name: business.name,
     category: business.category,
     description: business.baseText || `${business.category} en ${business.zone}`,
