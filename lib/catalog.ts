@@ -194,20 +194,20 @@ export async function createCatalogBusiness(input: Omit<CatalogBusiness, "id">) 
     id: crypto.randomUUID()
   };
 
-  try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from("businesses")
-        .insert(buildBusinessPayload(business))
-        .select("id")
-        .maybeSingle();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("businesses")
+      .insert(buildBusinessPayload(business))
+      .select("id")
+      .single();
 
-      if (!error && data?.id) {
-        business.id = data.id;
-      }
+    if (error) {
+      throw new Error(error.message);
     }
-  } catch {
-    // Local fallback keeps the MVP usable while Supabase schema catches up.
+
+    if (data?.id) {
+      business.id = data.id;
+    }
   }
 
   saveLocalCatalogBusinesses([business, ...readLocalCatalogBusinesses()]);
@@ -243,15 +243,15 @@ export async function createCatalogProduct(input: Omit<CatalogProduct, "id">) {
 export async function updateCatalogBusiness(input: CatalogBusiness) {
   const business = input;
 
-  try {
-    if (supabase) {
-      await supabase
-        .from("businesses")
-        .update(buildBusinessPayload(business))
-        .eq("id", business.id);
+  if (supabase) {
+    const { error } = await supabase
+      .from("businesses")
+      .update(buildBusinessPayload(business))
+      .eq("id", business.id);
+
+    if (error) {
+      throw new Error(error.message);
     }
-  } catch {
-    // Local fallback keeps the MVP editable while Supabase schema catches up.
   }
 
   saveLocalCatalogBusinesses(upsertById(readLocalCatalogBusinesses(), business));
@@ -586,7 +586,7 @@ function buildBusinessPayload(business: CatalogBusiness) {
     estado: business.status,
     name: business.name,
     category: business.category,
-    description: `${business.category} en ${business.zone}`,
+    description: business.baseText || `${business.category} en ${business.zone}`,
     estimated_time: business.estimatedTime,
     availability: business.availability,
     horario_disponible: business.availability,
