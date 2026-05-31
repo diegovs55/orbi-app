@@ -579,8 +579,7 @@ function buildBusinessPayload(business: CatalogBusiness) {
     description: business.baseText || `${business.category} en ${business.zone}`,
     estimated_time: business.estimatedTime,
     status: business.status === "activo" ? "Disponible" : "No disponible",
-    rating: null,
-    is_active: business.status === "activo"
+    rating: null
   };
 }
 
