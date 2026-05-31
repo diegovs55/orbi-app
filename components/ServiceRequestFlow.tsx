@@ -27,7 +27,7 @@ import {
   getAgents,
   OrbiAgent
 } from "@/lib/agents";
-import { subscribeToAgents } from "@/lib/supabase";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import { upsertGuestCustomerFromMission } from "@/lib/customers";
 import {
@@ -308,16 +308,16 @@ export function ServiceRequestFlow() {
   useEffect(() => {
     let isActive = true;
 
-    getCatalogItems()
-      .then((items) => {
+    async function refreshCatalog() {
+      try {
+        const items = await getCatalogItems();
         if (!isActive) {
           return;
         }
 
         setCatalogItems(items);
         setCatalogError("");
-      })
-      .catch((caughtError: unknown) => {
+      } catch (caughtError: unknown) {
         if (!isActive) {
           return;
         }
@@ -328,10 +328,22 @@ export function ServiceRequestFlow() {
             ? caughtError.message
             : "No fue posible cargar el catálogo Orbi."
         );
-      });
+      }
+    }
+
+    void refreshCatalog();
+
+    const unsubscribeBusinesses = subscribeToBusinesses(() => {
+      void refreshCatalog();
+    });
+    const unsubscribeProducts = subscribeToProducts(() => {
+      void refreshCatalog();
+    });
 
     return () => {
       isActive = false;
+      unsubscribeBusinesses();
+      unsubscribeProducts();
     };
   }, []);
 

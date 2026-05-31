@@ -21,6 +21,7 @@ import {
   updateCatalogBusiness,
   updateCatalogProduct
 } from "@/lib/catalog";
+import { subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
@@ -80,10 +81,12 @@ export function AdminCatalog() {
   useEffect(() => {
     let isActive = true;
 
-    Promise.allSettled([
-      getCatalogBusinessesWithOptions({ includeDemo: false }),
-      getCatalogProductsWithOptions({ includeUnavailable: true, includeDemo: false })
-    ]).then(([businessResult, productResult]) => {
+    async function refreshCatalog() {
+      const [businessResult, productResult] = await Promise.allSettled([
+        getCatalogBusinessesWithOptions({ includeDemo: false }),
+        getCatalogProductsWithOptions({ includeUnavailable: true, includeDemo: false })
+      ]);
+
       if (!isActive) {
         return;
       }
@@ -95,10 +98,21 @@ export function AdminCatalog() {
       if (productResult.status === "fulfilled") {
         setProducts(productResult.value);
       }
+    }
+
+    void refreshCatalog();
+
+    const unsubscribeBusinesses = subscribeToBusinesses(() => {
+      void refreshCatalog();
+    });
+    const unsubscribeProducts = subscribeToProducts(() => {
+      void refreshCatalog();
     });
 
     return () => {
       isActive = false;
+      unsubscribeBusinesses();
+      unsubscribeProducts();
     };
   }, []);
 

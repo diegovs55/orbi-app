@@ -43,6 +43,10 @@ export function subscribeToBusinesses(callback: () => void) {
   return subscribeToTableChanges("businesses", callback);
 }
 
+export function subscribeToProducts(callback: () => void) {
+  return subscribeToTableChanges("products", callback);
+}
+
 export function subscribeToCustomers(callback: () => void) {
   return subscribeToTableChanges("customers", callback);
 }

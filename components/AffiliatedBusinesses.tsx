@@ -10,6 +10,7 @@ import {
   getCatalogBusinessesWithOptions,
   getCatalogProductsWithOptions
 } from "@/lib/catalog";
+import { subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 
 const sectorMeta: Record<BusinessSector, { description: string; icon: typeof Coffee }> = {
   "Alimentos y bebidas": {
@@ -104,6 +105,92 @@ export function AffiliatedBusinesses() {
     return () => {
       isActive = false;
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeToBusinesses(() => {
+      let isActive = true;
+
+      Promise.all([
+        getCatalogBusinessesWithOptions({ includeDemo: false }),
+        getCatalogProductsWithOptions({ includeDemo: false })
+      ])
+        .then(([nextBusinesses, nextProducts]) => {
+          if (!isActive) {
+            return;
+          }
+
+          const activeBusinesses = nextBusinesses.filter((business) => business.status === "activo");
+          const activeBusinessIds = new Set(activeBusinesses.map((business) => business.id));
+
+          setBusinesses(activeBusinesses);
+          setProducts(
+            nextProducts.filter(
+              (product) =>
+                product.available &&
+                product.status === "disponible" &&
+                activeBusinessIds.has(product.businessId)
+            )
+          );
+          setError("");
+        })
+        .catch(() => {
+          if (!isActive) {
+            return;
+          }
+
+          setBusinesses([]);
+          setProducts([]);
+          setError("No fue posible cargar los sectores de Orbi.");
+        });
+
+      return () => {
+        isActive = false;
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToProducts(() => {
+      let isActive = true;
+
+      Promise.all([
+        getCatalogBusinessesWithOptions({ includeDemo: false }),
+        getCatalogProductsWithOptions({ includeDemo: false })
+      ])
+        .then(([nextBusinesses, nextProducts]) => {
+          if (!isActive) {
+            return;
+          }
+
+          const activeBusinesses = nextBusinesses.filter((business) => business.status === "activo");
+          const activeBusinessIds = new Set(activeBusinesses.map((business) => business.id));
+
+          setBusinesses(activeBusinesses);
+          setProducts(
+            nextProducts.filter(
+              (product) =>
+                product.available &&
+                product.status === "disponible" &&
+                activeBusinessIds.has(product.businessId)
+            )
+          );
+          setError("");
+        })
+        .catch(() => {
+          if (!isActive) {
+            return;
+          }
+
+          setBusinesses([]);
+          setProducts([]);
+          setError("No fue posible cargar los sectores de Orbi.");
+        });
+
+      return () => {
+        isActive = false;
+      };
+    });
   }, []);
 
   const sectors = useMemo(() => {

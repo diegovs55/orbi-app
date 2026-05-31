@@ -5,7 +5,8 @@ import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound }
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import { getCustomers, OrbiCustomer } from "@/lib/customers";
-import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers } from "@/lib/supabase";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts } from "@/lib/supabase";
+import { CatalogProduct, getCatalogProductsWithOptions } from "@/lib/catalog";
 import {
   ActiveMission,
   getActiveMission,
@@ -76,6 +77,7 @@ export function AdminControlPanel() {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
   const [customers, setCustomers] = useState<OrbiCustomer[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("Últimos 7 días");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -92,10 +94,11 @@ export function AdminControlPanel() {
     let isActive = true;
 
     async function refreshData() {
-      const [agentsResult, businessesResult, customersResult] = await Promise.allSettled([
+      const [agentsResult, businessesResult, customersResult, productsResult] = await Promise.allSettled([
         getAgents(),
         getBusinesses(),
-        getCustomers()
+        getCustomers(),
+        getCatalogProductsWithOptions({ includeUnavailable: true, includeDemo: false })
       ]);
 
       if (!isActive) {
@@ -113,6 +116,10 @@ export function AdminControlPanel() {
       if (customersResult.status === "fulfilled") {
         setCustomers(customersResult.value);
       }
+
+      if (productsResult.status === "fulfilled") {
+        setProducts(productsResult.value);
+      }
     }
 
     void refreshData();
@@ -126,12 +133,16 @@ export function AdminControlPanel() {
     const unsubscribeCustomers = subscribeToCustomers(() => {
       void refreshData();
     });
+    const unsubscribeProducts = subscribeToProducts(() => {
+      void refreshData();
+    });
 
     return () => {
       isActive = false;
       unsubscribeAgents();
       unsubscribeBusinesses();
       unsubscribeCustomers();
+      unsubscribeProducts();
     };
   }, []);
 
@@ -147,12 +158,10 @@ export function AdminControlPanel() {
     return filterMissionsByTime(missions, timeFilter, today, customStart, customEnd);
   }, [customEnd, customStart, missions, timeFilter, today]);
 
-  const analytics = useMemo(() => buildAnalytics(filteredMissions, agents, businesses, customers), [
-    agents,
-    businesses,
-    customers,
-    filteredMissions
-  ]);
+  const analytics = useMemo(
+    () => buildAnalytics(filteredMissions, agents, businesses, customers, products),
+    [agents, businesses, customers, filteredMissions, products]
+  );
 
   if (!isUnlocked) {
     return null;
@@ -574,7 +583,8 @@ function buildAnalytics(
   missions: MissionRecord[],
   agents: OrbiAgent[],
   businesses: AffiliateBusiness[],
-  customers: OrbiCustomer[]
+  customers: OrbiCustomer[],
+  products: CatalogProduct[]
 ) {
   const totalAgents = agents.length;
   const agentsInOrbit = agents.filter((agent) => agent.status === AGENT_STATUS.ONLINE && agent.isOnOrbit).length;
@@ -625,6 +635,7 @@ function buildAnalytics(
     productRevenue: missions.reduce((total, mission) => total + (mission.productPrice ?? 0), 0),
     logisticsProfit: missions.reduce((total, mission) => total + mission.orbiProfit, 0),
     productRanking: rankProductsById(missions),
+    productCount: products.length,
     requesterRanking: rankByLabel(missions, "requester"),
     averageTicketByBusiness: averageByLabel(missions, "business", "price"),
     salesByCategoryBars: sumBars(missions, "businessCategory", "price"),
