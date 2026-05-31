@@ -40,7 +40,7 @@ type BusinessInsert = {
   category: BusinessCategory;
   description: string;
   status: BusinessStatus;
-  rating: string;
+  rating: number | null;
 };
 
 export async function getBusinesses() {
@@ -62,12 +62,18 @@ export async function getBusinesses() {
 export async function createBusiness(business: CreateBusinessInput) {
   const client = getSupabaseClient();
 
+  const parsedRating = (() => {
+    if (business.rating == null) return null;
+    const n = typeof business.rating === "number" ? business.rating : Number(business.rating as unknown as number);
+    return Number.isFinite(n) ? n : null;
+  })();
+
   const payload: BusinessInsert = {
     name: business.name,
     category: business.category,
     description: business.description,
     status: business.status,
-    rating: business.rating
+    rating: parsedRating
   };
 
   const { data, error } = await client

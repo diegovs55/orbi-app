@@ -47,7 +47,7 @@ export type CatalogBusiness = {
   lng: number | null;
   status: CatalogBusinessStatus;
   estimatedTime: string;
-  rating: string;
+  rating: number | null;
   availability: string;
   availabilityStart: string;
   availabilityEnd: string;
@@ -410,7 +410,11 @@ function mapBusinessRow(row: BusinessRow): CatalogBusiness {
     lng: toFiniteNumber(row.lng),
     status,
     estimatedTime: "15-25 min",
-    rating: String(row.rating ?? "Sin calificación todavía"),
+    rating: (() => {
+      if (row.rating == null) return null;
+      const n = Number(row.rating);
+      return Number.isFinite(n) ? n : null;
+    })(),
     availability: buildAvailability(row.opening_time, row.closing_time),
     availabilityStart: normalizeTimeToHHmm(row.opening_time) || "",
     availabilityEnd: normalizeTimeToHHmm(row.closing_time) || ""
@@ -506,6 +510,12 @@ export function normalizeTimeToHHmm(value?: string | null) {
 }
 
 function buildBusinessPayload(business: CatalogBusiness) {
+  const parsedRating = (() => {
+    if (business.rating == null) return null;
+    const n = typeof business.rating === "number" ? business.rating : Number(business.rating as unknown as number);
+    return Number.isFinite(n) ? n : null;
+  })();
+
   return {
     name: business.name,
     category: business.category,
@@ -516,7 +526,7 @@ function buildBusinessPayload(business: CatalogBusiness) {
     lat: business.lat,
     lng: business.lng,
     status: business.status === "activo" ? "activo" : "inactivo",
-    rating: business.rating,
+    rating: parsedRating,
     opening_time: business.availabilityStart,
     closing_time: business.availabilityEnd
   };

@@ -174,7 +174,7 @@ export function AdminCatalog() {
         availabilityStart,
         availabilityEnd,
         estimatedTime: editingBusiness?.estimatedTime ?? "Dinámico",
-        rating: editingBusiness?.rating ?? "Sin calificaciones"
+        rating: editingBusiness?.rating ?? null
       };
       const business = editingBusiness
         ? await updateCatalogBusiness({ ...input, id: editingBusiness.id })

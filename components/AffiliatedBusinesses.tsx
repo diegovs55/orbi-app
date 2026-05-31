@@ -298,9 +298,10 @@ function BusinessRow({
   );
 }
 
-function formatBusinessRating(rating: string) {
+function formatBusinessRating(rating: number | null) {
+  if (rating == null) return "Sin calificaciones";
   const numericRating = Number(rating);
-  return Number.isFinite(numericRating) ? `⭐ ${numericRating.toFixed(1)}` : rating;
+  return Number.isFinite(numericRating) ? `⭐ ${numericRating.toFixed(1)}` : "Sin calificaciones";
 }
 
 function InfoBox({ label, value }: { label: string; value: string }) {
