@@ -46,12 +46,12 @@ const agentTrack: MissionPoint[] = [
 ];
 
 export function MissionOrbitTracker() {
-  const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
+  // Avoid reading localStorage during initial render to prevent
+  // hydration mismatches between server and client. Load persisted
+  // mission data after mount in the effect below.
+  const [mission, setMission] = useState<ActiveMission | null>(null);
   const [trackIndex, setTrackIndex] = useState(0);
-  const [lastUpdated, setLastUpdated] = useState(() => {
-    const currentMission = getActiveMission();
-    return currentMission?.last_updated_at ? new Date(currentMission.last_updated_at) : new Date();
-  });
+  const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
   const [rating, setRating] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingMessage, setRatingMessage] = useState("");
@@ -61,6 +61,18 @@ export function MissionOrbitTracker() {
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
 
   useEffect(() => {
+    // Load persisted mission once on mount (client-only) to avoid
+    // rendering differences between server and client.
+    const initial = getActiveMission();
+    // Allow setting state here intentionally to load persisted mission after
+    // mount. This can trigger a re-render but avoids hydration mismatches.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMission(initial);
+    if (initial?.last_updated_at) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLastUpdated(new Date(initial.last_updated_at));
+    }
+
     return subscribeToMission(() => {
       const nextMission = getActiveMission();
       setMission(nextMission);

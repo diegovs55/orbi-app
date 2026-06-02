@@ -51,6 +51,8 @@ export function LocationPickerMap({ point, onPointChange }: LocationPickerMapPro
   );
 }
 
+export default LocationPickerMap;
+
 function MapCenter({ point }: { point: MapPoint }) {
   const map = useMap();
 
