@@ -224,13 +224,56 @@ export function MissionOrbitTracker() {
 
   if (mission.status === "por_tomar") {
     return (
-      <MissionClosedState
-        tone="waiting"
-        title="Misión esperando agente"
-        body="La solicitud ya está en Red Orbi. Cuando un agente la acepte, podrás seguirla aquí en órbita."
-        primaryHref="/agentes"
-        primaryLabel="Ver agentes"
-      />
+      <section className="space-y-5">
+        <article className="rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.14)] sm:p-8">
+          <div className="flex flex-col items-center gap-3 text-center sm:gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/15 shadow-[0_0_28px_rgba(54,215,255,0.18)]">
+              <Radar aria-hidden="true" className="h-8 w-8 animate-pulse text-orbi-cyan" />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+                Misión en órbita
+              </p>
+              <h2 className="mt-2 text-2xl font-black text-orbi-text">Esperando aceptación del agente</h2>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
+                Estamos notificando al agente. Te avisaremos cuando acepte tu misión.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 border-t border-white/[0.07] pt-5 text-sm sm:grid-cols-2">
+            {mission.selected_agent_name ? (
+              <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Agente asignado</p>
+                <p className="mt-1 font-black text-orbi-text">{mission.selected_agent_name}</p>
+              </div>
+            ) : null}
+            {mission.estimated_orbit ? (
+              <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Tiempo estimado</p>
+                <p className="mt-1 font-black text-orbi-text">{mission.estimated_orbit}</p>
+              </div>
+            ) : null}
+            <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Servicio</p>
+              <p className="mt-1 font-black text-orbi-text">{mission.service_type}</p>
+            </div>
+            <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Destino</p>
+              <p className="mt-1 font-black text-orbi-text">{mission.destination_text}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex justify-center">
+            <Link
+              href="/pedir"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+            >
+              Volver al inicio
+            </Link>
+          </div>
+        </article>
+      </section>
     );
   }
 
@@ -285,44 +328,6 @@ export function MissionOrbitTracker() {
     <section className="space-y-5">
       <MissionSummary mission={mission} title="Misión activa" />
       <MissionTimeline status={mission.status} />
-
-      <article className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-              Control del agente
-            </p>
-            <h3 className="mt-1 text-lg font-black text-orbi-text">Avanzar misión</h3>
-          </div>
-          {mission.accepted_at ? (
-            <p className="text-xs font-semibold text-orbi-muted">
-              Aceptada:{" "}
-              {new Date(mission.accepted_at).toLocaleString("es-MX", {
-                dateStyle: "medium",
-                timeStyle: "short"
-              })}
-            </p>
-          ) : null}
-        </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {nextStatus ? (
-            <button
-              type="button"
-              onClick={() => handleMissionStatusChange(nextStatus)}
-              className="min-h-11 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-            >
-              Avanzar a {getMissionStatusLabel(nextStatus)}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => handleMissionStatusChange("cancelada")}
-            className="min-h-11 rounded-md border border-red-300/20 bg-red-400/10 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/15"
-          >
-            Cancelar misión
-          </button>
-        </div>
-      </article>
 
       <article className="overflow-hidden rounded-md border border-orbi-cyan/15 bg-orbi-panel/80 shadow-[0_18px_55px_rgba(0,0,0,0.32),0_0_28px_rgba(31,139,255,0.1)]">
         <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
