@@ -188,12 +188,12 @@ const pricingRule = "MVP_DISTANCE_V1";
 
 export function ServiceRequestFlow() {
   const initialActiveMission = getActiveMission();
-  const initialDraftMission =
-    initialActiveMission?.status === "por_tomar" && !initialActiveMission.selected_agent_id
-      ? initialActiveMission
-      : getInitialWaitingMission();
+  // Only restore form data for a genuine unsent draft (por_tomar + no agent yet).
+  // Sent missions, completed missions, and closed missions start a fresh form.
+  const initialResumableMission = getResumableMission();
+  const initialDraftMission = initialResumableMission ?? getInitialWaitingMission();
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(() =>
-    getInitialServiceFromMission(initialActiveMission ?? initialDraftMission)
+    getInitialServiceFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [selectedStep, setSelectedStep] = useState<WizardStep>(() =>
     selectedService ? "pedido" : "servicio"
@@ -202,16 +202,16 @@ export function ServiceRequestFlow() {
   const [searchQuery, setSearchQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>(() =>
-    getInitialCartItemsFromMission(initialActiveMission ?? initialDraftMission)
+    getInitialCartItemsFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [cartMessage, setCartMessage] = useState("");
   const [catalogError, setCatalogError] = useState("");
   const [details, setDetails] = useState<RequestDetails>(() =>
-    getInitialDetailsFromMission(initialActiveMission ?? initialDraftMission)
+    getInitialDetailsFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [isRequestReady, setIsRequestReady] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(() =>
-    getInitialAgentFromMission(initialActiveMission)
+    getInitialAgentFromMission(initialResumableMission)
   );
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
@@ -222,10 +222,10 @@ export function ServiceRequestFlow() {
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(() =>
-    getInitialPaymentStatusFromMission(initialActiveMission ?? initialDraftMission)
+    getInitialPaymentStatusFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() =>
-    getInitialPaymentMethodFromMission(initialActiveMission ?? initialDraftMission)
+    getInitialPaymentMethodFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
@@ -234,7 +234,7 @@ export function ServiceRequestFlow() {
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
-    getInitialConfirmedDraftSections(initialActiveMission ?? initialDraftMission)
+    getInitialConfirmedDraftSections(initialResumableMission ?? initialDraftMission)
   );
 
   const router = useRouter();
@@ -2816,6 +2816,16 @@ function OrbitExperienceStage({
       </div>
     </section>
   );
+}
+
+function getResumableMission(): ActiveMission | null {
+  const mission = getActiveMission();
+  if (!mission) return null;
+  // Only restore if this is a genuine unsent draft: created but agent not yet assigned.
+  // Sent missions (selected_agent_id present), completed, cancelled, and archived
+  // missions must NOT pre-fill the form — they belong to the tracking screen.
+  if (mission.status === "por_tomar" && !mission.selected_agent_id) return mission;
+  return null;
 }
 
 function getInitialWaitingMission() {
