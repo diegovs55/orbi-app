@@ -152,76 +152,44 @@ const agentSelectWithCoreLocationColumns = `${agentSelectMinimal},lat,lng,radius
 const agentSelectWithCurrentLocationColumns = `${agentSelectWithCoreLocationColumns},current_lat,current_lng`;
 const agentSelectWithAllLocationColumns = `${agentSelectWithCurrentLocationColumns},latitude,longitude`;
 
+// Cache the SELECT string that works for the current schema so that subsequent
+// calls skip the fallback chain entirely.
+const agentSelectFallbackChain = [
+  agentSelectWithAllLocationColumns,
+  agentSelectWithCurrentLocationColumns,
+  agentSelectWithCoreLocationColumns,
+  agentSelectWithLegacyLocationColumns,
+  agentSelectMinimal
+] as const;
+
+let cachedAgentSelect: string | null = null;
+
 export async function getAgents() {
   const client = getSupabaseClient();
 
-  const { data, error } = await client
-    .from("agents")
-    .select(agentSelectWithAllLocationColumns)
-    .order("status", { ascending: true })
-    .order("name", { ascending: true });
+  const selectsToTry = cachedAgentSelect
+    ? [cachedAgentSelect, ...agentSelectFallbackChain.filter((s) => s !== cachedAgentSelect)]
+    : [...agentSelectFallbackChain];
 
-  if (isMissingCoordinateColumnError(error)) {
-    const fallback = await client
+  for (const selectQuery of selectsToTry) {
+    const { data, error } = await client
       .from("agents")
-      .select(agentSelectWithCurrentLocationColumns)
+      .select(selectQuery)
       .order("status", { ascending: true })
       .order("name", { ascending: true });
 
-    if (fallback.error) {
-      if (!isMissingCoordinateColumnError(fallback.error)) {
-        throw new Error(fallback.error.message);
-      }
-
-      const coreFallback = await client
-        .from("agents")
-        .select(agentSelectWithCoreLocationColumns)
-        .order("status", { ascending: true })
-        .order("name", { ascending: true });
-
-      if (coreFallback.error) {
-        if (!isMissingCoordinateColumnError(coreFallback.error)) {
-          throw new Error(coreFallback.error.message);
-        }
-
-        const legacyFallback = await client
-          .from("agents")
-          .select(agentSelectWithLegacyLocationColumns)
-          .order("status", { ascending: true })
-          .order("name", { ascending: true });
-
-        if (!legacyFallback.error) {
-          return (legacyFallback.data ?? []).filter(isNotLocallyDeleted).map(mapAgentRow);
-        }
-
-        if (!isMissingCoordinateColumnError(legacyFallback.error)) {
-          throw new Error(legacyFallback.error.message);
-        }
-
-        const minimalFallback = await client
-          .from("agents")
-          .select(agentSelectMinimal)
-          .order("status", { ascending: true })
-          .order("name", { ascending: true });
-
-        if (minimalFallback.error) {
-          throw new Error(minimalFallback.error.message);
-        }
-
-        return (minimalFallback.data ?? []).filter(isNotLocallyDeleted).map(mapAgentRow);
-      }
-
-      return (coreFallback.data ?? []).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
+    if (!error) {
+      cachedAgentSelect = selectQuery;
+      return ((data ?? []) as unknown as AgentRow[]).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
     }
 
-    return (fallback.data ?? []).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
+    if (!isMissingCoordinateColumnError(error)) {
+      throw new Error(error.message);
+    }
+    // Column missing — try the next narrower SELECT.
   }
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []).filter(isActiveAgentRow).filter(isNotLocallyDeleted).map(mapAgentRow);
+  throw new Error("No fue posible cargar los agentes desde Supabase.");
 }
 
 export async function getAgentByAuthUserId(authUserId: string) {

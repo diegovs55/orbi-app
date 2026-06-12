@@ -10,9 +10,9 @@ export type MissionPoint = {
 };
 
 type MissionOrbitMapProps = {
-  origin: MissionPoint;
-  destination: MissionPoint;
-  agent: MissionPoint;
+  origin: MissionPoint | null;
+  destination: MissionPoint | null;
+  agent: MissionPoint | null;
 };
 
 const markerIcons = {
@@ -22,15 +22,30 @@ const markerIcons = {
 };
 
 export function MissionOrbitMap({ origin, destination, agent }: MissionOrbitMapProps) {
-  const bounds: [number, number][] = [
-    [origin.lat, origin.lng],
-    [destination.lat, destination.lng],
-    [agent.lat, agent.lng]
-  ];
+  const center = origin ?? destination ?? agent;
+
+  if (!center) {
+    return (
+      <div className="flex h-full min-h-[330px] w-full items-center justify-center rounded-md bg-orbi-blue/[0.06] text-sm text-orbi-muted">
+        Ubicación no disponible
+      </div>
+    );
+  }
+
+  const validPoints: [number, number][] = [origin, destination, agent]
+    .filter((p): p is MissionPoint => p !== null)
+    .map((p) => [p.lat, p.lng]);
+
+  // Avoid degenerate bounds when all points are the same coordinate.
+  const uniquePoints = validPoints.filter(
+    ([lat, lng], i) =>
+      i === 0 || validPoints.some(([la, ln], j) => j < i && (la !== lat || ln !== lng))
+  );
+  const hasBounds = uniquePoints.length >= 2;
 
   return (
     <MapContainer
-      center={[agent.lat, agent.lng]}
+      center={[center.lat, center.lng]}
       className="h-full min-h-[330px] w-full"
       scrollWheelZoom
       zoom={14}
@@ -39,18 +54,20 @@ export function MissionOrbitMap({ origin, destination, agent }: MissionOrbitMapP
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      <MissionMapBounds bounds={bounds} />
-      <Polyline
-        pathOptions={{ color: "#36d7ff", opacity: 0.72, weight: 4 }}
-        positions={[
-          [origin.lat, origin.lng],
-          [agent.lat, agent.lng],
-          [destination.lat, destination.lng]
-        ]}
-      />
-      <Marker icon={markerIcons.origin} position={[origin.lat, origin.lng]} />
-      <Marker icon={markerIcons.destination} position={[destination.lat, destination.lng]} />
-      <Marker icon={markerIcons.agent} position={[agent.lat, agent.lng]} />
+      {hasBounds ? <MissionMapBounds bounds={validPoints} /> : null}
+      {origin && destination ? (
+        <Polyline
+          pathOptions={{ color: "#36d7ff", opacity: 0.72, weight: 4 }}
+          positions={[
+            [origin.lat, origin.lng],
+            ...(agent ? [[agent.lat, agent.lng] as [number, number]] : []),
+            [destination.lat, destination.lng]
+          ]}
+        />
+      ) : null}
+      {origin ? <Marker icon={markerIcons.origin} position={[origin.lat, origin.lng]} /> : null}
+      {destination ? <Marker icon={markerIcons.destination} position={[destination.lat, destination.lng]} /> : null}
+      {agent ? <Marker icon={markerIcons.agent} position={[agent.lat, agent.lng]} /> : null}
     </MapContainer>
   );
 }
@@ -59,7 +76,9 @@ function MissionMapBounds({ bounds }: { bounds: [number, number][] }) {
   const map = useMap();
 
   useEffect(() => {
-    map.fitBounds(bounds, { padding: [28, 28] });
+    if (bounds.length >= 2) {
+      map.fitBounds(bounds, { padding: [28, 28] });
+    }
   }, [bounds, map]);
 
   return null;

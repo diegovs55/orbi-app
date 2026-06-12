@@ -239,6 +239,7 @@ export function ServiceRequestFlow() {
 
   const router = useRouter();
   const [isSending, setIsSending] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [orbitExperienceActive, setOrbitExperienceActive] = useState(false);
   const orbitRedirectTimeoutRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1004,6 +1005,8 @@ export function ServiceRequestFlow() {
       return;
     }
 
+    setSubmitError(null);
+
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const cost = estimateMissionCost(distance);
     const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
@@ -1018,6 +1021,8 @@ export function ServiceRequestFlow() {
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
+
+    try {
     const mission = createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
@@ -1083,6 +1088,13 @@ export function ServiceRequestFlow() {
     if (orbitRedirectTimeoutRef.current) {
       window.clearTimeout(orbitRedirectTimeoutRef.current);
       orbitRedirectTimeoutRef.current = null;
+    }
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
+      );
     }
   }
 
@@ -1674,6 +1686,11 @@ export function ServiceRequestFlow() {
                 <p className="text-lg font-black text-orbi-text">Poniendo tu misión en órbita…</p>
                 <p className="mt-2 text-sm text-orbi-muted">Estamos conectando tu solicitud con el agente seleccionado.</p>
               </div>
+            ) : null}
+            {submitError ? (
+              <p className="sm:col-span-2 rounded-md border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-400">
+                {submitError}
+              </p>
             ) : null}
             <button
               type="button"
