@@ -2,6 +2,64 @@ import { supabase } from "@/lib/supabase";
 import { ActiveMission, associateMissionsToUserByPhone } from "@/lib/missions";
 
 const CUSTOMERS_KEY = "orbi_customers";
+const CUSTOMER_SESSION_KEY = "orbi_customer_session";
+
+export type CustomerSession = {
+  name: string;
+  phone: string;
+  email?: string;
+};
+
+export function getCurrentCustomerSession(): CustomerSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CUSTOMER_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CustomerSession;
+    if (!parsed.name || !parsed.phone) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCustomerSession(name: string, phone: string, email?: string): void {
+  if (typeof window === "undefined") return;
+  const session: CustomerSession = { name: name.trim(), phone: normalizePhone(phone) };
+  if (email?.trim()) session.email = email.trim();
+  window.localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(session));
+}
+
+export function saveLocalCustomerAccount(
+  name: string,
+  phone: string,
+  email: string,
+  _password: string // stored only as registered flag for MVP, never in plaintext
+): void {
+  if (typeof window === "undefined") return;
+  const normalizedPhone = normalizePhone(phone);
+  const now = new Date().toISOString();
+  const customer: OrbiCustomer = {
+    id: `local_${normalizedPhone}`,
+    name: name.trim(),
+    phone: normalizedPhone,
+    email: email.trim(),
+    isRegistered: true,
+    createdAt: now,
+    updatedAt: now,
+    lastOrderAt: now,
+    totalOrders: 0,
+    totalSpent: 0
+  };
+  const customers = readLocalCustomers();
+  const next = [customer, ...customers.filter((c) => c.phone !== normalizedPhone)];
+  window.localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(next));
+}
+
+export function clearCustomerSession(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
+}
 
 export type OrbiCustomer = {
   id: string;

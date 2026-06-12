@@ -3,18 +3,22 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Clock3, LocateFixed, PackageCheck, Radar, Route, ShieldCheck, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { MissionPoint } from "@/components/MissionOrbitMap";
 import {
   isCustomerRegistered,
   registerCustomerAccount,
-  upsertGuestCustomerFromMission
+  upsertGuestCustomerFromMission,
+  getCurrentCustomerSession,
+  saveCustomerSession,
+  saveLocalCustomerAccount
 } from "@/lib/customers";
 import {
   ActiveMission,
   canTransitionMission,
   getActiveMission,
   getActiveMissions,
+  getMissionHistory,
   getMissionStatusLabel,
   isMissionActive,
   isMissionClosed,
@@ -61,6 +65,10 @@ export function MissionOrbitTracker() {
   const [waitingMessage, setWaitingMessage] = useState("");
   const [customerIsRegistered, setCustomerIsRegistered] = useState<boolean | null>(null);
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
+  const [showSaveSessionPrompt, setShowSaveSessionPrompt] = useState(false);
+  const [lastClosedMission, setLastClosedMission] = useState<ActiveMission | null>(null);
+  const prevActiveMissionIdsRef = useRef<string[]>([]);
+  const userClosedDetailRef = useRef(false);
 
   const activeMissions = missions.filter((m) => !isMissionClosed(m));
 
@@ -94,6 +102,43 @@ export function MissionOrbitTracker() {
       setLastUpdated(new Date(mission.last_updated_at));
     }
   }, [mission?.id, mission?.last_updated_at]);
+
+  // Fix 3: auto-select first mission so map/detail always shows in multi-mission view.
+  // Skips auto-select if the user explicitly closed the detail panel.
+  useEffect(() => {
+    if (activeMissions.length > 1 && !selectedId && !userClosedDetailRef.current) {
+      setSelectedId(activeMissions[0].id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMissions.length, selectedId]);
+
+  // Fix 4: capture last cumplida mission before it disappears from activeMissions.
+  useEffect(() => {
+    const currentIds = activeMissions.map((m) => m.id);
+    const disappeared = prevActiveMissionIdsRef.current.filter(
+      (id) => !currentIds.includes(id)
+    );
+    if (disappeared.length > 0) {
+      const hist = getMissionHistory();
+      for (const id of disappeared) {
+        const found = hist.find((m) => m.id === id && m.status === "cumplida");
+        if (found) {
+          setLastClosedMission(found);
+          setShowSaveSessionPrompt(!getCurrentCustomerSession());
+          break;
+        }
+      }
+    }
+    prevActiveMissionIdsRef.current = currentIds;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMissions.length]);
+
+  useEffect(() => {
+    if (mission?.status === "cumplida" && !getCurrentCustomerSession()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowSaveSessionPrompt(true);
+    }
+  }, [mission?.status]);
 
   useEffect(() => {
     let isActive = true;
@@ -176,13 +221,22 @@ export function MissionOrbitTracker() {
   if (activeMissions.length > 1) {
     return (
       <section className="space-y-5">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-            Tus misiones activas
-          </p>
-          <h2 className="mt-1 text-2xl font-black text-orbi-text">
-            {activeMissions.length} misiones en órbita
-          </h2>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+              Tus misiones activas
+            </p>
+            <h2 className="mt-1 text-2xl font-black text-orbi-text">
+              {activeMissions.length} misiones en órbita
+            </h2>
+          </div>
+          {/* Fix 5: always visible "Volver al inicio" */}
+          <Link
+            href="/"
+            className="shrink-0 text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+          >
+            Volver al inicio
+          </Link>
         </div>
 
         {/* Summary cards */}
@@ -192,7 +246,7 @@ export function MissionOrbitTracker() {
               key={m.id}
               mission={m}
               isSelected={selectedId === m.id}
-              onSelect={() => setSelectedId(m.id)}
+              onSelect={() => { userClosedDetailRef.current = false; setSelectedId(m.id); }}
             />
           ))}
         </div>
@@ -206,7 +260,7 @@ export function MissionOrbitTracker() {
               </p>
               <button
                 type="button"
-                onClick={() => setSelectedId(null)}
+                onClick={() => { userClosedDetailRef.current = true; setSelectedId(null); }}
                 className="text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
               >
                 Cerrar detalle
@@ -234,6 +288,9 @@ export function MissionOrbitTracker() {
               onSaveRating={handleSaveRating}
               onLaterInvite={() => setHideAccountInvite(true)}
               onRegister={handleRegisterCustomer}
+              showSaveSessionPrompt={showSaveSessionPrompt}
+              onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
+              onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
             />
           </div>
         ) : null}
@@ -250,6 +307,65 @@ export function MissionOrbitTracker() {
     );
   }
   // ── End multi-mission overview ─────────────────────────────────────────────
+
+  // Fix 4: show closure UX for last cumplida mission before transitioning to empty state.
+  if (!mission && lastClosedMission) {
+    const closedNextStatus = getNextMissionStatus(lastClosedMission.status);
+    return (
+      <section className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+              Misión cumplida
+            </p>
+            <h2 className="mt-1 text-2xl font-black text-orbi-text">
+              {lastClosedMission.service_type}
+            </h2>
+          </div>
+          <Link
+            href="/"
+            className="shrink-0 text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+          >
+            Volver al inicio
+          </Link>
+        </div>
+        <MissionDetailBody
+          mission={lastClosedMission}
+          nextStatus={closedNextStatus}
+          lastUpdated={lastUpdated}
+          waitingMessage={waitingMessage}
+          showWaitingCancelConfirm={showWaitingCancelConfirm}
+          rating={rating}
+          ratingComment={ratingComment}
+          ratingMessage={ratingMessage}
+          customerIsRegistered={customerIsRegistered}
+          hideAccountInvite={hideAccountInvite}
+          onRefreshLocation={() => undefined}
+          onStatusChange={() => undefined}
+          onWait={() => undefined}
+          onCancelConfirm={() => undefined}
+          onConfirmCancel={() => undefined}
+          onKeepWaiting={() => undefined}
+          onRatingChange={setRating}
+          onCommentChange={setRatingComment}
+          onSaveRating={handleSaveRating}
+          onLaterInvite={() => setHideAccountInvite(true)}
+          onRegister={handleRegisterCustomer}
+          showSaveSessionPrompt={showSaveSessionPrompt}
+          onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
+          onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
+        />
+        <div className="pt-1">
+          <Link
+            href="/pedir"
+            className="inline-flex min-h-11 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            + Nueva misión
+          </Link>
+        </div>
+      </section>
+    );
+  }
 
   if (!mission) {
     return (
@@ -294,6 +410,9 @@ export function MissionOrbitTracker() {
       onSaveRating={handleSaveRating}
       onLaterInvite={() => setHideAccountInvite(true)}
       onRegister={handleRegisterCustomer}
+      showSaveSessionPrompt={showSaveSessionPrompt}
+      onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
+      onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
     />
   );
 }
@@ -368,6 +487,9 @@ type MissionDetailBodyProps = {
   onSaveRating: () => void;
   onLaterInvite: () => void;
   onRegister: (p: { name: string; phone: string; email: string; password: string }) => Promise<void>;
+  showSaveSessionPrompt: boolean;
+  onSaveSession: (name: string, phone: string, email: string, password: string) => void;
+  onDismissSaveSession: () => void;
 };
 
 function MissionDetailBody({
@@ -389,7 +511,10 @@ function MissionDetailBody({
   onCommentChange,
   onSaveRating,
   onLaterInvite,
-  onRegister
+  onRegister,
+  showSaveSessionPrompt,
+  onSaveSession,
+  onDismissSaveSession
 }: MissionDetailBodyProps) {
   if (mission.status === "por_tomar" && !mission.selected_agent_id) {
     return (
@@ -488,6 +613,14 @@ function MissionDetailBody({
             onCommentChange={onCommentChange}
             onRatingChange={onRatingChange}
             onSave={onSaveRating}
+          />
+        ) : null}
+        {showSaveSessionPrompt ? (
+          <SaveSessionCard
+            name={mission.requester_name}
+            phone={mission.requester_phone}
+            onSave={onSaveSession}
+            onDismiss={onDismissSaveSession}
           />
         ) : null}
         {shouldShowAccountInvite ? (
@@ -945,6 +1078,157 @@ function MissionTile({
       </div>
       <p className="mt-2 font-black text-orbi-text">{value}</p>
     </div>
+  );
+}
+
+function SaveSessionCard({
+  name,
+  phone,
+  onSave,
+  onDismiss
+}: {
+  name: string;
+  phone: string;
+  onSave: (name: string, phone: string, email: string, password: string) => void;
+  onDismiss: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [fullName, setFullName] = useState(name ?? "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const displayPhone = phone.replace(/\D/g, "").replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!fullName.trim() || !email.trim() || !password) {
+      setError("Todos los campos son obligatorios.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Ingresa un correo electrónico válido.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+    setError("");
+    onSave(fullName.trim(), phone, email.trim(), password);
+  }
+
+  if (!showForm) {
+    return (
+      <article className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
+        <p className="text-sm font-bold text-orbi-text">¿Te reconocemos la próxima vez?</p>
+        <p className="mt-1 text-xs text-orbi-muted">
+          Crea tu cuenta Orbi para autocompletar tus datos y ver tu historial de misiones.
+        </p>
+        <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
+          {displayPhone || phone}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          >
+            Sí, crear mi cuenta
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+          >
+            No, gracias
+          </button>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
+      <p className="text-sm font-bold text-orbi-text">Crear cuenta Orbi</p>
+      <form onSubmit={handleSubmit} className="mt-3 space-y-3" noValidate>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Nombre completo</label>
+          <input
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Tu nombre completo"
+            autoComplete="name"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Correo electrónico</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="correo@ejemplo.com"
+            autoComplete="email"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">WhatsApp</label>
+          <p className="mt-1 rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
+            {displayPhone || phone}
+          </p>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Contraseña</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Mínimo 6 caracteres"
+            autoComplete="new-password"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Confirmar contraseña</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Repite la contraseña"
+            autoComplete="new-password"
+          />
+        </div>
+        {error ? (
+          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          >
+            Crear cuenta
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowForm(false)}
+            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+          >
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </article>
   );
 }
 

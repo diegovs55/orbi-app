@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Orbit, RefreshCw, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
+import { CheckCircle2, Navigation, Orbit, PackageCheck, RefreshCw, ShieldCheck, UserRound, X, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AGENT_STATUS,
@@ -17,14 +17,14 @@ import {
 import { subscribeToAgents } from "@/lib/supabase";
 import {
   ActiveMission,
-  getActiveMission,
+  getActiveMissions,
   getMissionStatusLabel,
   getMissionHistory,
   isMissionActive,
   isMissionClosed,
   isMissionPending,
   subscribeToMission,
-  updateActiveMission
+  updateActiveMissionById
 } from "@/lib/missions";
 
 const statusStyles: Record<OrbiAgent["status"], string> = {
@@ -48,7 +48,7 @@ export function AgentCards() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [availabilityRefreshAt, setAvailabilityRefreshAt] = useState(() => new Date());
   const [profileAgent, setProfileAgent] = useState<OrbiAgent | null>(null);
-  const [mission, setMission] = useState<ActiveMission | null>(() => getActiveMission());
+  const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [missionMessage, setMissionMessage] = useState("");
 
   const refreshAgents = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -151,46 +151,39 @@ export function AgentCards() {
   }, [refreshAgents]);
 
   useEffect(() => {
-    return subscribeToMission(() => setMission(getActiveMission()));
+    const load = () => setMissions(getActiveMissions());
+    load();
+    return subscribeToMission(load);
   }, []);
 
   const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => a.name.localeCompare(b.name));
   }, [agents]);
 
-  const missionAgents = useMemo(() => {
-    if (!mission) {
-      return [];
-    }
+  const pendingMissions = useMemo(
+    () => missions.filter((m) => !isMissionClosed(m)),
+    [missions]
+  );
 
-    return sortedAgents
-      .map((agent) => ({ agent, distance: getAgentDistanceFromMission(agent, mission) }))
-      .filter(({ agent, distance }) => canAgentSeeMission(agent, mission, distance, availabilityRefreshAt))
-      .sort((a, b) => {
-        if (a.distance === null && b.distance === null) {
-          return a.agent.name.localeCompare(b.agent.name);
-        }
+  const missionBoardItems = useMemo(() => {
+    return pendingMissions.map((m) => ({
+      mission: m,
+      agents: sortedAgents
+        .map((agent) => ({ agent, distance: getAgentDistanceFromMission(agent, m) }))
+        .filter(({ agent, distance }) => canAgentSeeMission(agent, m, distance, availabilityRefreshAt))
+        .sort((a, b) => {
+          if (a.distance === null && b.distance === null) return a.agent.name.localeCompare(b.agent.name);
+          if (a.distance === null) return 1;
+          if (b.distance === null) return -1;
+          return a.distance - b.distance;
+        })
+        .map(({ agent }) => agent)
+    }));
+  }, [availabilityRefreshAt, pendingMissions, sortedAgents]);
 
-        if (a.distance === null) {
-          return 1;
-        }
-
-        if (b.distance === null) {
-          return -1;
-        }
-
-        return a.distance - b.distance;
-      })
-      .map(({ agent }) => agent);
-  }, [availabilityRefreshAt, mission, sortedAgents]);
-
-  function handleAcceptMission(agent: OrbiAgent) {
-    if (!mission) {
-      return;
-    }
-
+  function handleAcceptMission(agent: OrbiAgent, targetMission: ActiveMission) {
     const currentLocation = getAgentCurrentLocation(agent);
-    const nextMission = updateActiveMission({
+    updateActiveMissionById(targetMission.id, {
       status: "aceptada",
       selected_agent_id: agent.id,
       selected_agent_name: agent.name,
@@ -202,35 +195,39 @@ export function AgentCards() {
       active_agent_id: agent.id,
       accepted_at: new Date().toISOString()
     });
-
-    setMission(nextMission);
+    setMissions(getActiveMissions());
     setMissionMessage("Misión aceptada. Ya estás en órbita.");
     router.push("/orbita");
   }
 
-  function handleCancelMission(agent: OrbiAgent) {
-    if (!mission || !canAgentSeeMission(agent, mission, getAgentDistanceFromMission(agent, mission), availabilityRefreshAt)) {
+  function handleCancelMission(agent: OrbiAgent, targetMission: ActiveMission) {
+    if (!canAgentSeeMission(agent, targetMission, getAgentDistanceFromMission(agent, targetMission), availabilityRefreshAt)) {
       return;
     }
-
-    const nextMission = updateActiveMission({
+    updateActiveMissionById(targetMission.id, {
       status: "cancelada",
-      active_agent_id: mission.active_agent_id || agent.id
+      active_agent_id: targetMission.active_agent_id || agent.id
     });
-    setMission(nextMission);
+    setMissions(getActiveMissions());
     setMissionMessage("Misión cancelada y archivada en historial.");
+  }
+
+  function handleAdvanceMission(targetMission: ActiveMission) {
+    if (targetMission.status === "aceptada") {
+      updateActiveMissionById(targetMission.id, { status: "en_mision" });
+      setMissions(getActiveMissions());
+      setMissionMessage("Ruta iniciada. Misión en curso.");
+    } else if (targetMission.status === "en_mision") {
+      updateActiveMissionById(targetMission.id, { status: "cumplida" });
+      setMissions(getActiveMissions());
+      setMissionMessage("Entrega confirmada. Misión cumplida.");
+    }
   }
 
   if (isLoading) {
     return (
       <>
-        <AgentMissionBoard
-          agents={missionAgents}
-          mission={mission}
-          message={missionMessage}
-          onAccept={handleAcceptMission}
-          onCancel={handleCancelMission}
-        />
+        <MissionBoards items={missionBoardItems} message={missionMessage} onAccept={handleAcceptMission} onCancel={handleCancelMission} onAdvance={handleAdvanceMission} />
         <StateCard title="Cargando agentes Orbi..." body="Estamos consultando la red activa." />
       </>
     );
@@ -239,13 +236,7 @@ export function AgentCards() {
   if (error) {
     return (
       <>
-        <AgentMissionBoard
-          agents={missionAgents}
-          mission={mission}
-          message={missionMessage}
-          onAccept={handleAcceptMission}
-          onCancel={handleCancelMission}
-        />
+        <MissionBoards items={missionBoardItems} message={missionMessage} onAccept={handleAcceptMission} onCancel={handleCancelMission} onAdvance={handleAdvanceMission} />
         <StateCard title="No pudimos cargar los agentes." body={error} tone="error" />
       </>
     );
@@ -254,13 +245,7 @@ export function AgentCards() {
   if (!sortedAgents.length) {
     return (
       <>
-        <AgentMissionBoard
-          agents={missionAgents}
-          mission={mission}
-          message={missionMessage}
-          onAccept={handleAcceptMission}
-          onCancel={handleCancelMission}
-        />
+        <MissionBoards items={missionBoardItems} message={missionMessage} onAccept={handleAcceptMission} onCancel={handleCancelMission} onAdvance={handleAdvanceMission} />
         <StateCard
           title="Aún no hay agentes Orbi registrados."
           body="Pronto podrás ver aquí perfiles verificados para recibir apoyo local."
@@ -271,13 +256,7 @@ export function AgentCards() {
 
   return (
     <>
-      <AgentMissionBoard
-        agents={missionAgents}
-        mission={mission}
-        message={missionMessage}
-        onAccept={handleAcceptMission}
-        onCancel={handleCancelMission}
-      />
+      <MissionBoards items={missionBoardItems} message={missionMessage} onAccept={handleAcceptMission} onCancel={handleCancelMission} onAdvance={handleAdvanceMission} />
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3">
         <div>
@@ -348,18 +327,62 @@ export function AgentCards() {
   );
 }
 
+function MissionBoards({
+  items,
+  message,
+  onAccept,
+  onCancel,
+  onAdvance
+}: {
+  items: { mission: ActiveMission; agents: OrbiAgent[] }[];
+  message: string;
+  onAccept: (agent: OrbiAgent, mission: ActiveMission) => void;
+  onCancel: (agent: OrbiAgent, mission: ActiveMission) => void;
+  onAdvance: (mission: ActiveMission) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <AgentMissionBoard
+        agents={[]}
+        mission={null}
+        message={message}
+        onAccept={() => {}}
+        onCancel={() => {}}
+        onAdvance={() => {}}
+      />
+    );
+  }
+  return (
+    <>
+      {items.map(({ mission: m, agents }) => (
+        <AgentMissionBoard
+          key={m.id}
+          agents={agents}
+          mission={m}
+          message={message}
+          onAccept={(agent) => onAccept(agent, m)}
+          onCancel={(agent) => onCancel(agent, m)}
+          onAdvance={() => onAdvance(m)}
+        />
+      ))}
+    </>
+  );
+}
+
 function AgentMissionBoard({
   agents,
   mission,
   message,
   onAccept,
-  onCancel
+  onCancel,
+  onAdvance
 }: {
   agents: OrbiAgent[];
   mission: ActiveMission | null;
   message: string;
   onAccept: (agent: OrbiAgent) => void;
   onCancel: (agent: OrbiAgent) => void;
+  onAdvance: () => void;
 }) {
   const hasMissionForAgents = Boolean(mission && agents.length);
 
@@ -443,6 +466,26 @@ function AgentMissionBoard({
                       Aceptar misión
                     </button>
                   ) : null}
+                  {mission.status === "aceptada" ? (
+                    <button
+                      type="button"
+                      onClick={onAdvance}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500"
+                    >
+                      <Navigation aria-hidden="true" className="h-4 w-4" />
+                      Iniciar ruta
+                    </button>
+                  ) : null}
+                  {mission.status === "en_mision" ? (
+                    <button
+                      type="button"
+                      onClick={onAdvance}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-500"
+                    >
+                      <PackageCheck aria-hidden="true" className="h-4 w-4" />
+                      Confirmar entrega
+                    </button>
+                  ) : null}
                   {!isMissionClosed(mission) ? (
                     <button
                       type="button"
@@ -458,7 +501,7 @@ function AgentMissionBoard({
                       href="/orbita"
                       className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
                     >
-                      Ver misión en órbita
+                      Ver en órbita
                     </Link>
                   ) : null}
                 </div>

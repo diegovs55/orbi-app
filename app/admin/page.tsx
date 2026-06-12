@@ -3,6 +3,7 @@ import { AdminAccessGate } from "@/components/AdminAccessGate";
 import { AdminControlPanel } from "@/components/AdminControlPanel";
 import { AdminCatalog } from "@/components/AdminCatalog";
 import { AdminAgents } from "@/components/AdminAgents";
+import { AdminCustomers } from "@/components/AdminCustomers";
 
 export default function AdminPage() {
   return (
@@ -15,6 +16,7 @@ export default function AdminPage() {
         <AdminControlPanel />
         <AdminCatalog />
         <AdminAgents />
+        <AdminCustomers />
       </AdminAccessGate>
     </PageShell>
   );

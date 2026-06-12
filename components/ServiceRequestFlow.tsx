@@ -32,7 +32,12 @@ import {
 } from "@/lib/agents";
 import { subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
-import { upsertGuestCustomerFromMission } from "@/lib/customers";
+import {
+  upsertGuestCustomerFromMission,
+  getCurrentCustomerSession,
+  saveCustomerSession,
+  saveLocalCustomerAccount
+} from "@/lib/customers";
 import {
   ActiveMission,
   addActiveMission,
@@ -230,11 +235,15 @@ export function ServiceRequestFlow() {
     getInitialPaymentMethodFromMission(initialResumableMission ?? initialDraftMission)
   );
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
-  const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
+  // Initialized as null to avoid SSR/client hydration mismatch (localStorage
+  // is unavailable on the server). The useEffect below loads the real value.
+  const [activeMission, setActiveMission] = useState<ActiveMission | null>(null);
   const [expandedDraftSection, setExpandedDraftSection] = useState<DraftSection | null>(null);
   const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
+  const [customerSession, setCustomerSession] = useState<{ name: string; phone: string; email?: string } | null>(null);
+  const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
     getInitialConfirmedDraftSections(initialResumableMission ?? initialDraftMission)
   );
@@ -247,7 +256,7 @@ export function ServiceRequestFlow() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const isOrbitPending = activeMission?.status === "por_tomar" && activeMission.selected_agent_id;
-  const isOrbitExperienceActive = orbitExperienceActive || isOrbitPending;
+  const isOrbitExperienceActive = orbitExperienceActive;
 
   const isServiceStage = selectedStep === "servicio";
   const isPedidoStage = selectedStep === "pedido";
@@ -420,6 +429,22 @@ export function ServiceRequestFlow() {
   useEffect(() => {
     migrateActiveMission();
     return subscribeToMission(() => setActiveMission(getActiveMission()));
+  }, []);
+
+  // Autofill solicitante from saved session (runs once on mount, SSR-safe).
+  useEffect(() => {
+    const session = getCurrentCustomerSession();
+    if (!session) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCustomerSession(session);
+    if (!details.requesterName && !details.requesterPhone) {
+      setDetails((prev) => ({
+        ...prev,
+        requesterName: session.name,
+        requesterPhone: session.phone
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1088,6 +1113,9 @@ export function ServiceRequestFlow() {
     setRequestStatusMessage("Solicitud enviada. Poniendo tu misión en órbita.");
     setIsSending(true);
     setOrbitExperienceActive(true);
+    if (!getCurrentCustomerSession()) {
+      setShowRegisterPrompt(true);
+    }
 
     if (orbitRedirectTimeoutRef.current) {
       window.clearTimeout(orbitRedirectTimeoutRef.current);
@@ -1462,7 +1490,11 @@ export function ServiceRequestFlow() {
           {orderIsConfirmed && destinationIsConfirmed ? (
             activeDraftSection === "solicitante" ? (
               <FormSection title="Datos del solicitante">
-                {/* Future auth user profile autofill */}
+                {customerSession ? (
+                  <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
+                    Ya te conocemos — ponemos tu misión en órbita más rápido.
+                  </p>
+                ) : null}
                 <RequestInput
                   label="Nombre del solicitante"
                   value={details.requesterName}
@@ -1628,6 +1660,16 @@ export function ServiceRequestFlow() {
           service={selectedService?.label ?? activeMission.service_type}
           agent={selectedAgent?.name ?? activeMission.selected_agent_name}
           total={activeMission.total ?? (isCatalogMission ? cartSubtotal + (serviceFee ?? 0) : estimateMissionCost(routeDistance).price)}
+          showRegisterPrompt={showRegisterPrompt}
+          requesterName={details.requesterName || activeMission.requester_name}
+          requesterPhone={details.requesterPhone || activeMission.requester_phone}
+          onSaveSession={(name, phone, email, password) => {
+            saveLocalCustomerAccount(name, phone, email, password);
+            saveCustomerSession(name, phone, email);
+            setCustomerSession({ name, phone, email });
+            setShowRegisterPrompt(false);
+          }}
+          onDismissRegister={() => setShowRegisterPrompt(false)}
           onViewMission={() => {
             if (orbitRedirectTimeoutRef.current) {
               window.clearTimeout(orbitRedirectTimeoutRef.current);
@@ -1637,7 +1679,7 @@ export function ServiceRequestFlow() {
         />
       ) : null}
 
-      {selectedService && selectedAgent && !isOrbitExperienceActive && !(activeMission?.status === "por_tomar" && activeMission.selected_agent_id) ? (
+      {selectedService && selectedAgent && !isOrbitExperienceActive ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
             Confirmar misión
@@ -2768,11 +2810,21 @@ function OrbitExperienceStage({
   service,
   agent,
   total,
+  showRegisterPrompt,
+  requesterName,
+  requesterPhone,
+  onSaveSession,
+  onDismissRegister,
   onViewMission
 }: {
   service: string;
   agent: string;
   total: number;
+  showRegisterPrompt: boolean;
+  requesterName: string;
+  requesterPhone: string;
+  onSaveSession: (name: string, phone: string, email: string, password: string) => void;
+  onDismissRegister: () => void;
   onViewMission: () => void;
 }) {
   return (
@@ -2793,6 +2845,15 @@ function OrbitExperienceStage({
             <SummaryItem label="Agente" value={agent} />
             <SummaryItem label="Total" value={`$${total}`} />
           </div>
+
+          {showRegisterPrompt ? (
+            <SaveSessionPrompt
+              name={requesterName}
+              phone={requesterPhone}
+              onSave={onSaveSession}
+              onDismiss={onDismissRegister}
+            />
+          ) : null}
 
           <button
             type="button"
@@ -2819,6 +2880,157 @@ function OrbitExperienceStage({
         </div>
       </div>
     </section>
+  );
+}
+
+function SaveSessionPrompt({
+  name,
+  phone,
+  onSave,
+  onDismiss
+}: {
+  name: string;
+  phone: string;
+  onSave: (name: string, phone: string, email: string, password: string) => void;
+  onDismiss: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [fullName, setFullName] = useState(name ?? "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const displayPhone = phone.replace(/\D/g, "").replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!fullName.trim() || !email.trim() || !password) {
+      setError("Todos los campos son obligatorios.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Ingresa un correo electrónico válido.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+    setError("");
+    onSave(fullName.trim(), phone, email.trim(), password);
+  }
+
+  if (!showForm) {
+    return (
+      <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
+        <p className="text-sm font-bold text-orbi-text">¿Te reconocemos la próxima vez?</p>
+        <p className="mt-1 text-xs text-orbi-muted">
+          Crea tu cuenta Orbi para autocompletar tus datos y ver tu historial de misiones.
+        </p>
+        <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
+          {displayPhone || phone}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          >
+            Sí, crear mi cuenta
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+          >
+            No, gracias
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
+      <p className="text-sm font-bold text-orbi-text">Crear cuenta Orbi</p>
+      <form onSubmit={handleSubmit} className="mt-3 space-y-3" noValidate>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Nombre completo</label>
+          <input
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Tu nombre completo"
+            autoComplete="name"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Correo electrónico</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="correo@ejemplo.com"
+            autoComplete="email"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">WhatsApp</label>
+          <p className="mt-1 rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
+            {displayPhone || phone}
+          </p>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Contraseña</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Mínimo 6 caracteres"
+            autoComplete="new-password"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-orbi-muted">Confirmar contraseña</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Repite la contraseña"
+            autoComplete="new-password"
+          />
+        </div>
+        {error ? (
+          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          >
+            Crear cuenta
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowForm(false)}
+            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+          >
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
