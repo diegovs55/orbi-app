@@ -130,8 +130,125 @@ export function canTransitionMission(currentStatus: MissionStatus, nextStatus: M
 }
 
 const ACTIVE_MISSION_KEY = "orbi_active_mission";
+const ACTIVE_MISSIONS_KEY = "orbi_active_missions";
 const MISSION_HISTORY_KEY = "orbi_mission_history";
 const MISSION_CHANGE_EVENT = "orbi-mission-change";
+
+// ---------------------------------------------------------------------------
+// Multi-mission API (new in 2B)
+// ---------------------------------------------------------------------------
+
+export function getActiveMissions(): ActiveMission[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_MISSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed.map(normalizeMission) as ActiveMission[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function getActiveMissionById(id: string): ActiveMission | null {
+  return getActiveMissions().find((m) => m.id === id) ?? null;
+}
+
+export function addActiveMission(mission: ActiveMission): void {
+  if (typeof window === "undefined") return;
+  const current = getActiveMissions();
+  const next = [mission, ...current.filter((m) => m.id !== mission.id)];
+  window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(next));
+  // Keep legacy key in sync (most recent non-closed mission) as a temporary backup.
+  const primary = next.find((m) => !isMissionClosed(m));
+  if (primary) {
+    window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(primary));
+  }
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+}
+
+export function updateActiveMissionById(
+  id: string,
+  update: Partial<ActiveMission>
+): ActiveMission | null {
+  if (typeof window === "undefined") return null;
+  const current = getActiveMissions();
+  const index = current.findIndex((m) => m.id === id);
+  if (index === -1) return null;
+
+  const existing = current[index];
+  const nextStatus =
+    update.status || update.mission_status
+      ? normalizeMissionStatus(update.status ?? update.mission_status)
+      : existing.status;
+
+  if (nextStatus !== existing.status && !canTransitionMission(existing.status, nextStatus)) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const nextMission: ActiveMission = {
+    ...existing,
+    ...update,
+    status: nextStatus,
+    mission_status: undefined,
+    last_updated_at: now,
+    updated_at: now
+  };
+
+  const next = [...current];
+  next[index] = nextMission;
+
+  if (isMissionClosed(nextMission)) {
+    // Move to history and remove from active array.
+    saveMissionToHistory(nextMission);
+    window.localStorage.setItem(
+      ACTIVE_MISSIONS_KEY,
+      JSON.stringify(next.filter((m) => m.id !== id))
+    );
+  } else {
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(next));
+  }
+
+  // Keep legacy key in sync.
+  const primary = getActiveMissions().find((m) => !isMissionClosed(m));
+  if (primary) {
+    window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(primary));
+  }
+
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+  return nextMission;
+}
+
+export function removeActiveMission(id: string): void {
+  if (typeof window === "undefined") return;
+  const next = getActiveMissions().filter((m) => m.id !== id);
+  window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(next));
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+}
+
+// Run once on app boot to move a legacy single-mission entry into the array.
+// Intentionally does NOT delete orbi_active_mission (kept as backup).
+export function migrateActiveMission(): void {
+  if (typeof window === "undefined") return;
+  const hasArray = window.localStorage.getItem(ACTIVE_MISSIONS_KEY) !== null;
+  if (hasArray) return; // already migrated
+  const raw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
+  if (!raw) {
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify([]));
+    return;
+  }
+  try {
+    const mission = normalizeMission(JSON.parse(raw)) as ActiveMission;
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify([mission]));
+  } catch {
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify([]));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy single-mission API — kept as shims for backward compatibility
+// ---------------------------------------------------------------------------
 
 export function createMission(mission: CreateMissionInput) {
   const now = new Date().toISOString();
@@ -150,25 +267,43 @@ export function createMission(mission: CreateMissionInput) {
     updated_at: now
   };
 
-  saveActiveMission(nextMission);
+  addActiveMission(nextMission);
   return nextMission;
 }
 
-export function getActiveMission() {
-  if (typeof window === "undefined") {
-    return null;
+// Returns the most-relevant single active mission (highest-priority status).
+export function getActiveMission(): ActiveMission | null {
+  if (typeof window === "undefined") return null;
+
+  const missions = getActiveMissions();
+  if (missions.length === 0) {
+    // Fallback: try legacy key (safety net during migration window).
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
+      return raw ? (normalizeMission(JSON.parse(raw)) as ActiveMission) : null;
+    } catch {
+      return null;
+    }
   }
 
-  const rawMission = window.localStorage.getItem(ACTIVE_MISSION_KEY);
-  if (!rawMission) {
-    return null;
-  }
+  // Priority: en_mision > aceptada > por_tomar (with agent) > por_tomar (without)
+  const priority: Record<string, number> = {
+    en_mision: 0,
+    aceptada: 1,
+    por_tomar: 2
+  };
+  const active = missions.filter((m) => !isMissionClosed(m));
+  if (active.length === 0) return null;
 
-  try {
-    return normalizeMission(JSON.parse(rawMission)) as ActiveMission;
-  } catch {
-    return null;
-  }
+  return active.sort((a, b) => {
+    const pa = priority[a.status] ?? 3;
+    const pb = priority[b.status] ?? 3;
+    if (pa !== pb) return pa - pb;
+    // Within same status: missions with agent assigned first.
+    const aa = a.selected_agent_id ? 0 : 1;
+    const ab = b.selected_agent_id ? 0 : 1;
+    return aa - ab;
+  })[0];
 }
 
 export function getMissionHistory() {
@@ -185,45 +320,14 @@ export function getMissionHistory() {
 }
 
 export function saveActiveMission(mission: ActiveMission) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const normalizedMission = normalizeMission(mission) as ActiveMission;
-  window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(normalizedMission));
-  if (isMissionClosed(normalizedMission)) {
-    saveMissionToHistory(normalizedMission);
-  }
-  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+  // Shim: delegate to the multi-mission store.
+  addActiveMission(mission);
 }
 
 export function updateActiveMission(update: Partial<ActiveMission>) {
   const currentMission = getActiveMission();
-  if (!currentMission) {
-    return null;
-  }
-
-  const nextStatus =
-    update.status || update.mission_status
-      ? normalizeMissionStatus(update.status ?? update.mission_status)
-      : currentMission.status;
-
-  if (nextStatus !== currentMission.status && !canTransitionMission(currentMission.status, nextStatus)) {
-    return currentMission;
-  }
-
-  const now = new Date().toISOString();
-  const nextMission: ActiveMission = {
-    ...currentMission,
-    ...update,
-    status: nextStatus,
-    mission_status: undefined,
-    last_updated_at: now,
-    updated_at: now
-  };
-
-  saveActiveMission(nextMission);
-  return nextMission;
+  if (!currentMission) return null;
+  return updateActiveMissionById(currentMission.id, update);
 }
 
 export function subscribeToMission(callback: () => void) {

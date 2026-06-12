@@ -35,10 +35,12 @@ import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } f
 import { upsertGuestCustomerFromMission } from "@/lib/customers";
 import {
   ActiveMission,
+  addActiveMission,
   createMission,
   getActiveMission,
   getMissionStatusLabel,
   isMissionActive,
+  migrateActiveMission,
   subscribeToMission,
   updateActiveMission
 } from "@/lib/missions";
@@ -416,6 +418,7 @@ export function ServiceRequestFlow() {
   }, []);
 
   useEffect(() => {
+    migrateActiveMission();
     return subscribeToMission(() => setActiveMission(getActiveMission()));
   }, []);
 
@@ -1079,6 +1082,7 @@ export function ServiceRequestFlow() {
       status: "por_tomar"
     });
 
+    addActiveMission(mission);
     setActiveMission(mission);
     void upsertGuestCustomerFromMission(mission);
     setRequestStatusMessage("Solicitud enviada. Poniendo tu misión en órbita.");

@@ -14,12 +14,15 @@ import {
   ActiveMission,
   canTransitionMission,
   getActiveMission,
+  getActiveMissions,
   getMissionStatusLabel,
   isMissionActive,
+  isMissionClosed,
+  migrateActiveMission,
   MissionStatus,
   missionProgressStatuses,
   subscribeToMission,
-  updateActiveMission
+  updateActiveMissionById
 } from "@/lib/missions";
 
 const MissionOrbitMap = dynamic(
@@ -46,10 +49,9 @@ const agentTrack: MissionPoint[] = [
 ];
 
 export function MissionOrbitTracker() {
-  // Avoid reading localStorage during initial render to prevent
-  // hydration mismatches between server and client. Load persisted
-  // mission data after mount in the effect below.
-  const [mission, setMission] = useState<ActiveMission | null>(null);
+  // All state is loaded after mount (client-only) to avoid hydration mismatches.
+  const [missions, setMissions] = useState<ActiveMission[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [trackIndex, setTrackIndex] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
   const [rating, setRating] = useState(5);
@@ -60,27 +62,38 @@ export function MissionOrbitTracker() {
   const [customerIsRegistered, setCustomerIsRegistered] = useState<boolean | null>(null);
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
 
-  useEffect(() => {
-    // Load persisted mission once on mount (client-only) to avoid
-    // rendering differences between server and client.
-    const initial = getActiveMission();
-    // Allow setting state here intentionally to load persisted mission after
-    // mount. This can trigger a re-render but avoids hydration mismatches.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMission(initial);
-    if (initial?.last_updated_at) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLastUpdated(new Date(initial.last_updated_at));
-    }
+  const activeMissions = missions.filter((m) => !isMissionClosed(m));
 
-    return subscribeToMission(() => {
-      const nextMission = getActiveMission();
-      setMission(nextMission);
-      if (nextMission?.last_updated_at) {
-        setLastUpdated(new Date(nextMission.last_updated_at));
+  // The mission currently shown in the detail tracker.
+  const mission = useMemo(() => {
+    if (selectedId) {
+      return activeMissions.find((m) => m.id === selectedId) ?? activeMissions[0] ?? null;
+    }
+    return getActiveMission();
+  }, [selectedId, activeMissions]);
+
+  useEffect(() => {
+    migrateActiveMission();
+    const load = () => {
+      const all = getActiveMissions();
+      setMissions(all);
+      if (!selectedId) {
+        const primary = getActiveMission();
+        if (primary?.last_updated_at) {
+          setLastUpdated(new Date(primary.last_updated_at));
+        }
       }
-    });
-  }, []);
+    };
+    load();
+    return subscribeToMission(load);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (mission?.last_updated_at) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLastUpdated(new Date(mission.last_updated_at));
+    }
+  }, [mission?.id, mission?.last_updated_at]);
 
   useEffect(() => {
     let isActive = true;
@@ -103,51 +116,32 @@ export function MissionOrbitTracker() {
   }, [mission?.requester_phone, mission?.user_id]);
 
   function refreshAgentLocation() {
-    if (!isMissionActive(mission)) {
-      return;
-    }
-
+    if (!mission || !isMissionActive(mission)) return;
     const nextIndex = Math.min(trackIndex + 1, agentTrack.length - 1);
-
     setTrackIndex(nextIndex);
-    const nextMission = updateActiveMission({
+    const nextMission = updateActiveMissionById(mission.id, {
       selected_agent_lat: agentTrack[nextIndex].lat,
       selected_agent_lng: agentTrack[nextIndex].lng
     });
-    setMission(nextMission);
     if (nextMission?.last_updated_at) {
       setLastUpdated(new Date(nextMission.last_updated_at));
     }
   }
 
   function handleMissionStatusChange(status: MissionStatus) {
-    if (!mission || !canTransitionMission(mission.status, status)) {
-      return;
-    }
-
-    const nextMission = updateActiveMission({ status });
-    setMission(nextMission);
-    if (nextMission?.last_updated_at) {
-      setLastUpdated(new Date(nextMission.last_updated_at));
-    }
+    if (!mission || !canTransitionMission(mission.status, status)) return;
+    updateActiveMissionById(mission.id, { status });
   }
 
   function handleSaveRating() {
-    if (!mission || mission.status !== "cumplida") {
-      return;
-    }
-
-    const nextMission = updateActiveMission({
+    if (!mission || mission.status !== "cumplida") return;
+    updateActiveMissionById(mission.id, {
       rating,
       rating_comment: ratingComment,
       rated_agent_id: mission.active_agent_id || mission.selected_agent_id,
       rated_requester: mission.requester_name,
       rated_at: new Date().toISOString()
     });
-    setMission(nextMission);
-    if (nextMission?.last_updated_at) {
-      setLastUpdated(new Date(nextMission.last_updated_at));
-    }
     setRatingMessage("Calificación guardada para el agente.");
   }
 
@@ -162,29 +156,100 @@ export function MissionOrbitTracker() {
     email: string;
     password: string;
   }) {
-    if (!mission) {
-      return;
-    }
-
+    if (!mission) return;
     await upsertGuestCustomerFromMission(mission);
-    const customer = await registerCustomerAccount({ name, phone, email, password });
+    await registerCustomerAccount({ name, phone, email, password });
     setCustomerIsRegistered(true);
     setHideAccountInvite(true);
-    const refreshedMission = getActiveMission();
-    setMission(refreshedMission ? { ...refreshedMission, user_id: customer.userId } : refreshedMission);
   }
 
   function handleCancelWaitingMission() {
-    const nextMission = updateActiveMission({ status: "cancelada" });
-    setMission(nextMission);
+    if (!mission) return;
+    updateActiveMissionById(mission.id, { status: "cancelada" });
     setWaitingMessage("Solicitud cancelada. No fue asignada a ningún agente.");
     setShowWaitingCancelConfirm(false);
-    if (nextMission?.last_updated_at) {
-      setLastUpdated(new Date(nextMission.last_updated_at));
-    }
   }
 
   const nextStatus = mission ? getNextMissionStatus(mission.status) : null;
+
+  // ── Multi-mission overview (shown when >1 active mission exists) ──────────
+  if (activeMissions.length > 1) {
+    return (
+      <section className="space-y-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+            Tus misiones activas
+          </p>
+          <h2 className="mt-1 text-2xl font-black text-orbi-text">
+            {activeMissions.length} misiones en órbita
+          </h2>
+        </div>
+
+        {/* Summary cards */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {activeMissions.map((m) => (
+            <MissionSummaryCard
+              key={m.id}
+              mission={m}
+              isSelected={selectedId === m.id}
+              onSelect={() => setSelectedId(m.id)}
+            />
+          ))}
+        </div>
+
+        {/* Detail of selected mission */}
+        {selectedId && mission ? (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-orbi-cyan">
+                Detalle — {mission.service_type}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+              >
+                Cerrar detalle
+              </button>
+            </div>
+            <MissionDetailBody
+              mission={mission}
+              nextStatus={nextStatus}
+              lastUpdated={lastUpdated}
+              waitingMessage={waitingMessage}
+              showWaitingCancelConfirm={showWaitingCancelConfirm}
+              rating={rating}
+              ratingComment={ratingComment}
+              ratingMessage={ratingMessage}
+              customerIsRegistered={customerIsRegistered}
+              hideAccountInvite={hideAccountInvite}
+              onRefreshLocation={refreshAgentLocation}
+              onStatusChange={handleMissionStatusChange}
+              onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
+              onCancelConfirm={() => setShowWaitingCancelConfirm(true)}
+              onConfirmCancel={handleCancelWaitingMission}
+              onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+              onRatingChange={setRating}
+              onCommentChange={setRatingComment}
+              onSaveRating={handleSaveRating}
+              onLaterInvite={() => setHideAccountInvite(true)}
+              onRegister={handleRegisterCustomer}
+            />
+          </div>
+        ) : null}
+
+        <div className="pt-1">
+          <Link
+            href="/pedir"
+            className="inline-flex min-h-11 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            + Nueva misión
+          </Link>
+        </div>
+      </section>
+    );
+  }
+  // ── End multi-mission overview ─────────────────────────────────────────────
 
   if (!mission) {
     return (
@@ -206,6 +271,126 @@ export function MissionOrbitTracker() {
     );
   }
 
+  return (
+    <MissionDetailBody
+      mission={mission}
+      nextStatus={nextStatus}
+      lastUpdated={lastUpdated}
+      waitingMessage={waitingMessage}
+      showWaitingCancelConfirm={showWaitingCancelConfirm}
+      rating={rating}
+      ratingComment={ratingComment}
+      ratingMessage={ratingMessage}
+      customerIsRegistered={customerIsRegistered}
+      hideAccountInvite={hideAccountInvite}
+      onRefreshLocation={refreshAgentLocation}
+      onStatusChange={handleMissionStatusChange}
+      onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
+      onCancelConfirm={() => setShowWaitingCancelConfirm(true)}
+      onConfirmCancel={handleCancelWaitingMission}
+      onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+      onRatingChange={setRating}
+      onCommentChange={setRatingComment}
+      onSaveRating={handleSaveRating}
+      onLaterInvite={() => setHideAccountInvite(true)}
+      onRegister={handleRegisterCustomer}
+    />
+  );
+}
+
+// ── MissionSummaryCard ────────────────────────────────────────────────────────
+
+function MissionSummaryCard({
+  mission,
+  isSelected,
+  onSelect
+}: {
+  mission: ActiveMission;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <article
+      className={`rounded-md border p-4 transition ${
+        isSelected
+          ? "border-orbi-cyan/40 bg-orbi-blue/[0.12]"
+          : "border-orbi-cyan/15 bg-white/[0.04] hover:border-orbi-cyan/30 hover:bg-orbi-blue/[0.06]"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-orbi-text">{mission.service_type}</p>
+          <p className="mt-0.5 text-xs font-semibold text-orbi-cyan">{getOrbitVisualStatusLabel(mission)}</p>
+        </div>
+        {mission.total ? (
+          <span className="shrink-0 text-sm font-black text-orbi-text">
+            ${mission.total.toFixed(0)}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 truncate text-xs text-orbi-muted">
+        {mission.selected_agent_name || "Sin agente asignado"}
+      </p>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="mt-3 w-full rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+      >
+        {isSelected ? "Viendo detalle" : "Ver misión"}
+      </button>
+    </article>
+  );
+}
+
+// ── MissionDetailBody ─────────────────────────────────────────────────────────
+// Extracts the per-mission render logic so it can be used both in single-mission
+// mode and as the expanded detail panel in multi-mission mode.
+
+type MissionDetailBodyProps = {
+  mission: ActiveMission;
+  nextStatus: MissionStatus | null;
+  lastUpdated: Date;
+  waitingMessage: string;
+  showWaitingCancelConfirm: boolean;
+  rating: number;
+  ratingComment: string;
+  ratingMessage: string;
+  customerIsRegistered: boolean | null;
+  hideAccountInvite: boolean;
+  onRefreshLocation: () => void;
+  onStatusChange: (s: MissionStatus) => void;
+  onWait: () => void;
+  onCancelConfirm: () => void;
+  onConfirmCancel: () => void;
+  onKeepWaiting: () => void;
+  onRatingChange: (r: number) => void;
+  onCommentChange: (c: string) => void;
+  onSaveRating: () => void;
+  onLaterInvite: () => void;
+  onRegister: (p: { name: string; phone: string; email: string; password: string }) => Promise<void>;
+};
+
+function MissionDetailBody({
+  mission,
+  lastUpdated,
+  waitingMessage,
+  showWaitingCancelConfirm,
+  rating,
+  ratingComment,
+  ratingMessage,
+  customerIsRegistered,
+  hideAccountInvite,
+  onRefreshLocation,
+  onWait,
+  onCancelConfirm,
+  onConfirmCancel,
+  onKeepWaiting,
+  onRatingChange,
+  onCommentChange,
+  onSaveRating,
+  onLaterInvite,
+  onRegister
+}: MissionDetailBodyProps) {
   if (mission.status === "por_tomar" && !mission.selected_agent_id) {
     return (
       <section className="space-y-5">
@@ -213,10 +398,10 @@ export function MissionOrbitTracker() {
         <WaitingOrbitState
           message={waitingMessage}
           showCancelConfirm={showWaitingCancelConfirm}
-          onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
-          onCancel={() => setShowWaitingCancelConfirm(true)}
-          onConfirmCancel={handleCancelWaitingMission}
-          onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+          onWait={onWait}
+          onCancel={onCancelConfirm}
+          onConfirmCancel={onConfirmCancel}
+          onKeepWaiting={onKeepWaiting}
         />
       </section>
     );
@@ -231,16 +416,13 @@ export function MissionOrbitTracker() {
               <Radar aria-hidden="true" className="h-8 w-8 animate-pulse text-orbi-cyan" />
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-                Misión en órbita
-              </p>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">Misión en órbita</p>
               <h2 className="mt-2 text-2xl font-black text-orbi-text">Esperando aceptación del agente</h2>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
                 Estamos notificando al agente. Te avisaremos cuando acepte tu misión.
               </p>
             </div>
           </div>
-
           <div className="mt-6 grid gap-3 border-t border-white/[0.07] pt-5 text-sm sm:grid-cols-2">
             {mission.selected_agent_name ? (
               <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
@@ -263,12 +445,8 @@ export function MissionOrbitTracker() {
               <p className="mt-1 font-black text-orbi-text">{mission.destination_text}</p>
             </div>
           </div>
-
           <div className="mt-5 flex justify-center">
-            <Link
-              href="/pedir"
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
-            >
+            <Link href="/pedir" className="inline-flex min-h-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10">
               Volver al inicio
             </Link>
           </div>
@@ -292,7 +470,6 @@ export function MissionOrbitTracker() {
   if (mission.status === "cumplida") {
     const shouldShowRatingPanel = !hasMissionRating(mission);
     const shouldShowAccountInvite = customerIsRegistered === false && !hideAccountInvite;
-
     return (
       <section className="space-y-5">
         <MissionClosedState
@@ -308,38 +485,36 @@ export function MissionOrbitTracker() {
             message={ratingMessage}
             rating={rating}
             savedRating={mission.rating ?? null}
-            onCommentChange={setRatingComment}
-            onRatingChange={setRating}
-            onSave={handleSaveRating}
+            onCommentChange={onCommentChange}
+            onRatingChange={onRatingChange}
+            onSave={onSaveRating}
           />
         ) : null}
         {shouldShowAccountInvite ? (
           <CreateAccountInvite
             mission={mission}
-            onLater={() => setHideAccountInvite(true)}
-            onRegister={handleRegisterCustomer}
+            onLater={onLaterInvite}
+            onRegister={onRegister}
           />
         ) : null}
       </section>
     );
   }
 
+  // aceptada | en_mision
   return (
     <section className="space-y-5">
       <MissionSummary mission={mission} title="Misión activa" />
       <MissionTimeline status={mission.status} />
-
       <article className="overflow-hidden rounded-md border border-orbi-cyan/15 bg-orbi-panel/80 shadow-[0_18px_55px_rgba(0,0,0,0.32),0_0_28px_rgba(31,139,255,0.1)]">
         <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orbi-cyan">
-              Ubicación en vivo
-            </p>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orbi-cyan">Ubicación en vivo</p>
             <h2 className="mt-1 text-xl font-black text-orbi-text">Ver la misión en órbita</h2>
           </div>
           <button
             type="button"
-            onClick={refreshAgentLocation}
+            onClick={onRefreshLocation}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
           >
             <LocateFixed aria-hidden="true" className="h-4 w-4" />
@@ -354,18 +529,12 @@ export function MissionOrbitTracker() {
           />
         </div>
       </article>
-
       <article className="rounded-md border border-white/10 bg-white/[0.04] p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-              Última actualización
-            </p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">Última actualización</p>
             <p className="mt-1 text-sm font-semibold text-orbi-text">
-              {lastUpdated.toLocaleString("es-MX", {
-                dateStyle: "medium",
-                timeStyle: "short"
-              })}
+              {lastUpdated.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}
             </p>
           </div>
           <p className="text-sm leading-6 text-orbi-muted">
@@ -373,7 +542,6 @@ export function MissionOrbitTracker() {
           </p>
         </div>
       </article>
-
     </section>
   );
 }

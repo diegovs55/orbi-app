@@ -2,6 +2,7 @@ import { PackagePlus } from "lucide-react";
 import Image from "next/image";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
+import { ActiveMissionsWidget } from "@/components/ActiveMissionsWidget";
 
 export default function HomePage() {
   return (
@@ -49,6 +50,8 @@ export default function HomePage() {
             Pedir algo
           </OrbiButton>
         </div>
+
+        <ActiveMissionsWidget />
 
         <div className="mt-6 flex max-w-2xl flex-wrap gap-x-3 gap-y-2 text-sm font-semibold text-orbi-muted">
           {["Traslados", "Entregas", "Compras", "Mandados", "Trámites"].map((item, index) => (
