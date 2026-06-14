@@ -195,6 +195,23 @@ export async function getAgents() {
   throw new Error("No fue posible cargar los agentes desde Supabase.");
 }
 
+export async function setAgentTrustLevel(id: string, trustLevel: AgentTrustLevel): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from("agents").update({ trust_level: trustLevel }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function setAgentActiveStatus(id: string, active: boolean): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from("agents").update({ is_active: active }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function getAgentById(id: string): Promise<OrbiAgent | null> {
+  const agents = await getAgents();
+  return agents.find((a) => a.id === id) ?? null;
+}
+
 export async function getAgentByAuthUserId(authUserId: string) {
   if (!authUserId.trim()) {
     return null;

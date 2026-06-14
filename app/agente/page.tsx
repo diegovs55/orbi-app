@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LockKeyhole, LogOut } from "lucide-react";
-import { AgentCards } from "@/components/AgentCards";
+import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
 import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, AgentSession } from "@/lib/agentSession";
 
@@ -64,7 +64,7 @@ export default function AgentePage() {
           Salir
         </button>
       </div>
-      <AgentCards agentId={session.id} />
+      <AgentPrivatePanel agentId={session.id} />
     </PageShell>
   );
 }

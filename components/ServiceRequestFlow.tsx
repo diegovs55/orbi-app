@@ -513,10 +513,22 @@ export function ServiceRequestFlow() {
           userHasOrigin
         );
         const distance = eligibility.distanceKm;
-        const radius = agent.radiusKm || 20;
         const exclusionReason = eligibility.eligible ? "" : eligibility.reason;
 
         if (exclusionReason) {
+          console.log(
+            `[misión] agente excluido: ${agent.name} — ${exclusionReason}`,
+            {
+              agentId: agent.id,
+              isOnOrbit: agent.isOnOrbit,
+              status: agent.status,
+              serviceType: agent.serviceType,
+              radiusKm: agent.radiusKm,
+              distanceKm: distance,
+              availability: agent.availability,
+              reason: exclusionReason
+            }
+          );
           return { agent, distance, included: false };
         }
 
