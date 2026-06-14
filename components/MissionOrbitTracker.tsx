@@ -22,6 +22,7 @@ import {
   getMissionStatusLabel,
   isMissionActive,
   isMissionClosed,
+  loadActiveMissionsFromSupabase,
   migrateActiveMission,
   MissionStatus,
   missionProgressStatuses,
@@ -82,7 +83,8 @@ export function MissionOrbitTracker() {
 
   useEffect(() => {
     migrateActiveMission();
-    const load = () => {
+    const load = async () => {
+      await loadActiveMissionsFromSupabase();
       const all = getActiveMissions();
       setMissions(all);
       if (!selectedId) {
@@ -92,13 +94,12 @@ export function MissionOrbitTracker() {
         }
       }
     };
-    load();
-    return subscribeToMission(load);
+    void load();
+    return subscribeToMission(() => void load());
   }, [selectedId]);
 
   useEffect(() => {
     if (mission?.last_updated_at) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLastUpdated(new Date(mission.last_updated_at));
     }
   }, [mission?.id, mission?.last_updated_at]);
@@ -135,7 +136,6 @@ export function MissionOrbitTracker() {
 
   useEffect(() => {
     if (mission?.status === "cumplida" && !getCurrentCustomerSession()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowSaveSessionPrompt(true);
     }
   }, [mission?.status]);

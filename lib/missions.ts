@@ -1,4 +1,4 @@
-import { subscribeToTableChanges } from "@/lib/supabase";
+import { supabase, subscribeToTableChanges } from "@/lib/supabase";
 
 export const missionStatuses = [
   "por_tomar",
@@ -217,6 +217,23 @@ export function updateActiveMissionById(
   }
 
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+
+  // Sync state change to Supabase — fire-and-forget, does not block the return.
+  void supabase
+    .from("missions")
+    .update({
+      status:              nextMission.status,
+      selected_agent_id:   nextMission.selected_agent_id   || null,
+      selected_agent_name: nextMission.selected_agent_name || null,
+      active_agent_id:     nextMission.active_agent_id     ?? null,
+      accepted_at:         nextMission.accepted_at         ?? null,
+      payment_status:      nextMission.payment_status,
+      payment_method:      nextMission.payment_method,
+      total_amount:        nextMission.total_amount         ?? null,
+      updated_at:          nextMission.updated_at,
+    })
+    .eq("id", id);
+
   return nextMission;
 }
 
@@ -250,7 +267,7 @@ export function migrateActiveMission(): void {
 // Legacy single-mission API — kept as shims for backward compatibility
 // ---------------------------------------------------------------------------
 
-export function createMission(mission: CreateMissionInput) {
+export async function createMission(mission: CreateMissionInput): Promise<ActiveMission> {
   const now = new Date().toISOString();
   const nextMission: ActiveMission = {
     ...mission,
@@ -267,8 +284,72 @@ export function createMission(mission: CreateMissionInput) {
     updated_at: now
   };
 
+  // localStorage first — always succeeds, keeps UI working even if Supabase fails.
   addActiveMission(nextMission);
+
+  // Persist to Supabase so agents and admin on other devices can see this mission.
+  try {
+    await supabase
+      .from("missions")
+      .insert(missionToRow(nextMission))
+      .throwOnError();
+  } catch (error) {
+    console.error("[missions] INSERT failed:", error);
+  }
+
   return nextMission;
+}
+
+// Maps an ActiveMission to the columns that exist in public.missions.
+// Fields not in the table are deliberately omitted.
+function missionToRow(m: ActiveMission) {
+  return {
+    id: m.id,
+    status: m.status,
+    service_type: m.service_type,
+    detail: m.detail,
+    business_name: m.business_name ?? null,
+    origin_text: m.origin_text,
+    origin_lat: m.origin_lat ?? null,
+    origin_lng: m.origin_lng ?? null,
+    destination_text: m.destination_text,
+    destination_lat: m.destination_lat ?? null,
+    destination_lng: m.destination_lng ?? null,
+    requester_name: m.requester_name,
+    requester_phone: m.requester_phone,
+    selected_agent_id: m.selected_agent_id || null,
+    selected_agent_name: m.selected_agent_name || null,
+    active_agent_id: m.active_agent_id ?? null,
+    accepted_at: m.accepted_at ?? null,
+    payment_status: m.payment_status,
+    payment_method: m.payment_method,
+    total_amount: m.total_amount ?? null,
+    estimated_orbit: m.estimated_orbit,
+    created_at: m.created_at ?? null,
+    updated_at: m.updated_at,
+  };
+}
+
+// Fetches non-closed missions from Supabase and writes them into localStorage so
+// all devices share the same mission state. Call before getActiveMissions() in
+// component load functions.
+export async function loadActiveMissionsFromSupabase(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const { data, error } = await supabase
+      .from("missions")
+      .select("*")
+      .not("status", "in", "(cumplida,cancelada,archivada)");
+    if (error) {
+      console.error("[missions] SELECT failed:", error);
+      return;
+    }
+    if (!data) return;
+    const normalized = data.map(normalizeMission) as ActiveMission[];
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(normalized));
+  } catch (err) {
+    console.error("[missions] loadActiveMissionsFromSupabase error:", err);
+  }
 }
 
 // Returns the most-relevant single active mission (highest-priority status).

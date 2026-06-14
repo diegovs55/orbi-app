@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { Edit3, LocateFixed, MapPin, PackagePlus, Plus, RotateCcw, Search, Store, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Edit3, LocateFixed, MapPin, PackagePlus, Plus, RotateCcw, Search, Store, Trash2, X } from "lucide-react";
 import {
   BusinessSector,
   CatalogBusiness,
@@ -77,6 +77,7 @@ export function AdminCatalog() {
   const [productStatus, setProductStatus] = useState<CatalogProductStatus>("disponible");
   const [productAvailabilityInherited, setProductAvailabilityInherited] = useState(true);
   const [saveMessage, setSaveMessage] = useState("");
+  const [showForms, setShowForms] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -433,6 +434,16 @@ export function AdminCatalog() {
         </div>
       </div>
 
+      <div>
+        <button type="button" onClick={() => setShowForms((v) => !v)}
+          className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text">
+          {showForms ? <ChevronUp aria-hidden="true" className="h-3.5 w-3.5" /> : <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />}
+          {showForms ? "Ocultar alta manual" : "Alta manual de negocio / producto"}
+        </button>
+        <p className="mt-1 text-xs text-orbi-muted">Los negocios aprobados administran su catálogo desde su propio acceso.</p>
+      </div>
+
+      {showForms && (
       <div className="grid gap-5 lg:grid-cols-2">
         <form onSubmit={handleSaveBusiness} className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-orbi-panel/72 p-5 shadow-soft">
           <div className="flex items-center justify-between gap-3">
@@ -641,6 +652,7 @@ export function AdminCatalog() {
           </button>
         </form>
       </div>
+      )}
 
       {isBusinessMapOpen ? (
         <BusinessMapDialog
@@ -651,7 +663,7 @@ export function AdminCatalog() {
         />
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="mt-2 grid gap-4 lg:grid-cols-2">
         {saveMessage ? (
           <p className="rounded-md border border-emerald-300/15 bg-emerald-400/10 p-3 text-sm font-semibold text-emerald-100 lg:col-span-2">
             {saveMessage}

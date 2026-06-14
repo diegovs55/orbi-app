@@ -66,7 +66,9 @@ export function AffiliatedBusinesses() {
           return;
         }
 
-        const activeBusinesses = nextBusinesses.filter((business) => business.status === "activo");
+        const activeBusinesses = nextBusinesses
+          .filter((business) => business.status === "activo")
+          .filter((business) => business.lat != null && business.lng != null && business.zone !== "Zona local");
         const activeBusinessIds = new Set(activeBusinesses.map((business) => business.id));
 
         setBusinesses(activeBusinesses);
@@ -186,7 +188,6 @@ export function AffiliatedBusinesses() {
 
   const sectors = useMemo(() => {
     return businessSectors
-      .filter((sector) => sector !== "Otro")
       .map((sector) => ({
         sector,
         businesses: businesses.filter((business) => business.category === sector),
@@ -293,7 +294,11 @@ function BusinessRow({
             </div>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <p className="mt-3 rounded-md border border-white/10 bg-orbi-black/25 px-3 py-2 text-xs font-semibold text-orbi-muted">
+          Sin productos todavía
+        </p>
+      )}
     </div>
   );
 }

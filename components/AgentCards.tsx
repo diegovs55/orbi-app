@@ -23,6 +23,7 @@ import {
   isMissionActive,
   isMissionClosed,
   isMissionPending,
+  loadActiveMissionsFromSupabase,
   subscribeToMission,
   updateActiveMissionById
 } from "@/lib/missions";
@@ -40,7 +41,7 @@ const operationalLabelStyles: Record<string, string> = {
   "Fuera de órbita": "border-white/10 bg-white/[0.04] text-orbi-muted"
 };
 
-export function AgentCards() {
+export function AgentCards({ agentId }: { agentId?: string } = {}) {
   const router = useRouter();
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -151,19 +152,26 @@ export function AgentCards() {
   }, [refreshAgents]);
 
   useEffect(() => {
-    const load = () => setMissions(getActiveMissions());
-    load();
-    return subscribeToMission(load);
+    const load = async () => {
+      await loadActiveMissionsFromSupabase();
+      setMissions(getActiveMissions());
+    };
+    void load();
+    return subscribeToMission(() => void load());
   }, []);
 
   const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => a.name.localeCompare(b.name));
   }, [agents]);
 
-  const pendingMissions = useMemo(
-    () => missions.filter((m) => !isMissionClosed(m)),
-    [missions]
-  );
+  const pendingMissions = useMemo(() => {
+    const open = missions.filter((m) => !isMissionClosed(m));
+    // When an agent is identified, show only unassigned missions + their own missions.
+    if (!agentId) return open;
+    return open.filter(
+      (m) => isMissionPending(m) || m.active_agent_id === agentId || m.selected_agent_id === agentId
+    );
+  }, [missions, agentId]);
 
   const missionBoardItems = useMemo(() => {
     return pendingMissions.map((m) => ({

@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, Building2, PackagePlus, Route, UsersRound } from "lucide-react";
+import { Building2, PackagePlus, Route, UserRound, UsersRound } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -29,14 +29,14 @@ const navItems = [
   { href: "/orbita", label: "Órbita", icon: Route },
   { href: "/negocios", label: "Negocios", icon: Building2 },
   { href: "/agentes", label: "Agentes", icon: UsersRound },
-  { href: "/usuarios", label: "Usuarios", icon: UsersRound },
-  { href: "/admin", label: "Admin", icon: Activity }
+  { href: "/usuarios", label: "Mi cuenta", icon: UserRound }
 ];
 
 const footerLinks = [
   { href: "/privacidad", label: "Privacidad" },
   { href: "/terminos", label: "Términos" },
-  { href: "/confianza", label: "Confianza" }
+  { href: "/confianza", label: "Confianza" },
+  { href: "/admin", label: "· Admin" }
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -62,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </footer>
           </main>
           <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-orbi-black/88 px-2 py-2 backdrop-blur-xl">
-            <div className="mx-auto grid max-w-2xl grid-cols-7 gap-1">
+            <div className="mx-auto grid max-w-2xl grid-cols-6 gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (

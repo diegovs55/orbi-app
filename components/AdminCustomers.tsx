@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { UsersRound } from "lucide-react";
 import { getCustomers, OrbiCustomer } from "@/lib/customers";
-import { getActiveMissions, getMissionHistory, isMissionClosed } from "@/lib/missions";
+import { getActiveMissions, getMissionHistory, isMissionClosed, loadActiveMissionsFromSupabase } from "@/lib/missions";
 import { subscribeToCustomers } from "@/lib/supabase";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -36,13 +36,12 @@ export function AdminCustomers() {
 
   useEffect(() => {
     const unlocked = window.localStorage.getItem(ADMIN_SESSION_KEY) === "true";
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsAdmin(unlocked);
   }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
-    const load = () => {
+    const load = async () => {
       void getCustomers().then((list) => {
         setCustomers(list);
         setIsLoading(false);
@@ -58,7 +57,9 @@ export function AdminCustomers() {
       }
       setLastMissionByPhone(lastMap);
 
-      // Build phone → active mission count from current active missions.
+      // Build phone → active mission count — load from Supabase first so admin
+      // sees missions created by clients on other devices.
+      await loadActiveMissionsFromSupabase();
       const activeMap = new Map<string, number>();
       for (const m of getActiveMissions()) {
         if (isMissionClosed(m)) continue;
@@ -67,8 +68,8 @@ export function AdminCustomers() {
       }
       setActiveMissionsByPhone(activeMap);
     };
-    load();
-    return subscribeToCustomers(load);
+    void load();
+    return subscribeToCustomers(() => void load());
   }, [isAdmin]);
 
   if (!isAdmin) return null;

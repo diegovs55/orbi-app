@@ -22,8 +22,20 @@ export const productCategories = [
   "Comida",
   "Snack",
   "Postre",
+  "Repostería",
   "Medicamento",
+  "Suplemento",
+  "Higiene",
+  "Limpieza",
   "Papelería",
+  "Electrónica",
+  "Ropa",
+  "Calzado",
+  "Hogar",
+  "Herramienta",
+  "Ferretería",
+  "Juguete",
+  "Mascota",
   "Trámite",
   "Mandado",
   "Traslado",
@@ -471,11 +483,14 @@ function isActiveProductRow(row: ProductRow) {
 function normalizeSector(value: string | null | undefined): BusinessSector {
   if (value === "Abarrotes") return "Mandados";
   if (value === "Trámites") return "Servicios";
-  return businessSectors.includes(value as BusinessSector) ? (value as BusinessSector) : "Otro";
+  if (businessSectors.includes(value as BusinessSector)) return value as BusinessSector;
+  // Preserve custom category strings instead of collapsing to "Otro"
+  return (value && value.trim()) ? (value as BusinessSector) : "Otro";
 }
 
 function normalizeProductCategory(value: string | null | undefined): ProductCategory {
-  return productCategories.includes(value as ProductCategory) ? (value as ProductCategory) : "Otro";
+  if (productCategories.includes(value as ProductCategory)) return value as ProductCategory;
+  return (value && value.trim()) ? (value as ProductCategory) : "Otro";
 }
 
 function normalizeProductStatus(value: string | null | undefined): CatalogProductStatus {
@@ -586,5 +601,78 @@ function toFiniteNumber(value: unknown) {
   }
 
   return null;
+}
+
+// ── Business-owned operations (no admin JWT required) ────────────────────────
+
+export async function updateBusinessProfile(
+  id: string,
+  fields: {
+    name: string;
+    category: string;
+    zone: string;
+    baseText: string;
+    lat: number;
+    lng: number;
+    availabilityStart: string;
+    availabilityEnd: string;
+  }
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase no disponible.");
+  const { error } = await supabase
+    .from("businesses")
+    .update({
+      name: fields.name,
+      category: fields.category,
+      zone: fields.zone,
+      description: fields.baseText,
+      address: fields.baseText,
+      lat: fields.lat,
+      lng: fields.lng,
+      opening_time: fields.availabilityStart || null,
+      closing_time: fields.availabilityEnd || null,
+      status: "activo"
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function getBusinessOwnProducts(
+  businessId: string,
+  business: CatalogBusiness
+): Promise<CatalogProduct[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("products")
+    .select(
+      "id,business_id,name,description,category,price,available,status,search_tags,created_at,updated_at"
+    )
+    .eq("business_id", businessId)
+    .order("name", { ascending: true });
+  if (error || !data) return [];
+  const businessesById = new Map([[businessId, business]]);
+  return data.map((row) => mapProductRow(row as ProductRow, businessesById));
+}
+
+export async function upsertBusinessProduct(product: CatalogProduct): Promise<string> {
+  if (!supabase) throw new Error("Supabase no disponible.");
+  const payload = buildProductPayload(product);
+  const isNew = !product.id || product.id.startsWith("prod_");
+  if (isNew) {
+    const { data, error } = await supabase
+      .from("products")
+      .insert(payload)
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    if (!data?.id) throw new Error("No se recibió el ID del producto.");
+    return data.id as string;
+  }
+  const { error } = await supabase
+    .from("products")
+    .update(payload)
+    .eq("id", product.id);
+  if (error) throw new Error(error.message);
+  return product.id;
 }
 

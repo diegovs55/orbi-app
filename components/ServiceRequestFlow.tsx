@@ -435,7 +435,6 @@ export function ServiceRequestFlow() {
   useEffect(() => {
     const session = getCurrentCustomerSession();
     if (!session) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCustomerSession(session);
     if (!details.requesterName && !details.requesterPhone) {
       setDetails((prev) => ({
@@ -1051,7 +1050,7 @@ export function ServiceRequestFlow() {
       : details.detail;
 
     try {
-    const mission = createMission({
+    const mission = await createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,
@@ -1152,7 +1151,7 @@ export function ServiceRequestFlow() {
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
-    const mission = createMission({
+    const mission = await createMission({
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,

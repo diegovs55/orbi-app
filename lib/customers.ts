@@ -3,6 +3,7 @@ import { ActiveMission, associateMissionsToUserByPhone } from "@/lib/missions";
 
 const CUSTOMERS_KEY = "orbi_customers";
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
+const CUSTOMER_PASSWORDS_KEY = "orbi_customer_passwords"; // MVP only — not for production
 
 export type CustomerSession = {
   name: string;
@@ -34,7 +35,7 @@ export function saveLocalCustomerAccount(
   name: string,
   phone: string,
   email: string,
-  _password: string // stored only as registered flag for MVP, never in plaintext
+  password: string
 ): void {
   if (typeof window === "undefined") return;
   const normalizedPhone = normalizePhone(phone);
@@ -54,6 +55,49 @@ export function saveLocalCustomerAccount(
   const customers = readLocalCustomers();
   const next = [customer, ...customers.filter((c) => c.phone !== normalizedPhone)];
   window.localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(next));
+  // Store password keyed by normalized phone (MVP only)
+  const passwords: Record<string, string> = readLocalPasswords();
+  passwords[normalizedPhone] = password;
+  window.localStorage.setItem(CUSTOMER_PASSWORDS_KEY, JSON.stringify(passwords));
+}
+
+function readLocalPasswords(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CUSTOMER_PASSWORDS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * MVP login: match identifier (phone or email) + password against localStorage.
+ * Returns the customer on success, null on failure.
+ */
+export function loginWithCredential(
+  identifier: string,
+  password: string
+): OrbiCustomer | null {
+  if (typeof window === "undefined") return null;
+  const customers = readLocalCustomers();
+  const normalizedId = identifier.replace(/\D/g, "").length >= 7
+    ? normalizePhone(identifier)
+    : identifier.trim().toLowerCase();
+  const customer = customers.find((c) => {
+    const matchPhone = c.phone === normalizePhone(identifier);
+    const matchEmail = (c.email ?? "").toLowerCase() === identifier.trim().toLowerCase();
+    return matchPhone || matchEmail;
+  });
+  if (!customer) return null;
+  const passwords = readLocalPasswords();
+  const stored = passwords[customer.phone];
+  if (!stored || stored !== password) return null;
+  // Suppress unused variable warning from normalizedId (identifier normalization is done inline above)
+  void normalizedId;
+  return customer;
 }
 
 export function clearCustomerSession(): void {

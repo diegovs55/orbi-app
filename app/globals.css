@@ -121,6 +121,13 @@ button {
   animation: orbi-agent-pulse 1.8s ease-in-out infinite;
 }
 
+.orbi-map-marker-business {
+  background: #f59e0b;
+  box-shadow:
+    0 0 0 7px rgba(245, 158, 11, 0.22),
+    0 0 28px rgba(245, 158, 11, 0.65);
+}
+
 @keyframes orbi-agent-pulse {
   0%,
   100% {

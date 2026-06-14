@@ -6,6 +6,7 @@ import {
   ActiveMission,
   getActiveMissions,
   isMissionClosed,
+  loadActiveMissionsFromSupabase,
   migrateActiveMission,
   subscribeToMission
 } from "@/lib/missions";
@@ -21,11 +22,12 @@ export function ActiveMissionsWidget() {
 
   useEffect(() => {
     migrateActiveMission();
-    const load = () => {
+    const load = async () => {
+      await loadActiveMissionsFromSupabase();
       setMissions(getActiveMissions().filter((m) => !isMissionClosed(m)));
     };
-    load();
-    return subscribeToMission(load);
+    void load();
+    return subscribeToMission(() => void load());
   }, []);
 
   if (missions.length === 0) return null;

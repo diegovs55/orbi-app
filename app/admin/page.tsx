@@ -4,6 +4,7 @@ import { AdminControlPanel } from "@/components/AdminControlPanel";
 import { AdminCatalog } from "@/components/AdminCatalog";
 import { AdminAgents } from "@/components/AdminAgents";
 import { AdminCustomers } from "@/components/AdminCustomers";
+import { AdminPendingRequests } from "@/components/AdminPendingRequests";
 
 export default function AdminPage() {
   return (
@@ -13,6 +14,7 @@ export default function AdminPage() {
       description="Control de misiones, agentes, pagos, negocios y señales de crecimiento de la red local."
     >
       <AdminAccessGate>
+        <AdminPendingRequests />
         <AdminControlPanel />
         <AdminCatalog />
         <AdminAgents />

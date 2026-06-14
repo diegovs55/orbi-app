@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
 import { supabase } from "@/lib/supabase";
+import { saveAgentSession } from "@/lib/agentSession";
 
 const inputClasses =
   "mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15";
@@ -38,6 +39,17 @@ export default function AgentLoginPage() {
     }
 
     if (data.session) {
+      // Lookup agent record by email to populate orbi_agent_session
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("id,name,email")
+        .eq("email", email.trim().toLowerCase())
+        .maybeSingle();
+      saveAgentSession({
+        id: agentRow?.id ?? data.session.user.id,
+        name: agentRow?.name ?? email.trim(),
+        email: email.trim()
+      });
       router.push("/agente");
       return;
     }
