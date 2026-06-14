@@ -232,7 +232,10 @@ export function updateActiveMissionById(
       total_amount:        nextMission.total_amount         ?? null,
       updated_at:          nextMission.updated_at,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .then(({ error }) => {
+      if (error) console.error("[missions] UPDATE failed:", error);
+    });
 
   return nextMission;
 }

@@ -4,8 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
-import { supabase } from "@/lib/supabase";
-import { saveAgentSession } from "@/lib/agentSession";
+import { saveAgentSession, loginAgent } from "@/lib/agentSession";
 
 const inputClasses =
   "mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15";
@@ -14,15 +13,12 @@ export default function AgentLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     setError("");
-    setMessage("");
 
     if (!email.trim() || !password) {
       setError("Ingresa tu correo y contraseña para continuar.");
@@ -30,55 +26,16 @@ export default function AgentLoginPage() {
     }
 
     setIsSubmitting(true);
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const session = loginAgent(email.trim(), password);
     setIsSubmitting(false);
 
-    if (authError) {
-      setError(authError.message || "No fue posible iniciar sesión. Revisa tus datos.");
+    if (!session) {
+      setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
       return;
     }
 
-    if (data.session) {
-      // Lookup agent record by email to populate orbi_agent_session
-      const { data: agentRow } = await supabase
-        .from("agents")
-        .select("id,name,email")
-        .eq("email", email.trim().toLowerCase())
-        .maybeSingle();
-      saveAgentSession({
-        id: agentRow?.id ?? data.session.user.id,
-        name: agentRow?.name ?? email.trim(),
-        email: email.trim()
-      });
-      router.push("/agente");
-      return;
-    }
-
-    setError("No se pudo iniciar sesión. Intenta de nuevo");
-  }
-
-  async function handleResetPassword() {
-    setError("");
-    setMessage("");
-
-    if (!email.trim()) {
-      setError("Ingresa tu correo para recibir el enlace de recuperación.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    const resetUrl = `${window.location.origin}/agente/reset-password`;
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: resetUrl
-    });
-    setIsSubmitting(false);
-
-    if (resetError) {
-      setError(resetError.message || "No fue posible enviar el correo de recuperación.");
-      return;
-    }
-
-    setMessage("Revisa tu correo para restablecer la contraseña. Si no llega, revisa la bandeja de spam.");
+    saveAgentSession(session);
+    router.push("/agente");
   }
 
   return (
@@ -145,24 +102,12 @@ export default function AgentLoginPage() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Contraseña segura"
+                  placeholder="Contraseña"
                   required
                 />
               </label>
 
-              <div className="flex items-center justify-between text-sm font-semibold text-orbi-muted">
-                <span>¿Olvidaste tu clave?</span>
-                <button
-                  type="button"
-                  onClick={handleResetPassword}
-                  className="text-orbi-cyan hover:text-white"
-                >
-                  Recuperar acceso
-                </button>
-              </div>
-
               {error ? <p className="text-sm font-semibold text-red-300">{error}</p> : null}
-              {message ? <p className="text-sm font-semibold text-orbi-cyan">{message}</p> : null}
 
               <OrbiButton type="submit" className="w-full text-base" disabled={isSubmitting}>
                 {isSubmitting ? "Procesando..." : "Entrar"}

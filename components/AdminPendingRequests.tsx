@@ -10,8 +10,10 @@ import {
   RequestStatus
 } from "@/lib/pendingRequests";
 import { saveLocalBusinessAccount } from "@/lib/businessSession";
+import { saveLocalAgentAccount } from "@/lib/agentSession";
 import { createCatalogBusiness } from "@/lib/catalog";
 import { getLocalProducts, getAllLocalProducts } from "@/lib/localProducts";
+import { AgentStatus, createAgent, getAgentInitials } from "@/lib/agents";
 
 function formatDate(iso: string) {
   try {
@@ -36,6 +38,7 @@ const statusStyle: Record<RequestStatus, string> = {
 export function AdminPendingRequests() {
   const [requests, setRequests] = useState<PendingRequest[]>([]);
   const [approving, setApproving] = useState<Set<string>>(new Set());
+  const [approveErrors, setApproveErrors] = useState<Record<string, string>>({});
   const [localBizData, setLocalBizData] = useState<
     Array<{ businessId: string; products: ReturnType<typeof getLocalProducts> }>
   >([]);
@@ -88,6 +91,45 @@ export function AdminPendingRequests() {
       updatePendingRequest(r.id, "approved", {
         approvedCredentials: { email: r.email, password: initialPassword, supabaseBusinessId }
       });
+    } else if (r.type === "agent") {
+      setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
+      const initialPassword = r.phone.replace(/\D/g, "") || "orbi1234";
+      let supabaseAgentId: string | undefined;
+      try {
+        const newAgent = await createAgent({
+          name: r.name,
+          email: r.email,
+          photoUrl: "",
+          initials: getAgentInitials(r.name),
+          serviceType: "Todos los servicios",
+          zone: "Por definir",
+          status: "Disponible" as AgentStatus,
+          isOnOrbit: false,
+          trustLevel: "Aprendiz",
+          phone: r.phone,
+          description: r.message || "",
+          vehicle: "",
+          availability: "",
+          lat: null, lng: null,
+          currentLat: null, currentLng: null,
+          latitude: null, longitude: null,
+          operationalBaseLat: null, operationalBaseLng: null,
+          operationalBaseText: "",
+          radiusKm: 20,
+          authUserId: undefined,
+        });
+        supabaseAgentId = newAgent.id;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Error desconocido al crear ficha en Supabase.";
+        console.error("[agents] createAgent failed:", err);
+        setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
+        setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        return;
+      }
+      saveLocalAgentAccount(r.name, r.email, r.phone, initialPassword, supabaseAgentId);
+      updatePendingRequest(r.id, "approved", {
+        approvedCredentials: { email: r.email, password: initialPassword, supabaseAgentId }
+      });
     } else {
       updatePendingRequest(r.id, "approved");
     }
@@ -134,6 +176,7 @@ export function AdminPendingRequests() {
               title="Agentes"
               items={agentReqs}
               approving={approving}
+              approveErrors={approveErrors}
               onApprove={handleApprove}
               onDeactivate={handleDeactivate}
               onDelete={handleDelete}
@@ -145,6 +188,7 @@ export function AdminPendingRequests() {
               title="Negocios"
               items={businessReqs}
               approving={approving}
+              approveErrors={{}}
               onApprove={handleApprove}
               onDeactivate={handleDeactivate}
               onDelete={handleDelete}
@@ -165,6 +209,7 @@ function RequestGroup({
   title,
   items,
   approving,
+  approveErrors,
   onApprove,
   onDeactivate,
   onDelete,
@@ -173,6 +218,7 @@ function RequestGroup({
   title: string;
   items: PendingRequest[];
   approving: Set<string>;
+  approveErrors: Record<string, string>;
   onApprove: (r: PendingRequest) => void;
   onDeactivate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -276,14 +322,41 @@ function RequestGroup({
                     </td>
                   </tr>
 
+                  {approveErrors[r.id] ? (
+                    <tr className="border-b border-red-400/20 bg-red-400/[0.05]">
+                      <td colSpan={7} className="px-4 py-2 text-xs font-semibold text-red-300">
+                        Error al crear ficha: {approveErrors[r.id]}
+                      </td>
+                    </tr>
+                  ) : null}
+
                   {r.status === "approved" && r.approvedCredentials ? (
                     <tr className="border-b border-white/[0.04] bg-orbi-blue/[0.04]">
                       <td colSpan={7} className="px-4 py-2">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
-                          <span className="font-bold text-orbi-cyan">Credenciales →</span>
+                          <span className="font-bold text-orbi-cyan">
+                            {r.type === "agent" ? "Agente aprobado →" : "Credenciales →"}
+                          </span>
                           <CredentialChip label="Correo" value={r.approvedCredentials.email} />
-                          <CredentialChip label="Contraseña" value={r.approvedCredentials.password} />
-                          {r.approvedCredentials.supabaseBusinessId ? (
+                          {r.type === "business" && r.approvedCredentials.password ? (
+                            <CredentialChip label="Contraseña" value={r.approvedCredentials.password} />
+                          ) : null}
+                          {r.type === "agent" ? (
+                            <>
+                              {r.approvedCredentials.password ? (
+                                <CredentialChip label="Contraseña" value={r.approvedCredentials.password} />
+                              ) : null}
+                              {r.approvedCredentials.supabaseAgentId ? (
+                                <span className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] font-bold text-emerald-200">
+                                  Ficha en Supabase · El agente entra en /agentes con correo y contraseña
+                                </span>
+                              ) : (
+                                <span className="rounded-md border border-yellow-300/20 bg-yellow-300/10 px-2 py-1 text-[11px] font-bold text-yellow-200">
+                                  Sin ficha en Supabase · Reintenta aprobar
+                                </span>
+                              )}
+                            </>
+                          ) : r.approvedCredentials.supabaseBusinessId ? (
                             <span className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] font-bold text-emerald-200">
                               Vinculado al catálogo
                             </span>

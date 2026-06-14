@@ -12,7 +12,7 @@ export type PendingRequest = {
   message: string;
   status: RequestStatus;
   createdAt: string;
-  approvedCredentials?: { email: string; password: string; supabaseBusinessId?: string };
+  approvedCredentials?: { email: string; password: string; supabaseBusinessId?: string; supabaseAgentId?: string };
 };
 
 export function getPendingRequests(): PendingRequest[] {

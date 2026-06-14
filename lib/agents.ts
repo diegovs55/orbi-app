@@ -28,6 +28,7 @@ export type AgentTrustLevel = (typeof agentLevels)[number];
 export type OrbiAgent = {
   id: string;
   authUserId?: string;
+  email?: string;
   name: string;
   photoUrl: string;
   initials: string;
@@ -58,6 +59,7 @@ export type CreateAgentInput = Omit<OrbiAgent, "id">;
 type AgentRow = {
   id: string;
   auth_user_id?: string | null;
+  email?: string | null;
   name: string;
   photo_url: string | null;
   initials: string | null;
@@ -127,10 +129,11 @@ type AgentInsert = {
   initials: string | null;
   service_type: AgentServiceType;
   zone: string;
-  status: AgentStatus;
+  status: AgentRow["status"];
   is_on_orbit?: boolean;
   trust_level: AgentTrustLevel;
   phone: string;
+  email?: string | null;
   description: string;
   vehicle: string | null;
   availability: string | null;
@@ -200,7 +203,7 @@ export async function getAgentByAuthUserId(authUserId: string) {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from("agents")
-    .select(`${agentSelectWithAllLocationColumns},auth_user_id`)
+    .select(`${agentSelectWithAllLocationColumns},auth_user_id,email`)
     .eq("auth_user_id", authUserId)
     .maybeSingle();
 
@@ -209,6 +212,32 @@ export async function getAgentByAuthUserId(authUserId: string) {
   }
 
   return data ? mapAgentRow(data) : null;
+}
+
+export async function getAgentByEmail(email: string) {
+  if (!email.trim()) return null;
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("agents")
+    .select(`${agentSelectWithAllLocationColumns},auth_user_id,email`)
+    .eq("email", email.trim().toLowerCase())
+    .maybeSingle();
+  if (error) {
+    console.error("[agents] getAgentByEmail error:", error);
+    return null;
+  }
+  return data ? mapAgentRow(data) : null;
+}
+
+export async function linkAgentAuthUserId(agentId: string, authUserId: string) {
+  const client = getSupabaseClient();
+  const { error } = await client
+    .from("agents")
+    .update({ auth_user_id: authUserId })
+    .eq("id", agentId);
+  if (error) {
+    throw new Error(error.message ?? "No fue posible vincular el agente con la cuenta de acceso.");
+  }
 }
 
 export async function createAgent(agent: CreateAgentInput) {
@@ -235,7 +264,8 @@ export async function createAgent(agent: CreateAgentInput) {
     operational_base_lng: agent.operationalBaseLng ?? agent.lng,
     operational_base_text: agent.operationalBaseText || agent.zone,
     radius_km: agent.radiusKm || 20,
-    auth_user_id: agent.authUserId ?? null
+    auth_user_id: agent.authUserId ?? null,
+    email: agent.email ?? null
   };
 
   const { data, error } = await client
@@ -1068,6 +1098,7 @@ function mapAgentRow(row: AgentRow): OrbiAgent {
   return {
     id: row.id,
     authUserId: row.auth_user_id ?? undefined,
+    email: row.email ?? undefined,
     name: row.name,
     photoUrl: row.photo_url ?? "",
     initials: row.initials ?? getAgentInitials(row.name),
@@ -1271,10 +1302,17 @@ function isMissingCoordinateColumnError(error: { message?: string; code?: string
     return false;
   }
 
-  return (
-    error.code === "42703" ||
-    /lat|lng|latitude|longitude|radius_km|operational_base|current_|is_active|deleted_at|column|schema cache/i.test(error.message ?? "")
-  );
+  const msg = error.message ?? "";
+
+  // Only treat as a recoverable schema-mismatch if the missing column is a known
+  // coordinate/schema column — not arbitrary columns like `email`.
+  const isCoordinateColumn =
+    /\b(lat|lng|latitude|longitude|radius_km|operational_base_lat|operational_base_lng|operational_base_text|current_lat|current_lng|is_active|deleted_at|is_on_orbit)\b/i.test(msg);
+
+  const isSchemaCache = /schema cache/i.test(msg);
+
+  return (error.code === "42703" && (isCoordinateColumn || isSchemaCache)) ||
+    isSchemaCache;
 }
 
 function toFiniteNumber(value: unknown) {
