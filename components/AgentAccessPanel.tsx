@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LockKeyhole, X } from "lucide-react";
-import { saveAgentSession, loginAgent } from "@/lib/agentSession";
+import { saveAgentSession } from "@/lib/agentSession";
 import { addPendingRequest } from "@/lib/pendingRequests";
 
 type Panel = "closed" | "login" | "request";
@@ -27,17 +27,8 @@ export function AgentAccessPanel() {
 
   function handleLogin(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    if (!identifier.trim() || !password) { setError("Completa todos los campos."); return; }
-    setLoading(true);
-    const session = loginAgent(identifier.trim(), password);
-    setLoading(false);
-    if (!session) {
-      setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
-      return;
-    }
-    saveAgentSession(session);
-    router.push("/agente");
+    // Login now handled via Supabase Auth at /agente/login
+    router.push("/agente/login");
   }
 
   function handleRequest(e: FormEvent) {

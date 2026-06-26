@@ -1,6 +1,8 @@
 import { supabase, subscribeToTableChanges } from "@/lib/supabase";
 
 export const missionStatuses = [
+  "esperando_negocio",
+  "preparando",
   "por_tomar",
   "aceptada",
   "en_mision",
@@ -12,6 +14,8 @@ export const missionStatuses = [
 export type MissionStatus = (typeof missionStatuses)[number];
 
 export const missionStatusLabels: Record<MissionStatus, string> = {
+  esperando_negocio: "Esperando confirmación del negocio",
+  preparando: "Preparando tu pedido",
   por_tomar: "Misión por tomar",
   aceptada: "Misión aceptada",
   en_mision: "En misión",
@@ -82,12 +86,15 @@ export type ActiveMission = {
   rated_agent_id?: string;
   rated_requester?: string;
   rated_at?: string;
+  mission_type?: "directa" | "compra_negocio";
   estimated_orbit: string;
   status: MissionStatus;
   mission_status?: MissionStatus | string;
   created_at?: string;
   last_updated_at: string;
   updated_at: string;
+  cancelled_by?: string;
+  cancelled_at?: string;
 };
 
 type CreateMissionInput = Omit<ActiveMission, "id" | "last_updated_at" | "updated_at" | "status" | "mission_status"> & {
@@ -120,6 +127,8 @@ export function getMissionStatusLabel(status: MissionStatus) {
 
 export function canTransitionMission(currentStatus: MissionStatus, nextStatus: MissionStatus) {
   return (
+    (currentStatus === "esperando_negocio" && (nextStatus === "preparando" || nextStatus === "cancelada")) ||
+    (currentStatus === "preparando" && (nextStatus === "por_tomar" || nextStatus === "cancelada")) ||
     (currentStatus === "por_tomar" && nextStatus === "aceptada") ||
     (currentStatus === "aceptada" && nextStatus === "en_mision") ||
     (currentStatus === "en_mision" && nextStatus === "cumplida") ||
@@ -132,7 +141,7 @@ export function canTransitionMission(currentStatus: MissionStatus, nextStatus: M
 const ACTIVE_MISSION_KEY = "orbi_active_mission";
 const ACTIVE_MISSIONS_KEY = "orbi_active_missions";
 const MISSION_HISTORY_KEY = "orbi_mission_history";
-const MISSION_CHANGE_EVENT = "orbi-mission-change";
+export const MISSION_CHANGE_EVENT = "orbi-mission-change";
 
 // ---------------------------------------------------------------------------
 // Multi-mission API (new in 2B)
@@ -148,10 +157,6 @@ export function getActiveMissions(): ActiveMission[] {
   } catch {
     return [];
   }
-}
-
-export function getActiveMissionById(id: string): ActiveMission | null {
-  return getActiveMissions().find((m) => m.id === id) ?? null;
 }
 
 export function addActiveMission(mission: ActiveMission): void {
@@ -219,6 +224,7 @@ export function updateActiveMissionById(
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
 
   // Sync state change to Supabase — fire-and-forget, does not block the return.
+  // Only columns that exist in public.missions are included here.
   void supabase
     .from("missions")
     .update({
@@ -287,18 +293,10 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
     updated_at: now
   };
 
-  // localStorage first — always succeeds, keeps UI working even if Supabase fails.
-  addActiveMission(nextMission);
+  const insertResult = await supabase.from("missions").insert(missionToRow(nextMission)).select();
+  if (insertResult.error) throw insertResult.error;
 
-  // Persist to Supabase so agents and admin on other devices can see this mission.
-  try {
-    await supabase
-      .from("missions")
-      .insert(missionToRow(nextMission))
-      .throwOnError();
-  } catch (error) {
-    console.error("[missions] INSERT failed:", error);
-  }
+  addActiveMission(nextMission);
 
   return nextMission;
 }
@@ -328,6 +326,7 @@ function missionToRow(m: ActiveMission) {
     payment_method: m.payment_method,
     total_amount: m.total_amount ?? null,
     estimated_orbit: m.estimated_orbit,
+    mission_type: m.mission_type ?? "directa",
     created_at: m.created_at ?? null,
     updated_at: m.updated_at,
   };
@@ -353,6 +352,364 @@ export async function loadActiveMissionsFromSupabase(): Promise<void> {
   } catch (err) {
     console.error("[missions] loadActiveMissionsFromSupabase error:", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Supabase-first mission actions — source of truth is Supabase, not localStorage
+// ---------------------------------------------------------------------------
+
+/** Fetch completed/cancelled missions for a given phone number from Supabase. */
+export async function fetchMissionHistoryByPhone(phone: string): Promise<ActiveMission[]> {
+  const normalized = phone.replace(/\D/g, "");
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .in("status", ["cumplida", "cancelada"])
+    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) { console.error("[missions] fetchMissionHistoryByPhone error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+export type CustomerMissionStats = {
+  total: number;
+  cumplidas: number;
+  canceladas: number;
+  lastDate: string | null;
+};
+
+const HISTORY_BY_PHONE_PAGE = 10;
+
+/** KPIs — counts only cumplida + cancelada. Archivadas excluded from totals. */
+export async function fetchMissionStatsByPhone(phone: string): Promise<CustomerMissionStats> {
+  const normalized = phone.replace(/\D/g, "");
+  const { data, error } = await supabase
+    .from("missions")
+    .select("status,created_at")
+    .in("status", ["cumplida", "cancelada"])
+    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
+    .order("created_at", { ascending: false });
+  if (error || !data) return { total: 0, cumplidas: 0, canceladas: 0, lastDate: null };
+  const rows = data as { status: string; created_at: string }[];
+  return {
+    total: rows.length,
+    cumplidas: rows.filter((r) => r.status === "cumplida").length,
+    canceladas: rows.filter((r) => r.status === "cancelada").length,
+    lastDate: rows[0]?.created_at ?? null,
+  };
+}
+
+/** Paginated mission history — cumplida + cancelada + archivada — ordered by created_at DESC. */
+export async function fetchMissionHistoryByPhonePaged(
+  phone: string,
+  page: number
+): Promise<{ missions: ActiveMission[]; hasMore: boolean; total: number }> {
+  const normalized = phone.replace(/\D/g, "");
+  const from = page * HISTORY_BY_PHONE_PAGE;
+  const to = from + HISTORY_BY_PHONE_PAGE - 1;
+  const { data, error, count } = await supabase
+    .from("missions")
+    .select("id,status,service_type,destination_text,total_amount,created_at,updated_at", { count: "exact" })
+    .in("status", ["cumplida", "cancelada", "archivada"])
+    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
+    .order("created_at", { ascending: false })
+    .range(from, to);
+  if (error) {
+    console.error("[missions] fetchMissionHistoryByPhonePaged error:", error);
+    return { missions: [], hasMore: false, total: 0 };
+  }
+  const total = count ?? 0;
+  return {
+    missions: (data ?? []).map(normalizeMission) as ActiveMission[],
+    hasMore: to + 1 < total,
+    total,
+  };
+}
+
+/** Fetch a single mission by id directly from Supabase. */
+export async function fetchMissionById(id: string): Promise<ActiveMission | null> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[missions] fetchMissionById error:", error); return null; }
+  return data ? (normalizeMission(data) as ActiveMission) : null;
+}
+
+const ADMIN_MISSIONS_LIMIT = 100;
+
+/** Fetch operationally active missions for the admin dashboard.
+ *  Scoped to live statuses only — history with pagination comes in a later phase. */
+export async function fetchAllMissionsForAdmin(): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .in("status", ["esperando_negocio", "preparando", "por_tomar", "aceptada", "en_mision"])
+    .order("updated_at", { ascending: false })
+    .limit(ADMIN_MISSIONS_LIMIT);
+  if (error) { console.error("[missions] fetchAllMissionsForAdmin error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+const HISTORY_PAGE_SIZE = 25;
+
+export type MissionHistoryFilters = {
+  page?: number;
+  serviceType?: string;
+  agentName?: string;
+  status?: string;
+  requesterSearch?: string;
+};
+
+/** Fetch closed missions for the paginated history panel.
+ *  Filters applied server-side — no client-side filtering, no realtime. */
+export async function fetchMissionHistory(
+  filters: MissionHistoryFilters = {}
+): Promise<{ missions: ActiveMission[]; hasMore: boolean; total: number }> {
+  const { page = 0, serviceType, agentName, status, requesterSearch } = filters;
+
+  let query = supabase
+    .from("missions")
+    .select(
+      "id,status,service_type,requester_name,selected_agent_name,total_amount,created_at,payment_method,payment_status",
+      { count: "exact" }
+    )
+    .in("status", ["cumplida", "cancelada", "archivada"])
+    .order("created_at", { ascending: false })
+    .range(page * HISTORY_PAGE_SIZE, (page + 1) * HISTORY_PAGE_SIZE - 1);
+
+  if (serviceType && serviceType !== "Todos") {
+    query = query.eq("service_type", serviceType);
+  }
+  if (status && status !== "Todos") {
+    query = query.eq("status", status as MissionStatus);
+  }
+  if (agentName?.trim()) {
+    query = query.ilike("selected_agent_name", `%${agentName.trim()}%`);
+  }
+  if (requesterSearch?.trim()) {
+    query = query.ilike("requester_name", `%${requesterSearch.trim()}%`);
+  }
+
+  const { data, error, count } = await query;
+  if (error) {
+    console.error("[missions] fetchMissionHistory error:", error);
+    return { missions: [], hasMore: false, total: 0 };
+  }
+
+  const missions = (data ?? []).map(normalizeMission) as ActiveMission[];
+  const total = count ?? 0;
+  const hasMore = (page + 1) * HISTORY_PAGE_SIZE < total;
+
+  return { missions, hasMore, total };
+}
+
+/** Fetch completed missions for ranking calculations.
+ *  Minimal column select — only what's needed for agent, business, and customer rankings. */
+export async function fetchMissionsForRankings(): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("selected_agent_id,selected_agent_name,business_name,requester_phone,requester_name,total_amount,status,created_at")
+    .eq("status", "cumplida")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) { console.error("[missions] fetchMissionsForRankings error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+/** Fetch missions for the distribution dashboard (service type + payment method).
+ *  Excludes archived missions only — includes active, completed, and cancelled.
+ *  Uses a minimal column select to keep payload small. */
+export async function fetchMissionsForDistribution(): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("id,status,service_type,payment_method,created_at")
+    .neq("status", "archivada")
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (error) { console.error("[missions] fetchMissionsForDistribution error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+/** Fetch completed and cancelled missions for the economy dashboard.
+ *  Uses a minimal column select — only fields needed for economic metrics. */
+export async function fetchMissionsForEconomy(): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("id,status,service_type,total_amount,payment_method,created_at,updated_at,requester_name,selected_agent_name")
+    .in("status", ["cumplida", "cancelada"])
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) { console.error("[missions] fetchMissionsForEconomy error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+/** Fetch active missions directly from Supabase (no localStorage). */
+export async function fetchActiveMissions(): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .not("status", "in", "(cumplida,cancelada,archivada)");
+  if (error) {
+    console.error("[missions] fetchActiveMissions error:", error);
+    return [];
+  }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+/** Business accepts order → esperando_negocio → preparando (starts preparation). */
+export async function confirmMissionByBusiness(id: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({ status: "preparando", updated_at: now })
+    .eq("id", id)
+    .eq("status", "esperando_negocio")
+    .select("id,status");
+  if (error) { console.error("[missions] confirmMissionByBusiness error:", error); return false; }
+  const updated = Array.isArray(data) ? data[0] : null;
+  if (!updated) { console.error("[missions] confirmMissionByBusiness — 0 filas afectadas"); return false; }
+  return true;
+}
+
+/** Business marks order ready → preparando → por_tomar so agent can see it. */
+export async function markOrderReadyByBusiness(id: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({ status: "por_tomar", updated_at: now })
+    .eq("id", id)
+    .eq("status", "preparando")
+    .select("id,status");
+  if (error) { console.error("[missions] markOrderReadyByBusiness error:", error); return false; }
+  const updated = Array.isArray(data) ? data[0] : null;
+  if (!updated) { console.error("[missions] markOrderReadyByBusiness — 0 filas afectadas"); return false; }
+  return true;
+}
+
+/** Fetch missions waiting for or being prepared by a specific business. */
+export async function fetchBusinessPendingMissions(businessName: string): Promise<ActiveMission[]> {
+  const { data, error } = await supabase
+    .from("missions")
+    .select("*")
+    .in("status", ["esperando_negocio", "preparando"])
+    .eq("business_name", businessName)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[missions] fetchBusinessPendingMissions error:", error); return []; }
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
+}
+
+/** Agent accepts a por_tomar mission. Returns updated row or null on conflict.
+ *  Accepts if selected_agent_id is null (open mission) or already matches agentId (pre-assigned). */
+export async function acceptMission(
+  id: string,
+  agentId: string,
+  agentName: string,
+  opts?: { zone?: string; vehicle?: string; trust?: string; lat?: number | null; lng?: number | null }
+): Promise<ActiveMission | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({
+      status: "aceptada",
+      selected_agent_id: agentId,
+      selected_agent_name: agentName,
+      active_agent_id: agentId,
+      accepted_at: now,
+      updated_at: now,
+    })
+    .eq("id", id)
+    .eq("status", "por_tomar")
+    .or(`selected_agent_id.is.null,selected_agent_id.eq.${agentId}`)
+    .select("*");
+  if (error) { console.error("[missions] acceptMission error:", error); return null; }
+  const row = Array.isArray(data) ? data[0] : null;
+  return row ? (normalizeMission(row) as ActiveMission) : null;
+}
+
+/** Agent starts route: aceptada → en_mision. */
+export async function startMission(id: string, agentId: string): Promise<ActiveMission | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({ status: "en_mision", updated_at: now })
+    .eq("id", id)
+    .eq("status", "aceptada")
+    .eq("selected_agent_id", agentId)
+    .select("*")
+    .maybeSingle();
+  if (error) { console.error("[missions] startMission error:", error); return null; }
+  return data ? (normalizeMission(data) as ActiveMission) : null;
+}
+
+/** Agent confirms delivery: en_mision → cumplida. */
+export async function completeMission(id: string, agentId: string): Promise<ActiveMission | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({ status: "cumplida", updated_at: now })
+    .eq("id", id)
+    .eq("status", "en_mision")
+    .eq("selected_agent_id", agentId)
+    .select("*")
+    .maybeSingle();
+  if (error) { console.error("[missions] completeMission error:", error); return null; }
+  return data ? (normalizeMission(data) as ActiveMission) : null;
+}
+
+/** Customer cancels mission (any active status). */
+export async function cancelMissionByCustomer(id: string): Promise<void> {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("missions")
+    .update({ status: "cancelada", updated_at: now })
+    .eq("id", id)
+    .in("status", ["por_tomar", "aceptada", "en_mision"]);
+  if (error) console.error("[missions] cancelMissionByCustomer error:", error);
+}
+
+/** Agent cancels assigned mission → resets to por_tomar for reassignment. */
+export async function cancelMissionByAgent(id: string, agentId: string): Promise<boolean> {
+  // Log estado real en Supabase ANTES del UPDATE
+  const { data: before } = await supabase
+    .from("missions")
+    .select("id, status, selected_agent_id, selected_agent_name, active_agent_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (before) {
+    const guardStatus = ["aceptada", "en_mision"].includes(before.status ?? "");
+    const guardAgent  = before.selected_agent_id === agentId;
+    if (!guardStatus) console.error("[missions] cancelMissionByAgent: status inválido:", before.status);
+    if (!guardAgent)  console.error("[missions] cancelMissionByAgent: agente no coincide:", before.selected_agent_id, "vs", agentId);
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("missions")
+    .update({
+      status: "por_tomar",
+      selected_agent_id: null,
+      selected_agent_name: null,
+      active_agent_id: null,
+      accepted_at: null,
+      updated_at: now,
+    })
+    .eq("id", id)
+    .eq("selected_agent_id", agentId)
+    .in("status", ["aceptada", "en_mision"])
+    .select("id, status, selected_agent_id, selected_agent_name, active_agent_id");
+  if (error) {
+    console.error("[missions] cancelMissionByAgent error:", error);
+    return false;
+  }
+  const updated = Array.isArray(data) ? data[0] : null;
+  if (!updated) {
+    console.error("[missions] cancelMissionByAgent: UPDATE afectó 0 filas");
+    return false;
+  }
+  return true;
 }
 
 // Returns the most-relevant single active mission (highest-priority status).

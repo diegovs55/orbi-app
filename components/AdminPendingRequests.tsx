@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Loader2, Trash2 } from "lucide-react";
+import { Copy, Loader2, Trash2 } from "lucide-react";
 import {
   getPendingRequests,
   subscribeToPendingRequests,
@@ -10,9 +10,7 @@ import {
   RequestStatus
 } from "@/lib/pendingRequests";
 import { saveLocalBusinessAccount } from "@/lib/businessSession";
-import { saveLocalAgentAccount } from "@/lib/agentSession";
 import { createCatalogBusiness } from "@/lib/catalog";
-import { getLocalProducts, getAllLocalProducts } from "@/lib/localProducts";
 import { AgentStatus, createAgent, getAgentInitials } from "@/lib/agents";
 
 function formatDate(iso: string) {
@@ -39,25 +37,13 @@ export function AdminPendingRequests() {
   const [requests, setRequests] = useState<PendingRequest[]>([]);
   const [approving, setApproving] = useState<Set<string>>(new Set());
   const [approveErrors, setApproveErrors] = useState<Record<string, string>>({});
-  const [localBizData, setLocalBizData] = useState<
-    Array<{ businessId: string; products: ReturnType<typeof getLocalProducts> }>
-  >([]);
 
   useEffect(() => {
     setRequests(getPendingRequests());
-    setLocalBizData(getAllLocalProducts());
 
-    const load = () => {
-      setRequests(getPendingRequests());
-      setLocalBizData(getAllLocalProducts());
-    };
+    const load = () => setRequests(getPendingRequests());
     const unsub = subscribeToPendingRequests(load);
-    const refresh = () => setLocalBizData(getAllLocalProducts());
-    window.addEventListener("orbi-local-products-change", refresh);
-    return () => {
-      unsub();
-      window.removeEventListener("orbi-local-products-change", refresh);
-    };
+    return () => { unsub(); };
   }, []);
 
   async function handleApprove(r: PendingRequest) {
@@ -93,7 +79,6 @@ export function AdminPendingRequests() {
       });
     } else if (r.type === "agent") {
       setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
-      const initialPassword = r.phone.replace(/\D/g, "") || "orbi1234";
       let supabaseAgentId: string | undefined;
       try {
         const newAgent = await createAgent({
@@ -112,9 +97,6 @@ export function AdminPendingRequests() {
           availability: "",
           lat: null, lng: null,
           currentLat: null, currentLng: null,
-          latitude: null, longitude: null,
-          operationalBaseLat: null, operationalBaseLng: null,
-          operationalBaseText: "",
           radiusKm: 20,
           authUserId: undefined,
         });
@@ -126,9 +108,25 @@ export function AdminPendingRequests() {
         setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
         return;
       }
-      saveLocalAgentAccount(r.name, r.email, r.phone, initialPassword, supabaseAgentId);
+      // Activate agent in Supabase Auth (generates temp password server-side)
+      let tempPassword: string | undefined;
+      try {
+        const activateRes = await fetch("/api/agents/activate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId: supabaseAgentId }),
+        });
+        const activateData = (await activateRes.json()) as { tempPassword?: string; error?: string; alreadyActivated?: boolean };
+        if (!activateRes.ok) throw new Error(activateData.error ?? "Error al activar agente en Auth");
+        tempPassword = activateData.alreadyActivated ? undefined : activateData.tempPassword;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Error al activar en Supabase Auth.";
+        setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
+        setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        return;
+      }
       updatePendingRequest(r.id, "approved", {
-        approvedCredentials: { email: r.email, password: initialPassword, supabaseAgentId }
+        approvedCredentials: { email: r.email, password: tempPassword, supabaseAgentId }
       });
     } else {
       updatePendingRequest(r.id, "approved");
@@ -151,9 +149,9 @@ export function AdminPendingRequests() {
     window.dispatchEvent(new Event("orbi-pending-requests-change"));
   }
 
-  const agentReqs = requests.filter((r) => r.type === "agent");
-  const businessReqs = requests.filter((r) => r.type === "business");
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
+  const agentReqs = requests.filter((r) => r.type === "agent" && r.status === "pending");
+  const businessReqs = requests.filter((r) => r.type === "business" && r.status === "pending");
+  const pendingCount = agentReqs.length + businessReqs.length;
 
   return (
     <section className="mt-10 space-y-6">
@@ -165,9 +163,9 @@ export function AdminPendingRequests() {
         </p>
       </div>
 
-      {requests.length === 0 ? (
+      {agentReqs.length === 0 && businessReqs.length === 0 ? (
         <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
-          No hay solicitudes registradas aún.
+          No hay solicitudes pendientes.
         </p>
       ) : (
         <>
@@ -180,7 +178,6 @@ export function AdminPendingRequests() {
               onApprove={handleApprove}
               onDeactivate={handleDeactivate}
               onDelete={handleDelete}
-              localBizData={[]}
             />
           )}
           {businessReqs.length > 0 && (
@@ -192,13 +189,11 @@ export function AdminPendingRequests() {
               onApprove={handleApprove}
               onDeactivate={handleDeactivate}
               onDelete={handleDelete}
-              localBizData={localBizData}
             />
           )}
         </>
       )}
 
-      <LocalProductsPanel data={localBizData} requests={businessReqs} />
     </section>
   );
 }
@@ -212,8 +207,7 @@ function RequestGroup({
   approveErrors,
   onApprove,
   onDeactivate,
-  onDelete,
-  localBizData
+  onDelete
 }: {
   title: string;
   items: PendingRequest[];
@@ -222,7 +216,6 @@ function RequestGroup({
   onApprove: (r: PendingRequest) => void;
   onDeactivate: (id: string) => void;
   onDelete: (id: string) => void;
-  localBizData: Array<{ businessId: string; products: ReturnType<typeof getLocalProducts> }>;
 }) {
   return (
     <div className="space-y-2">
@@ -251,9 +244,6 @@ function RequestGroup({
           </thead>
           <tbody>
             {items.map((r) => {
-              const bizProducts = r.approvedCredentials?.supabaseBusinessId
-                ? (localBizData.find(d => d.businessId === r.approvedCredentials!.supabaseBusinessId)?.products ?? [])
-                : [];
               return (
                 <Fragment key={r.id}>
                   <tr className="border-b border-white/[0.06]">
@@ -365,11 +355,6 @@ function RequestGroup({
                               Sin vínculo Supabase
                             </span>
                           )}
-                          {bizProducts.length > 0 && (
-                            <span className="text-orbi-muted">
-                              · {bizProducts.length} producto{bizProducts.length > 1 ? "s" : ""} cargado{bizProducts.length > 1 ? "s" : ""}
-                            </span>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -380,70 +365,6 @@ function RequestGroup({
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-// ── Local products panel (metrics) ────────────────────────────────────────────
-
-function LocalProductsPanel({
-  data,
-  requests
-}: {
-  data: Array<{ businessId: string; products: ReturnType<typeof getLocalProducts> }>;
-  requests: PendingRequest[];
-}) {
-  const [open, setOpen] = useState(false);
-  if (data.length === 0) return null;
-
-  const totalProducts = data.reduce((sum, d) => sum + d.products.length, 0);
-
-  return (
-    <div className="rounded-md border border-white/10 bg-white/[0.03]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <div>
-          <p className="text-sm font-black text-orbi-text">Productos registrados por negocios</p>
-          <p className="text-xs text-orbi-muted">
-            {data.length} negocio{data.length > 1 ? "s" : ""} · {totalProducts} producto{totalProducts > 1 ? "s" : ""} total
-          </p>
-        </div>
-        {open
-          ? <ChevronUp aria-hidden="true" className="h-4 w-4 text-orbi-muted" />
-          : <ChevronDown aria-hidden="true" className="h-4 w-4 text-orbi-muted" />}
-      </button>
-
-      {open ? (
-        <div className="divide-y divide-white/[0.06] border-t border-white/10">
-          {data.map(({ businessId, products }) => {
-            const req = requests.find(
-              (r) => r.approvedCredentials?.supabaseBusinessId === businessId
-            );
-            const bizName = req?.name ?? businessId;
-            return (
-              <div key={businessId} className="px-4 py-3">
-                <p className="mb-2 text-xs font-bold text-orbi-text">{bizName}</p>
-                <div className="space-y-1">
-                  {products.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
-                      <span className="font-semibold text-orbi-text">{p.name}</span>
-                      <div className="flex items-center gap-3 text-orbi-muted">
-                        <span>${p.price}</span>
-                        <span className={p.status === "disponible" ? "text-emerald-300" : "text-orbi-muted"}>
-                          {p.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -5,15 +5,13 @@ import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound }
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import { getCustomers, OrbiCustomer } from "@/lib/customers";
-import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts } from "@/lib/supabase";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts, subscribeToTableChanges } from "@/lib/supabase";
 import { CatalogProduct, getCatalogProductsWithOptions } from "@/lib/catalog";
 import {
   ActiveMission,
-  getActiveMission,
+  fetchAllMissionsForAdmin,
   getMissionStatusLabel,
-  getMissionHistory,
   MissionStatus,
-  subscribeToMission
 } from "@/lib/missions";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -72,8 +70,7 @@ const missionGoal = 50;
 
 export function AdminControlPanel() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
-  const [activeMission, setActiveMission] = useState<ActiveMission | null>(() => getActiveMission());
-  const [missionHistory, setMissionHistory] = useState<ActiveMission[]>(() => getMissionHistory());
+  const [allMissions, setAllMissions] = useState<ActiveMission[]>([]);
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [businesses, setBusinesses] = useState<AffiliateBusiness[]>([]);
   const [customers, setCustomers] = useState<OrbiCustomer[]>([]);
@@ -84,10 +81,12 @@ export function AdminControlPanel() {
   const [today] = useState(() => new Date());
 
   useEffect(() => {
-    return subscribeToMission(() => {
-      setActiveMission(getActiveMission());
-      setMissionHistory(getMissionHistory());
-    });
+    const refresh = async () => {
+      const data = await fetchAllMissionsForAdmin();
+      setAllMissions(data);
+    };
+    void refresh();
+    return subscribeToTableChanges("missions", () => void refresh());
   }, []);
 
   useEffect(() => {
@@ -147,12 +146,8 @@ export function AdminControlPanel() {
   }, []);
 
   const missions = useMemo(() => {
-    const currentMission = activeMission ? [activeMission] : [];
-    const realMissions = [...currentMission, ...missionHistory]
-      .filter((mission, index, list) => list.findIndex((item) => item.id === mission.id) === index)
-      .map((mission) => mapActiveMission(mission, today));
-    return realMissions;
-  }, [activeMission, missionHistory, today]);
+    return allMissions.map((mission) => mapActiveMission(mission, today));
+  }, [allMissions, today]);
 
   const filteredMissions = useMemo(() => {
     return filterMissionsByTime(missions, timeFilter, today, customStart, customEnd);
@@ -225,7 +220,6 @@ export function AdminControlPanel() {
         <MetricCard icon={Gauge} label="Ganancia estimada" value={analytics.totalProfit} prefix="$" />
         <MetricCard icon={Gauge} label="Ticket promedio" value={analytics.averageTicket} prefix="$" />
         <MetricCard icon={Gauge} label="Ganancia promedio" value={analytics.averageProfit} prefix="$" />
-        <MetricCard icon={ShieldCheck} label="Calificación promedio" value={analytics.averageRating} suffix="/5" />
         <MetricCard icon={UsersRound} label="Total usuarios" value={analytics.totalUsers} />
         <MetricCard icon={UsersRound} label="Usuarios registrados" value={analytics.registeredUsers} />
         <MetricCard icon={UsersRound} label="Usuarios no registrados" value={analytics.guestUsers} />
@@ -241,16 +235,9 @@ export function AdminControlPanel() {
         <ChartPanel title="Ventas por zona" items={analytics.salesByZoneBars} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <AgentsPanel analytics={analytics} />
-        <BusinessesPanel analytics={analytics} />
-      </div>
-
-      <CatalogAnalyticsPanel analytics={analytics} />
       <UsersPanel analytics={analytics} />
 
       <MissionHistoryTable missions={filteredMissions} />
-      <RatingsPanel missions={filteredMissions} />
     </section>
   );
 }
@@ -498,7 +485,10 @@ function MissionHistoryTable({ missions }: { missions: MissionRecord[] }) {
               missions.map((mission) => (
                 <tr key={mission.id} className="border-b border-white/5 last:border-b-0">
                   <td className="px-4 py-4 text-orbi-muted">{formatDate(mission.date)}</td>
-                  <td className="px-4 py-4 font-bold text-orbi-cyan">{mission.service}</td>
+                  <td className="px-4 py-4 font-bold text-orbi-cyan">
+                    {mission.service}
+                    <span className="block font-mono text-[10px] text-orbi-muted/50">Folio: #{mission.id.slice(-8).toUpperCase()}</span>
+                  </td>
                   <td className="px-4 py-4 text-orbi-text">{mission.requester}</td>
                   <td className="px-4 py-4 text-orbi-muted">{mission.agent}</td>
                   <td className="px-4 py-4 text-orbi-muted">{mission.origin}</td>
@@ -544,7 +534,7 @@ function RatingsPanel({ missions }: { missions: MissionRecord[] }) {
           <article key={`rating-${mission.id}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
             <p className="font-bold text-orbi-text">{mission.agent}</p>
             <p className="mt-1 text-xs text-orbi-cyan">
-              Misión {mission.id} · {mission.rating?.toFixed(1)} / 5
+              Folio: #{mission.id.slice(-8).toUpperCase()} · {mission.rating?.toFixed(1)} / 5
             </p>
             <p className="mt-2 text-sm text-orbi-muted">{mission.ratingComment || "Sin comentario"}</p>
           </article>

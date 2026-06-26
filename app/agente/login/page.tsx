@@ -4,7 +4,9 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
-import { saveAgentSession, loginAgent } from "@/lib/agentSession";
+import { supabase } from "@/lib/supabase";
+import { getAgentByAuthUserId } from "@/lib/agents";
+import { saveAgentSession } from "@/lib/agentSession";
 
 const inputClasses =
   "mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15";
@@ -16,7 +18,7 @@ export default function AgentLoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
@@ -26,15 +28,36 @@ export default function AgentLoginPage() {
     }
 
     setIsSubmitting(true);
-    const session = loginAgent(email.trim(), password);
-    setIsSubmitting(false);
 
-    if (!session) {
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (authError || !data.user) {
       setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
+      setIsSubmitting(false);
       return;
     }
 
-    saveAgentSession(session);
+    const user = data.user;
+
+    // Forced password change on first access
+    if (user.user_metadata?.must_change_password) {
+      router.push("/agente/cambiar-contrasena");
+      return;
+    }
+
+    // Fetch agent profile linked to this Auth user
+    const agent = await getAgentByAuthUserId(user.id);
+    if (!agent) {
+      setError("Tu cuenta no está vinculada a ningún agente Orbi. Contacta a tu coordinador.");
+      await supabase.auth.signOut();
+      setIsSubmitting(false);
+      return;
+    }
+
+    saveAgentSession({ id: agent.id, name: agent.name, email: agent.email ?? email.trim() });
     router.push("/agente");
   }
 
@@ -110,7 +133,7 @@ export default function AgentLoginPage() {
               {error ? <p className="text-sm font-semibold text-red-300">{error}</p> : null}
 
               <OrbiButton type="submit" className="w-full text-base" disabled={isSubmitting}>
-                {isSubmitting ? "Procesando..." : "Entrar"}
+                {isSubmitting ? "Verificando..." : "Entrar"}
               </OrbiButton>
             </form>
           </section>

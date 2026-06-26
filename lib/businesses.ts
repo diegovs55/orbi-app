@@ -1,8 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { assertAuthenticated } from "@/lib/auth";
 
-const DELETED_BUSINESSES_KEY = "orbi_deleted_business_ids";
-
 export const businessCategories = [
   "Café y comida",
   "Farmacia",
@@ -13,7 +11,7 @@ export const businessCategories = [
 
 export type BusinessCategory = (typeof businessCategories)[number];
 
-export type BusinessStatus = "Disponible" | "No disponible";
+export type BusinessStatus = "activo" | "inactivo";
 
 export type AffiliateBusiness = {
   id: string;
@@ -32,7 +30,7 @@ type BusinessRow = {
   name: string;
   category: BusinessCategory;
   description: string;
-  status: BusinessStatus;
+  status: string;
   rating: string | number;
 };
 
@@ -57,7 +55,7 @@ export async function getBusinesses() {
     throw new Error(error.message);
   }
 
-  return (data ?? []).filter(isActiveBusinessRow).filter(isNotLocallyDeleted).map(mapBusinessRow);
+  return (data ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
 }
 
 export async function createBusiness(business: CreateBusinessInput) {
@@ -91,17 +89,22 @@ export async function createBusiness(business: CreateBusinessInput) {
   return mapBusinessRow(data);
 }
 
+export async function setBusinessStatus(id: string, status: BusinessStatus): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from("businesses").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 export async function deleteBusiness(id: string) {
   await assertAuthenticated();
   const client = getSupabaseClient();
-  markBusinessDeletedLocally(id);
 
   const { error } = await client.from("businesses").delete().eq("id", id);
 
   if (error) {
     const softDelete = await client
       .from("businesses")
-      .update({ status: "No disponible" })
+      .update({ status: "inactivo" })
       .eq("id", id);
 
     if (softDelete.error) {
@@ -117,40 +120,13 @@ function mapBusinessRow(row: BusinessRow): AffiliateBusiness {
     category: row.category,
     description: row.description,
     estimatedTime: "",
-    status: row.status,
+    status: row.status === "activo" ? "activo" : "inactivo",
     rating: String(row.rating)
   };
 }
 
 function isActiveBusinessRow(row: BusinessRow) {
-  return row.status !== "No disponible";
-}
-
-function isNotLocallyDeleted(row: BusinessRow) {
-  return !getLocallyDeletedBusinessIds().includes(row.id);
-}
-
-function markBusinessDeletedLocally(id: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const deletedIds = new Set(getLocallyDeletedBusinessIds());
-  deletedIds.add(id);
-  window.localStorage.setItem(DELETED_BUSINESSES_KEY, JSON.stringify(Array.from(deletedIds)));
-}
-
-function getLocallyDeletedBusinessIds() {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const value = JSON.parse(window.localStorage.getItem(DELETED_BUSINESSES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
+  return row.status === "activo";
 }
 
 function getSupabaseClient() {

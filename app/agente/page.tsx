@@ -2,24 +2,62 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { LockKeyhole, LogOut } from "lucide-react";
 import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
 import { PageShell } from "@/components/PageShell";
-import { clearAgentSession, getAgentSession, AgentSession } from "@/lib/agentSession";
+import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
+import { getAgentByAuthUserId } from "@/lib/agents";
+import { supabase } from "@/lib/supabase";
 
 export default function AgentePage() {
-  const [session, setSession] = useState<AgentSession | null | "loading">("loading");
+  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [session, setSession] = useState<AgentSession | null>(null);
 
   useEffect(() => {
-    setSession(getAgentSession());
-  }, []);
+    async function syncSession() {
+      // Fast path: use localStorage cache if present
+      const cached = getAgentSession();
+      if (cached) {
+        setSession(cached);
+        setMounted(true);
+        return;
+      }
 
-  function handleLogout() {
+      // Slow path: recover from active Supabase JWT (new device / cleared cache)
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        // Redirect forced-change users who reached /agente directly
+        if (data.user.user_metadata?.must_change_password) {
+          router.replace("/agente/cambiar-contrasena");
+          return;
+        }
+        const agent = await getAgentByAuthUserId(data.user.id);
+        if (agent) {
+          const s: AgentSession = {
+            id: agent.id,
+            name: agent.name,
+            email: agent.email ?? data.user.email ?? "",
+          };
+          saveAgentSession(s);
+          setSession(s);
+        }
+      }
+
+      setMounted(true);
+    }
+
+    void syncSession();
+  }, [router]);
+
+  async function handleLogout() {
     clearAgentSession();
-    setSession(null);
+    await supabase.auth.signOut();
+    router.push("/agentes");
   }
 
-  if (session === "loading") return null;
+  if (!mounted) return null;
 
   if (!session) {
     return (

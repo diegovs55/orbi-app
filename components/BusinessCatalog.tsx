@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { LocateFixed, LogOut, MapPin, Pencil, Plus, PowerOff, RotateCcw, Store } from "lucide-react";
 import {
@@ -21,6 +21,13 @@ import {
   clearBusinessSession,
   getBusinessSession
 } from "@/lib/businessSession";
+import {
+  ActiveMission,
+  confirmMissionByBusiness,
+  fetchBusinessPendingMissions,
+  markOrderReadyByBusiness,
+} from "@/lib/missions";
+import { subscribeToTableChanges } from "@/lib/supabase";
 
 const LocationPickerMap = dynamic(
   async () => {
@@ -319,6 +326,9 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
         </div>
       ) : null}
 
+      {/* ── Pedidos pendientes ─────────────────────────────────────────────── */}
+      {myBusiness ? <PendingOrders businessName={myBusiness.name} /> : null}
+
       {/* Profile form */}
       {showProfile ? (
         <form onSubmit={handleProfileSave}
@@ -578,6 +588,77 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
         </form>
       ) : null}
     </section>
+  );
+}
+
+// ── Pedidos pendientes ────────────────────────────────────────────────────────
+
+function PendingOrders({ businessName }: { businessName: string }) {
+  const [orders, setOrders] = useState<ActiveMission[]>([]);
+  const [confirming, setConfirming] = useState<Set<string>>(new Set());
+
+  const load = useCallback(async () => {
+    const result = await fetchBusinessPendingMissions(businessName);
+    setOrders(result);
+  }, [businessName]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => subscribeToTableChanges("missions", () => void load()), [load]);
+
+  if (orders.length === 0) return null;
+
+  async function handleAction(id: string, status: string) {
+    setConfirming((prev) => new Set(prev).add(id));
+    if (status === "esperando_negocio") await confirmMissionByBusiness(id);
+    else await markOrderReadyByBusiness(id);
+    await load();
+    setConfirming((prev) => { const next = new Set(prev); next.delete(id); return next; });
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+        Pedidos pendientes · {orders.length}
+      </p>
+      {orders.map((m) => {
+        const isPreparando = m.status === "preparando";
+        const isBusy = confirming.has(m.id);
+        return (
+          <div
+            key={m.id}
+            className={`rounded-md border p-4 ${isPreparando ? "border-emerald-400/20 bg-emerald-400/[0.06]" : "border-yellow-300/20 bg-yellow-300/[0.06]"}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isPreparando ? "bg-emerald-400/15 text-emerald-300" : "bg-yellow-300/15 text-yellow-200"}`}>
+                    {isPreparando ? "Preparando" : "Pendiente"}
+                  </span>
+                </div>
+                <p className="truncate text-sm font-bold text-orbi-text">{m.detail.split("\n")[0]}</p>
+                <p className="font-mono text-[10px] text-orbi-muted/60">Folio: #{m.id.slice(-8).toUpperCase()}</p>
+                <p className="text-xs text-orbi-muted">
+                  Solicitante: {m.requester_name} · {m.requester_phone}
+                </p>
+                <p className="text-xs text-orbi-muted">
+                  Agente: {m.selected_agent_name || "—"} · Total: ${m.total_amount ?? 0}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void handleAction(m.id, m.status)}
+                className={`shrink-0 inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold text-white transition disabled:opacity-50 ${isPreparando ? "bg-emerald-600 hover:bg-emerald-500" : "bg-orbi-blue hover:bg-[#0f7af0]"}`}
+              >
+                {isBusy
+                  ? (isPreparando ? "Marcando listo…" : "Confirmando…")
+                  : (isPreparando ? "Pedido listo ✓" : "Confirmar pedido")}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

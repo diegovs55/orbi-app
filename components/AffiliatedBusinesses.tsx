@@ -67,8 +67,7 @@ export function AffiliatedBusinesses() {
         }
 
         const activeBusinesses = nextBusinesses
-          .filter((business) => business.status === "activo")
-          .filter((business) => business.lat != null && business.lng != null && business.zone !== "Zona local");
+          .filter((business) => business.status === "activo");
         const activeBusinessIds = new Set(activeBusinesses.map((business) => business.id));
 
         setBusinesses(activeBusinesses);

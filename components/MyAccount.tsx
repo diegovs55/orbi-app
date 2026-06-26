@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { UserRound } from "lucide-react";
 import {
@@ -9,16 +9,18 @@ import {
   loginWithCredential,
   saveCustomerSession,
   saveLocalCustomerAccount,
-  CustomerSession
+  syncRegisteredCustomerToSupabase,
+  CustomerSession,
 } from "@/lib/customers";
 import {
   ActiveMission,
-  getActiveMissions,
-  getMissionHistory,
+  CustomerMissionStats,
+  fetchActiveMissions,
+  fetchMissionStatsByPhone,
+  fetchMissionHistoryByPhonePaged,
   getMissionStatusLabel,
-  isMissionClosed,
-  loadActiveMissionsFromSupabase
 } from "@/lib/missions";
+import { subscribeToTableChanges } from "@/lib/supabase";
 
 function cleanPhone(p: string) {
   return p.replace(/\D/g, "");
@@ -26,49 +28,39 @@ function cleanPhone(p: string) {
 
 function formatDate(iso: string) {
   try {
-    return new Intl.DateTimeFormat("es-MX", { year: "numeric", month: "short", day: "numeric" }).format(new Date(iso));
+    return new Intl.DateTimeFormat("es-MX", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    }).format(new Date(iso));
   } catch {
     return iso;
   }
 }
 
+function shortFolio(id: string) {
+  return `Folio: #${id.slice(-8).toUpperCase()}`;
+}
+
 type View = "choice" | "login" | "register";
+
+// ── Root component ────────────────────────────────────────────────────────────
 
 export function MyAccount() {
   const [session, setSession] = useState<CustomerSession | null>(null);
-  const [history, setHistory] = useState<ActiveMission[]>([]);
-  const [active, setActive] = useState<ActiveMission[]>([]);
   const [view, setView] = useState<View>("choice");
   const [cleared, setCleared] = useState(false);
 
   useEffect(() => {
     const s = getCurrentCustomerSession();
     setSession(s);
-    if (s) void loadMissions(s.phone);
   }, []);
-
-  async function loadMissions(phone: string) {
-    const normalized = cleanPhone(phone);
-    setHistory(
-      getMissionHistory().filter((m) => cleanPhone(m.requester_phone ?? "") === normalized)
-    );
-    await loadActiveMissionsFromSupabase();
-    setActive(
-      getActiveMissions().filter(
-        (m) => !isMissionClosed(m) && cleanPhone(m.requester_phone ?? "") === normalized
-      )
-    );
-  }
 
   function handleLogout() {
     clearCustomerSession();
     setSession(null);
-    setHistory([]);
-    setActive([]);
     setCleared(true);
   }
 
-  // ── Logged-out cleared confirmation ──────────────────────────────────────
   if (cleared) {
     return (
       <div className="mt-8 rounded-md border border-white/10 bg-white/[0.04] p-6 text-center">
@@ -84,85 +76,10 @@ export function MyAccount() {
     );
   }
 
-  // ── Active session ────────────────────────────────────────────────────────
   if (session) {
-    return (
-      <section className="mt-8 space-y-6">
-        {/* Identity card */}
-        <div className="flex items-start gap-4 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 p-5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
-            <UserRound aria-hidden="true" className="h-5 w-5" />
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="font-black text-orbi-text">{session.name}</p>
-            <p className="mt-0.5 font-mono text-xs font-bold text-orbi-cyan">{session.phone}</p>
-            {session.email ? (
-              <p className="mt-0.5 truncate text-xs text-orbi-muted">{session.email}</p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="shrink-0 text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-red-400"
-          >
-            Cerrar sesión
-          </button>
-        </div>
-
-        {/* Active missions */}
-        {active.length > 0 && (
-          <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">Misiones activas</p>
-            <div className="space-y-2">
-              {active.map((m) => (
-                <div key={m.id} className="flex items-center justify-between rounded-md border border-white/10 bg-white/[0.04] px-4 py-3">
-                  <div>
-                    <p className="text-sm font-bold text-orbi-text">{m.service_type}</p>
-                    <p className="text-xs text-orbi-muted">{getMissionStatusLabel(m.status)}</p>
-                  </div>
-                  <Link href="/orbita" className="text-xs font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white">
-                    Ver en órbita
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Mission history */}
-        <div>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">Historial de misiones</p>
-          {history.length === 0 ? (
-            <p className="text-sm text-orbi-muted">Aún no tienes misiones completadas asociadas a este número.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-white/10">
-              <table className="w-full min-w-[480px] text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 bg-white/[0.03]">
-                    {["Servicio", "Estado", "Destino", "Fecha"].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((m) => (
-                    <tr key={m.id} className="border-b border-white/[0.06] hover:bg-white/[0.03]">
-                      <td className="px-4 py-3 font-semibold text-orbi-text">{m.service_type}</td>
-                      <td className="px-4 py-3 text-xs text-orbi-muted">{getMissionStatusLabel(m.status)}</td>
-                      <td className="px-4 py-3 text-xs text-orbi-muted">{m.destination_text || "—"}</td>
-                      <td className="px-4 py-3 text-xs text-orbi-muted">{m.last_updated_at ? formatDate(m.last_updated_at) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
-    );
+    return <SessionView session={session} onLogout={handleLogout} />;
   }
 
-  // ── No session — choice / login / register ────────────────────────────────
   if (view === "choice") {
     return (
       <div className="mt-8 space-y-4">
@@ -192,7 +109,7 @@ export function MyAccount() {
   if (view === "login") {
     return (
       <LoginForm
-        onSuccess={(s) => { setSession(s); loadMissions(s.phone); }}
+        onSuccess={(s) => setSession(s)}
         onSwitch={() => setView("register")}
         onBack={() => setView("choice")}
       />
@@ -201,18 +118,292 @@ export function MyAccount() {
 
   return (
     <RegisterForm
-      onSuccess={(s) => { setSession(s); loadMissions(s.phone); }}
+      onSuccess={(s) => setSession(s)}
       onSwitch={() => setView("login")}
       onBack={() => setView("choice")}
     />
   );
 }
 
-// ── Login form ───────────────────────────────────────────────────────────────
+// ── Session view ──────────────────────────────────────────────────────────────
+
+function SessionView({
+  session,
+  onLogout,
+}: {
+  session: CustomerSession;
+  onLogout: () => void;
+}) {
+  const phone = cleanPhone(session.phone);
+
+  const [active, setActive] = useState<ActiveMission[]>([]);
+  const [stats, setStats] = useState<CustomerMissionStats | null>(null);
+  const [missions, setMissions] = useState<ActiveMission[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingHist, setLoadingHist] = useState(true);
+  const [histRefreshKey, setHistRefreshKey] = useState(0);
+
+  // Load active missions filtered by this customer's phone
+  const refreshActive = useCallback(async () => {
+    const all = await fetchActiveMissions();
+    setActive(all.filter((m) => cleanPhone(m.requester_phone ?? "") === phone));
+  }, [phone]);
+
+  // Silent stats refresh (no loading spinner — called from Realtime callback)
+  const refreshStats = useCallback(async () => {
+    const s = await fetchMissionStatsByPhone(phone);
+    setStats(s);
+  }, [phone]);
+
+  // Suscripción estable: refresca misiones activas, KPIs e historial en cada evento
+  useEffect(() => {
+    void refreshActive();
+    return subscribeToTableChanges("missions", () => {
+      void refreshActive();
+      void refreshStats();
+      setHistRefreshKey((k) => k + 1);
+    });
+  }, [refreshActive, refreshStats]);
+
+  // Load KPI stats once on mount (with loading spinner)
+  useEffect(() => {
+    setLoadingStats(true);
+    fetchMissionStatsByPhone(phone).then((s) => {
+      setStats(s);
+      setLoadingStats(false);
+    });
+  }, [phone]);
+
+  // Load history page — también reacciona a histRefreshKey para refrescar tras cambios de Realtime
+  const loadPage = useCallback(
+    async (p: number) => {
+      setLoadingHist(true);
+      const result = await fetchMissionHistoryByPhonePaged(phone, p);
+      setMissions(result.missions);
+      setHasMore(result.hasMore);
+      setTotal(result.total);
+      setLoadingHist(false);
+    },
+    [phone]
+  );
+
+  useEffect(() => { void loadPage(page); }, [loadPage, page, histRefreshKey]);
+
+  const pageStart = total === 0 ? 0 : page * 10 + 1;
+  const pageEnd = Math.min((page + 1) * 10, total);
+
+  return (
+    <section className="mt-8 space-y-6">
+
+      {/* Identity card */}
+      <div className="flex items-start gap-4 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 p-5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+          <UserRound aria-hidden="true" className="h-6 w-6" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-lg font-black text-orbi-text">{session.name}</p>
+          <p className="mt-0.5 font-mono text-xs font-bold text-orbi-cyan">{session.phone}</p>
+          {session.email ? (
+            <p className="mt-0.5 truncate text-xs text-orbi-muted">{session.email}</p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="shrink-0 text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-red-400"
+        >
+          Cerrar sesión
+        </button>
+      </div>
+
+      {/* KPI chips */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiChip
+          label="Misiones totales"
+          value={loadingStats ? "…" : String(stats?.total ?? 0)}
+        />
+        <KpiChip
+          label="Cumplidas"
+          value={loadingStats ? "…" : String(stats?.cumplidas ?? 0)}
+          accent="emerald"
+        />
+        <KpiChip
+          label="Canceladas"
+          value={loadingStats ? "…" : String(stats?.canceladas ?? 0)}
+          accent="red"
+        />
+        <KpiChip
+          label="Última misión"
+          value={loadingStats || !stats?.lastDate ? (loadingStats ? "…" : "—") : formatDate(stats.lastDate)}
+          accent="blue"
+        />
+      </div>
+
+      {/* Active missions */}
+      {active.length > 0 && (
+        <div>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+            Misiones activas
+          </p>
+          <div className="space-y-2">
+            {active.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-bold text-orbi-text">{m.service_type}</p>
+                  <p className="font-mono text-[10px] text-orbi-muted/60">{shortFolio(m.id)}</p>
+                  <p className="text-xs text-orbi-muted">{getMissionStatusLabel(m.status)}</p>
+                </div>
+                <Link
+                  href="/orbita"
+                  className="text-xs font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+                >
+                  Ver en órbita
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mission history */}
+      <div>
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+          Historial de misiones
+        </p>
+
+        <div className="overflow-hidden rounded-md border border-white/10">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[440px] border-collapse text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.03]">
+                  {["Fecha", "Servicio", "Estado", "Total"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-4 py-3 font-bold uppercase tracking-[0.14em] text-orbi-muted"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loadingHist ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-orbi-muted">
+                      Cargando…
+                    </td>
+                  </tr>
+                ) : missions.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-orbi-muted">
+                      {total === 0
+                        ? "Aún no tienes misiones asociadas a este número."
+                        : "Sin resultados en esta página."}
+                    </td>
+                  </tr>
+                ) : (
+                  missions.map((m) => (
+                    <tr
+                      key={m.id}
+                      className="border-b border-white/[0.06] last:border-0 hover:bg-white/[0.03]"
+                    >
+                      <td className="px-4 py-3 text-orbi-muted">
+                        {formatDate(m.created_at || m.updated_at)}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-orbi-text">
+                        {m.service_type}
+                        <span className="block font-mono text-[10px] text-orbi-muted/50">{shortFolio(m.id)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-orbi-muted">
+                        {getMissionStatusLabel(m.status)}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-orbi-text">
+                        {(m.total_amount ?? 0) > 0
+                          ? `$${(m.total_amount ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 0 })}`
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        {total > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-4 text-xs">
+            <span className="text-orbi-muted">
+              {pageStart}–{pageEnd} de {total} misiones
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={page === 0 || loadingHist}
+                onClick={() => setPage((p) => p - 1)}
+                className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-bold text-orbi-muted transition disabled:cursor-not-allowed disabled:opacity-30 hover:bg-white/10"
+              >
+                ← Anterior
+              </button>
+              <span className="flex items-center px-2 font-bold text-orbi-text">
+                Página {page + 1}
+              </span>
+              <button
+                type="button"
+                disabled={!hasMore || loadingHist}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-bold text-orbi-muted transition disabled:cursor-not-allowed disabled:opacity-30 hover:bg-white/10"
+              >
+                Siguiente →
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── KPI chip ──────────────────────────────────────────────────────────────────
+
+function KpiChip({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "emerald" | "red" | "blue";
+}) {
+  const valueClass =
+    accent === "emerald"
+      ? "text-emerald-300"
+      : accent === "red"
+      ? "text-red-400"
+      : accent === "blue"
+      ? "text-sky-300"
+      : "text-orbi-text";
+
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.04] p-4 flex flex-col">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orbi-muted min-h-[2.5rem] flex items-start">{label}</p>
+      <p className={`mt-1.5 text-xl font-black ${valueClass}`}>{value}</p>
+    </div>
+  );
+}
+
+// ── Login form ────────────────────────────────────────────────────────────────
+
 function LoginForm({
   onSuccess,
   onSwitch,
-  onBack
+  onBack,
 }: {
   onSuccess: (s: CustomerSession) => void;
   onSwitch: () => void;
@@ -222,7 +413,7 @@ function LoginForm({
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     if (!identifier.trim() || !password) {
@@ -235,20 +426,31 @@ function LoginForm({
       return;
     }
     saveCustomerSession(customer.name, customer.phone, customer.email);
+    try {
+      await syncRegisteredCustomerToSupabase(customer.name, customer.phone, customer.email);
+    } catch (err) {
+      console.error("[cuenta] sync supabase en login falló:", err);
+    }
     onSuccess({ name: customer.name, phone: customer.phone, email: customer.email });
   }
 
   return (
     <div className="mt-8 max-w-sm space-y-4">
       <div className="flex items-center gap-3">
-        <button type="button" onClick={onBack} className="text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+        >
           ← Volver
         </button>
         <p className="text-lg font-black text-orbi-text">Iniciar sesión</p>
       </div>
       <form onSubmit={handleSubmit} className="space-y-3" noValidate>
         <div>
-          <label className="block text-xs font-semibold text-orbi-muted">WhatsApp o correo electrónico</label>
+          <label className="block text-xs font-semibold text-orbi-muted">
+            WhatsApp o correo electrónico
+          </label>
           <input
             type="text"
             value={identifier}
@@ -270,7 +472,9 @@ function LoginForm({
           />
         </div>
         {error ? (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">{error}</p>
+          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+            {error}
+          </p>
         ) : null}
         <button
           type="submit"
@@ -281,7 +485,11 @@ function LoginForm({
       </form>
       <p className="text-xs text-orbi-muted">
         ¿No tienes cuenta?{" "}
-        <button type="button" onClick={onSwitch} className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white">
+        <button
+          type="button"
+          onClick={onSwitch}
+          className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+        >
           Crear cuenta
         </button>
       </p>
@@ -289,11 +497,12 @@ function LoginForm({
   );
 }
 
-// ── Register form ────────────────────────────────────────────────────────────
+// ── Register form ─────────────────────────────────────────────────────────────
+
 function RegisterForm({
   onSuccess,
   onSwitch,
-  onBack
+  onBack,
 }: {
   onSuccess: (s: CustomerSession) => void;
   onSwitch: () => void;
@@ -306,7 +515,7 @@ function RegisterForm({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     if (!fullName.trim() || !email.trim() || !phone.trim() || !password) {
@@ -331,13 +540,22 @@ function RegisterForm({
     }
     saveLocalCustomerAccount(fullName.trim(), phone.trim(), email.trim(), password);
     saveCustomerSession(fullName.trim(), phone.trim(), email.trim());
+    try {
+      await syncRegisteredCustomerToSupabase(fullName.trim(), phone.trim(), email.trim());
+    } catch (err) {
+      console.error("[cuenta] sync supabase en registro falló:", err);
+    }
     onSuccess({ name: fullName.trim(), phone: phone.trim(), email: email.trim() });
   }
 
   return (
     <div className="mt-8 max-w-sm space-y-4">
       <div className="flex items-center gap-3">
-        <button type="button" onClick={onBack} className="text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+        >
           ← Volver
         </button>
         <p className="text-lg font-black text-orbi-text">Crear cuenta Orbi</p>
@@ -399,7 +617,9 @@ function RegisterForm({
           />
         </div>
         {error ? (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">{error}</p>
+          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+            {error}
+          </p>
         ) : null}
         <button
           type="submit"
@@ -410,7 +630,11 @@ function RegisterForm({
       </form>
       <p className="text-xs text-orbi-muted">
         ¿Ya tienes cuenta?{" "}
-        <button type="button" onClick={onSwitch} className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white">
+        <button
+          type="button"
+          onClick={onSwitch}
+          className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+        >
           Iniciar sesión
         </button>
       </p>

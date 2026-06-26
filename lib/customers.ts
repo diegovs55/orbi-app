@@ -5,6 +5,8 @@ const CUSTOMERS_KEY = "orbi_customers";
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
 const CUSTOMER_PASSWORDS_KEY = "orbi_customer_passwords"; // MVP only — not for production
 
+// ── Session ───────────────────────────────────────────────────────────────────
+
 export type CustomerSession = {
   name: string;
   phone: string;
@@ -31,6 +33,13 @@ export function saveCustomerSession(name: string, phone: string, email?: string)
   window.localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(session));
 }
 
+export function clearCustomerSession(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
+}
+
+// ── Local account (MVP auth — localStorage only) ──────────────────────────────
+
 export function saveLocalCustomerAccount(
   name: string,
   phone: string,
@@ -50,42 +59,22 @@ export function saveLocalCustomerAccount(
     updatedAt: now,
     lastOrderAt: now,
     totalOrders: 0,
-    totalSpent: 0
+    totalSpent: 0,
   };
   const customers = readLocalCustomers();
   const next = [customer, ...customers.filter((c) => c.phone !== normalizedPhone)];
   window.localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(next));
-  // Store password keyed by normalized phone (MVP only)
   const passwords: Record<string, string> = readLocalPasswords();
   passwords[normalizedPhone] = password;
   window.localStorage.setItem(CUSTOMER_PASSWORDS_KEY, JSON.stringify(passwords));
 }
 
-function readLocalPasswords(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(CUSTOMER_PASSWORDS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * MVP login: match identifier (phone or email) + password against localStorage.
- * Returns the customer on success, null on failure.
- */
 export function loginWithCredential(
   identifier: string,
   password: string
 ): OrbiCustomer | null {
   if (typeof window === "undefined") return null;
   const customers = readLocalCustomers();
-  const normalizedId = identifier.replace(/\D/g, "").length >= 7
-    ? normalizePhone(identifier)
-    : identifier.trim().toLowerCase();
   const customer = customers.find((c) => {
     const matchPhone = c.phone === normalizePhone(identifier);
     const matchEmail = (c.email ?? "").toLowerCase() === identifier.trim().toLowerCase();
@@ -95,15 +84,10 @@ export function loginWithCredential(
   const passwords = readLocalPasswords();
   const stored = passwords[customer.phone];
   if (!stored || stored !== password) return null;
-  // Suppress unused variable warning from normalizedId (identifier normalization is done inline above)
-  void normalizedId;
   return customer;
 }
 
-export function clearCustomerSession(): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type OrbiCustomer = {
   id: string;
@@ -118,6 +102,9 @@ export type OrbiCustomer = {
   totalOrders: number;
   totalSpent: number;
   registeredAt?: string;
+  preferredAddress?: string;
+  notes?: string;
+  customerStatus?: string;
 };
 
 type CustomerRow = {
@@ -134,62 +121,68 @@ type CustomerRow = {
   total_orders?: number | string | null;
   total_spent?: number | string | null;
   registered_at?: string | null;
+  preferred_address?: string | null;
+  notes?: string | null;
+  status?: string | null;
 };
 
-export async function getCustomers() {
+const CUSTOMERS_SELECT =
+  "id,user_id,auth_id,name,phone,email,is_registered,created_at,updated_at," +
+  "last_order_at,total_orders,total_spent,registered_at,preferred_address,notes,status";
+
+// ── Supabase writes — all go through /api/customers/upsert ────────────────────
+
+async function callUpsertAPI(payload: {
+  name: string;
+  phone: string;
+  email?: string | null;
+  is_registered: boolean;
+}): Promise<void> {
   try {
-    const { data, error } = await supabase
-      .from("customers")
-      .select(
-        "id,user_id,auth_id,name,phone,email,is_registered,created_at,updated_at,last_order_at,total_orders,total_spent,registered_at"
-      )
-      .order("updated_at", { ascending: false });
-
-    if (!error && data) {
-      const remoteCustomers = data.map(mapCustomerRow);
-      const localCustomers = readLocalCustomers();
-      return mergeCustomers([...remoteCustomers, ...localCustomers]);
+    const res = await fetch("/api/customers/upsert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error("[customers] upsert API error:", res.status, body);
     }
-  } catch {
-    // Local fallback keeps progressive registration non-blocking.
+  } catch (err) {
+    console.error("[customers] upsert API exception:", err);
   }
-
-  return readLocalCustomers();
 }
 
 export async function upsertGuestCustomerFromMission(mission: ActiveMission) {
-  const phone = normalizePhone(mission.requester_phone);
-  if (!phone || !mission.requester_name.trim()) {
-    return null;
-  }
+  const phone = normalizePhone(mission.requester_phone ?? "");
+  if (!phone || !mission.requester_name?.trim()) return;
 
-  const now = new Date().toISOString();
-  const amount = mission.total_amount ?? mission.total ?? mission.precio_servicio ?? 0;
-  const existing = await findCustomerByPhone(phone);
-  const customer: OrbiCustomer = {
-    id: existing?.id ?? crypto.randomUUID(),
-    userId: existing?.userId,
-    name: mission.requester_name,
+  await callUpsertAPI({
+    name: mission.requester_name.trim(),
     phone,
-    email: existing?.email,
-    isRegistered: existing?.isRegistered ?? false,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-    lastOrderAt: now,
-    totalOrders: (existing?.totalOrders ?? 0) + 1,
-    totalSpent: (existing?.totalSpent ?? 0) + amount,
-    registeredAt: existing?.registeredAt
-  };
+    email: null,
+    is_registered: false,
+  });
+}
 
-  await saveCustomer(customer);
-  return customer;
+export async function syncRegisteredCustomerToSupabase(
+  name: string,
+  phone: string,
+  email?: string
+): Promise<void> {
+  await callUpsertAPI({
+    name: name.trim(),
+    phone,
+    email: email?.trim() || null,
+    is_registered: true,
+  });
 }
 
 export async function registerCustomerAccount({
   name,
   phone,
   email,
-  password
+  password,
 }: {
   name: string;
   phone: string;
@@ -200,139 +193,139 @@ export async function registerCustomerAccount({
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: {
-      data: {
-        name,
-        phone: normalizedPhone
-      }
-    }
+    options: { data: { name, phone: normalizedPhone } },
   });
 
-  if (error) {
-    throw new Error(getAuthErrorMessage(error.message));
-  }
+  if (error) throw new Error(getAuthErrorMessage(error.message));
 
   const userId = data.user?.id;
-  if (!userId) {
-    throw new Error("No pudimos crear la cuenta. Intenta de nuevo.");
-  }
+  if (!userId) throw new Error("No pudimos crear la cuenta. Intenta de nuevo.");
 
-  const now = new Date().toISOString();
-  const existing = await findCustomerByPhone(normalizedPhone);
-  const customer: OrbiCustomer = {
-    id: existing?.id ?? crypto.randomUUID(),
-    userId,
-    name,
+  await callUpsertAPI({
+    name: name.trim(),
     phone: normalizedPhone,
-    email,
-    isRegistered: true,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-    lastOrderAt: existing?.lastOrderAt ?? now,
-    totalOrders: existing?.totalOrders ?? 0,
-    totalSpent: existing?.totalSpent ?? 0,
-    registeredAt: now
-  };
+    email: email.trim(),
+    is_registered: true,
+  });
 
-  await saveCustomer(customer);
   associateMissionsToUserByPhone(normalizedPhone, userId);
-  return customer;
+  return { name, phone: normalizedPhone, email };
 }
 
-export async function isCustomerRegistered(phone: string) {
-  const customer = await findCustomerByPhone(phone);
-  return Boolean(customer?.isRegistered);
+// ── Supabase reads (anon key — SELECT) ────────────────────────────────────────
+
+export type CustomerPageFilters = {
+  page?: number;
+  search?: string;
+  isRegistered?: boolean | null;
+  status?: string;
+};
+
+export type CustomerStats = {
+  total: number;
+  registered: number;
+  totalOrders: number;
+  totalSpent: number;
+};
+
+const CUSTOMERS_PAGE_SIZE = 25;
+
+export async function fetchCustomerStats(): Promise<CustomerStats> {
+  try {
+    const res = await fetch("/api/customers/list?stats=1");
+    if (!res.ok) return { total: 0, registered: 0, totalOrders: 0, totalSpent: 0 };
+    return (await res.json()) as CustomerStats;
+  } catch {
+    return { total: 0, registered: 0, totalOrders: 0, totalSpent: 0 };
+  }
 }
 
-async function findCustomerByPhone(phone: string) {
-  const normalizedPhone = normalizePhone(phone);
+export async function fetchCustomersPage(
+  filters: CustomerPageFilters = {}
+): Promise<{ customers: OrbiCustomer[]; hasMore: boolean; total: number }> {
+  const { page = 0, search, isRegistered, status } = filters;
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  if (search?.trim()) params.set("search", search.trim());
+  if (isRegistered !== null && isRegistered !== undefined)
+    params.set("registered", String(isRegistered));
+  if (status && status !== "todos") params.set("status", status);
 
+  try {
+    const res = await fetch(`/api/customers/list?${params.toString()}`);
+    if (!res.ok) return { customers: [], hasMore: false, total: 0 };
+    const body = (await res.json()) as {
+      customers: CustomerRow[];
+      total: number;
+      hasMore: boolean;
+    };
+    return {
+      customers: (body.customers ?? []).map(mapCustomerRow),
+      total: body.total,
+      hasMore: body.hasMore,
+    };
+  } catch {
+    return { customers: [], hasMore: false, total: 0 };
+  }
+}
+
+export async function getCustomers(): Promise<OrbiCustomer[]> {
   try {
     const { data, error } = await supabase
       .from("customers")
-      .select(
-        "id,user_id,auth_id,name,phone,email,is_registered,created_at,updated_at,last_order_at,total_orders,total_spent,registered_at"
-      )
-      .eq("phone", normalizedPhone)
-      .maybeSingle();
+      .select(CUSTOMERS_SELECT)
+      .order("updated_at", { ascending: false });
 
     if (!error && data) {
-      return mapCustomerRow(data);
+      return (data as unknown as CustomerRow[]).map(mapCustomerRow);
     }
   } catch {
-    // Fall through to local fallback.
+    // fall through
   }
-
-  return readLocalCustomers().find((customer) => customer.phone === normalizedPhone) ?? null;
+  return readLocalCustomers();
 }
 
-async function saveCustomer(customer: OrbiCustomer) {
+export async function isCustomerRegistered(phone: string): Promise<boolean> {
+  const normalizedPhone = normalizePhone(phone);
   try {
-    const { error } = await supabase.from("customers").upsert(
-      {
-        id: customer.id,
-        user_id: customer.userId ?? null,
-        auth_id: customer.userId ?? null,
-        name: customer.name,
-        phone: customer.phone,
-        email: customer.email ?? null,
-        is_registered: customer.isRegistered,
-        created_at: customer.createdAt,
-        updated_at: customer.updatedAt,
-        last_order_at: customer.lastOrderAt,
-        total_orders: customer.totalOrders,
-        total_spent: customer.totalSpent,
-        registered_at: customer.registeredAt ?? null
-      },
-      { onConflict: "phone" }
-    );
-
-    if (!error) {
-      saveLocalCustomer(customer);
-      return;
-    }
+    const { data, error } = await supabase
+      .from("customers")
+      .select("is_registered")
+      .eq("phone", normalizedPhone)
+      .maybeSingle();
+    if (!error && data) return Boolean((data as { is_registered: boolean | null }).is_registered);
   } catch {
-    // Local fallback below.
+    // fall through
   }
-
-  saveLocalCustomer(customer);
+  return readLocalCustomers().some((c) => c.phone === normalizedPhone && c.isRegistered);
 }
 
-function readLocalCustomers() {
-  if (typeof window === "undefined") {
-    return [];
-  }
+// ── localStorage helpers ──────────────────────────────────────────────────────
 
+function readLocalCustomers(): OrbiCustomer[] {
+  if (typeof window === "undefined") return [];
   try {
-    const customers = JSON.parse(window.localStorage.getItem(CUSTOMERS_KEY) ?? "[]");
-    return Array.isArray(customers) ? (customers as OrbiCustomer[]) : [];
+    const raw = window.localStorage.getItem(CUSTOMERS_KEY) ?? "[]";
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as OrbiCustomer[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveLocalCustomer(customer: OrbiCustomer) {
-  if (typeof window === "undefined") {
-    return;
+function readLocalPasswords(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CUSTOMER_PASSWORDS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
   }
-
-  const customers = readLocalCustomers();
-  const nextCustomers = [customer, ...customers.filter((item) => item.phone !== customer.phone)];
-  window.localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(nextCustomers));
 }
 
-function mergeCustomers(customers: OrbiCustomer[]) {
-  const byPhone = new Map<string, OrbiCustomer>();
-
-  customers.forEach((customer) => {
-    const current = byPhone.get(customer.phone);
-    if (!current || new Date(customer.updatedAt).getTime() > new Date(current.updatedAt).getTime()) {
-      byPhone.set(customer.phone, customer);
-    }
-  });
-
-  return Array.from(byPhone.values());
-}
+// ── Mapping & utils ───────────────────────────────────────────────────────────
 
 function mapCustomerRow(row: CustomerRow): OrbiCustomer {
   const now = new Date().toISOString();
@@ -348,7 +341,10 @@ function mapCustomerRow(row: CustomerRow): OrbiCustomer {
     lastOrderAt: row.last_order_at ?? row.updated_at ?? now,
     totalOrders: Number(row.total_orders ?? 0),
     totalSpent: Number(row.total_spent ?? 0),
-    registeredAt: row.registered_at ?? undefined
+    registeredAt: row.registered_at ?? undefined,
+    preferredAddress: row.preferred_address ?? undefined,
+    notes: row.notes ?? undefined,
+    customerStatus: row.status ?? "activo",
   };
 }
 
@@ -360,6 +356,5 @@ function getAuthErrorMessage(message: string) {
   if (/already|registered|exists/i.test(message)) {
     return "Ese correo ya está registrado. Inicia sesión o usa otro correo.";
   }
-
   return message || "No fue posible crear la cuenta.";
 }

@@ -373,7 +373,10 @@ function mergeProducts(
           }
         : product;
     })
-    .filter((product) => includeUnavailable || (product.available && product.status === "disponible"));
+    .filter((product) => {
+      if (!businessesById.has(product.businessId)) return false;
+      return includeUnavailable || (product.available && product.status === "disponible");
+    });
 }
 
 async function getRemoteCatalogBusinesses() {
@@ -422,7 +425,7 @@ async function getRemoteCatalogProducts(businesses: CatalogBusiness[]) {
 }
 
 function mapBusinessRow(row: BusinessRow): CatalogBusiness {
-  const status = row.status === "inactivo" || row.status === "No disponible" ? "inactivo" : "activo";
+  const status = row.status === "activo" ? "activo" : "inactivo";
 
   return {
     id: row.id,
@@ -473,7 +476,7 @@ function mapProductRow(row: ProductRow, businessesById: Map<string, CatalogBusin
 }
 
 function isActiveBusinessRow(row: BusinessRow) {
-  return row.status !== "inactivo";
+  return row.status === "activo";
 }
 
 function isActiveProductRow(row: ProductRow) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AffiliatedBusinesses } from "@/components/AffiliatedBusinesses";
 import { BusinessAccessPanel } from "@/components/BusinessAccessPanel";
 import { BusinessCatalog } from "@/components/BusinessCatalog";
@@ -8,14 +8,10 @@ import { PageShell } from "@/components/PageShell";
 import { getBusinessSession } from "@/lib/businessSession";
 
 export default function NegociosPage() {
-  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  const [hasSession, setHasSession] = useState<boolean>(
+    () => typeof window !== "undefined" && getBusinessSession() !== null
+  );
 
-  useEffect(() => {
-    setHasSession(getBusinessSession() !== null);
-  }, []);
-
-  // Avoid flash of wrong state during SSR hydration
-  if (hasSession === null) return null;
 
   if (hasSession) {
     return (

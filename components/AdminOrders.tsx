@@ -75,7 +75,7 @@ export function AdminOrders() {
             ) : (
               orders.map((order) => (
                 <tr key={order.id} className="border-b border-white/5 last:border-b-0">
-                  <td className="px-4 py-4 font-bold text-orbi-cyan">{order.id}</td>
+                  <td className="px-4 py-4 font-mono text-[10px] text-orbi-muted/60">Folio: #{order.id.slice(-8).toUpperCase()}</td>
                   <td className="px-4 py-4 text-orbi-text">{order.customer}</td>
                   <td className="px-4 py-4 text-orbi-muted">{order.type}</td>
                   <td className="px-4 py-4 text-orbi-muted">{order.detail}</td>

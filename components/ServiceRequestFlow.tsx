@@ -35,17 +35,17 @@ import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } f
 import {
   upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
+  loginWithCredential,
   saveCustomerSession,
-  saveLocalCustomerAccount
+  saveLocalCustomerAccount,
+  syncRegisteredCustomerToSupabase
 } from "@/lib/customers";
 import {
   ActiveMission,
-  addActiveMission,
   createMission,
   getActiveMission,
   getMissionStatusLabel,
   isMissionActive,
-  migrateActiveMission,
   subscribeToMission,
   updateActiveMission
 } from "@/lib/missions";
@@ -194,32 +194,17 @@ const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"]
 const pricingRule = "MVP_DISTANCE_V1";
 
 export function ServiceRequestFlow() {
-  const initialActiveMission = getActiveMission();
-  // Only restore form data for a genuine unsent draft (por_tomar + no agent yet).
-  // Sent missions, completed missions, and closed missions start a fresh form.
-  const initialResumableMission = getResumableMission();
-  const initialDraftMission = initialResumableMission ?? getInitialWaitingMission();
-  const [selectedService, setSelectedService] = useState<ServiceOption | null>(() =>
-    getInitialServiceFromMission(initialResumableMission ?? initialDraftMission)
-  );
-  const [selectedStep, setSelectedStep] = useState<WizardStep>(() =>
-    selectedService ? "pedido" : "servicio"
-  );
+  const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
+  const [selectedStep, setSelectedStep] = useState<WizardStep>("servicio");
   const [showConfirmationDetails, setShowConfirmationDetails] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
-  const [cartItems, setCartItems] = useState<CartItem[]>(() =>
-    getInitialCartItemsFromMission(initialResumableMission ?? initialDraftMission)
-  );
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartMessage, setCartMessage] = useState("");
   const [catalogError, setCatalogError] = useState("");
-  const [details, setDetails] = useState<RequestDetails>(() =>
-    getInitialDetailsFromMission(initialResumableMission ?? initialDraftMission)
-  );
+  const [details, setDetails] = useState<RequestDetails>(emptyDetails);
   const [isRequestReady, setIsRequestReady] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(() =>
-    getInitialAgentFromMission(initialResumableMission)
-  );
+  const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(null);
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [agentError, setAgentError] = useState("");
@@ -228,12 +213,8 @@ export function ServiceRequestFlow() {
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(() =>
-    getInitialPaymentStatusFromMission(initialResumableMission ?? initialDraftMission)
-  );
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() =>
-    getInitialPaymentMethodFromMission(initialResumableMission ?? initialDraftMission)
-  );
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Pago al finalizar la misión");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [requestStatusMessage, setRequestStatusMessage] = useState("");
   // Initialized as null to avoid SSR/client hydration mismatch (localStorage
   // is unavailable on the server). The useEffect below loads the real value.
@@ -245,14 +226,14 @@ export function ServiceRequestFlow() {
   const [customerSession, setCustomerSession] = useState<{ name: string; phone: string; email?: string } | null>(null);
   const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
-    getInitialConfirmedDraftSections(initialResumableMission ?? initialDraftMission)
+    getInitialConfirmedDraftSections(null)
   );
 
   const router = useRouter();
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [orbitExperienceActive, setOrbitExperienceActive] = useState(false);
-  const orbitRedirectTimeoutRef = useRef<number | null>(null);
+  const [sentMission, setSentMission] = useState<ActiveMission | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const isOrbitPending = activeMission?.status === "por_tomar" && activeMission.selected_agent_id;
@@ -427,7 +408,6 @@ export function ServiceRequestFlow() {
   }, []);
 
   useEffect(() => {
-    migrateActiveMission();
     return subscribeToMission(() => setActiveMission(getActiveMission()));
   }, []);
 
@@ -444,14 +424,6 @@ export function ServiceRequestFlow() {
       }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (orbitRedirectTimeoutRef.current) {
-        window.clearTimeout(orbitRedirectTimeoutRef.current);
-      }
-    };
   }, []);
 
   useEffect(() => {
@@ -516,19 +488,6 @@ export function ServiceRequestFlow() {
         const exclusionReason = eligibility.eligible ? "" : eligibility.reason;
 
         if (exclusionReason) {
-          console.log(
-            `[misión] agente excluido: ${agent.name} — ${exclusionReason}`,
-            {
-              agentId: agent.id,
-              isOnOrbit: agent.isOnOrbit,
-              status: agent.status,
-              serviceType: agent.serviceType,
-              radiusKm: agent.radiusKm,
-              distanceKm: distance,
-              availability: agent.availability,
-              reason: exclusionReason
-            }
-          );
           return { agent, distance, included: false };
         }
 
@@ -1115,22 +1074,31 @@ export function ServiceRequestFlow() {
       costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
       ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
       estimated_orbit: getEstimatedOrbit(distance),
-      status: "por_tomar"
+      mission_type: isCatalogMission ? "compra_negocio" : "directa",
+      status: isCatalogMission ? "esperando_negocio" : "por_tomar"
     });
 
-    addActiveMission(mission);
     setActiveMission(mission);
-    void upsertGuestCustomerFromMission(mission);
-    setRequestStatusMessage("Solicitud enviada. Poniendo tu misión en órbita.");
+    setSentMission(mission);
+    try {
+      await upsertGuestCustomerFromMission(mission);
+    } catch (err) {
+      console.error("[pedir] upsert cliente falló:", err);
+    }
+    setRequestStatusMessage(
+      isCatalogMission
+        ? "Pedido enviado. Esperando confirmación del negocio."
+        : "Solicitud enviada. Poniendo tu misión en órbita."
+    );
     setIsSending(true);
     setOrbitExperienceActive(true);
-    if (!getCurrentCustomerSession()) {
-      setShowRegisterPrompt(true);
-    }
 
-    if (orbitRedirectTimeoutRef.current) {
-      window.clearTimeout(orbitRedirectTimeoutRef.current);
-      orbitRedirectTimeoutRef.current = null;
+    const needsRegistration = !getCurrentCustomerSession();
+    if (needsRegistration) {
+      setShowRegisterPrompt(true);
+    } else {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1750));
+      router.push("/orbita");
     }
     } catch (err) {
       setSubmitError(
@@ -1211,12 +1179,21 @@ export function ServiceRequestFlow() {
       costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
       ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
       estimated_orbit: "Por confirmar con el agente",
-      status: "por_tomar"
+      mission_type: isCatalogMission ? "compra_negocio" : "directa",
+      status: isCatalogMission ? "esperando_negocio" : "por_tomar"
     });
 
     setActiveMission(mission);
-    void upsertGuestCustomerFromMission(mission);
-    setWaitingRequestMessage("Solicitud en espera. Te avisaremos cuando un agente compatible pueda tomarla.");
+    try {
+      await upsertGuestCustomerFromMission(mission);
+    } catch (err) {
+      console.error("[pedir] upsert cliente falló:", err);
+    }
+    setWaitingRequestMessage(
+      isCatalogMission
+        ? "Pedido enviado. Esperando confirmación del negocio."
+        : "Solicitud en espera. Te avisaremos cuando un agente compatible pueda tomarla."
+    );
     setShowWaitingCancelConfirm(false);
   }
 
@@ -1666,25 +1643,23 @@ export function ServiceRequestFlow() {
         <PendingMissionCard mission={activeMission} onCancel={handleCancelWaitingRequest} />
       ) : null}
 
-      {isOrbitExperienceActive && activeMission ? (
+      {isOrbitExperienceActive && sentMission ? (
         <OrbitExperienceStage
-          service={selectedService?.label ?? activeMission.service_type}
-          agent={selectedAgent?.name ?? activeMission.selected_agent_name}
-          total={activeMission.total ?? (isCatalogMission ? cartSubtotal + (serviceFee ?? 0) : estimateMissionCost(routeDistance).price)}
+          service={selectedService?.label ?? sentMission.service_type}
+          agent={selectedAgent?.name ?? sentMission.selected_agent_name}
+          total={sentMission.total ?? (isCatalogMission ? cartSubtotal + (serviceFee ?? 0) : estimateMissionCost(routeDistance).price)}
           showRegisterPrompt={showRegisterPrompt}
-          requesterName={details.requesterName || activeMission.requester_name}
-          requesterPhone={details.requesterPhone || activeMission.requester_phone}
+          requesterName={details.requesterName || sentMission.requester_name}
+          requesterPhone={details.requesterPhone || sentMission.requester_phone}
           onSaveSession={(name, phone, email, password) => {
             saveLocalCustomerAccount(name, phone, email, password);
             saveCustomerSession(name, phone, email);
             setCustomerSession({ name, phone, email });
             setShowRegisterPrompt(false);
+            void syncRegisteredCustomerToSupabase(name, phone, email);
           }}
           onDismissRegister={() => setShowRegisterPrompt(false)}
           onViewMission={() => {
-            if (orbitRedirectTimeoutRef.current) {
-              window.clearTimeout(orbitRedirectTimeoutRef.current);
-            }
             router.push("/orbita");
           }}
         />
@@ -2866,13 +2841,15 @@ function OrbitExperienceStage({
             />
           ) : null}
 
-          <button
-            type="button"
-            onClick={onViewMission}
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-          >
-            Ver misión en órbita
-          </button>
+          {!showRegisterPrompt ? (
+            <button
+              type="button"
+              onClick={onViewMission}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+            >
+              Ver misión en órbita
+            </button>
+          ) : null}
         </div>
         <div className="relative overflow-hidden rounded-[2rem] border border-orbi-cyan/15 bg-[#061224] p-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.12),transparent_45%)]" />
@@ -2894,18 +2871,31 @@ function OrbitExperienceStage({
   );
 }
 
+function phoneHasLocalAccount(phone: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem("orbi_customers");
+    if (!raw) return false;
+    const customers = JSON.parse(raw) as Array<{ phone: string }>;
+    const normalized = phone.replace(/\D/g, "");
+    return customers.some((c) => c.phone === normalized);
+  } catch { return false; }
+}
+
 function SaveSessionPrompt({
   name,
   phone,
   onSave,
-  onDismiss
+  onDismiss: _onDismiss,
 }: {
   name: string;
   phone: string;
   onSave: (name: string, phone: string, email: string, password: string) => void;
   onDismiss: () => void;
 }) {
-  const [showForm, setShowForm] = useState(false);
+  const [mode, setMode] = useState<"register" | "login">(() =>
+    phoneHasLocalAccount(phone) ? "login" : "register"
+  );
   const [fullName, setFullName] = useState(name ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -2914,7 +2904,7 @@ function SaveSessionPrompt({
 
   const displayPhone = phone.replace(/\D/g, "").replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
 
-  function handleSubmit(e: FormEvent) {
+  function handleRegisterSubmit(e: FormEvent) {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !password) {
       setError("Todos los campos son obligatorios.");
@@ -2936,40 +2926,79 @@ function SaveSessionPrompt({
     onSave(fullName.trim(), phone, email.trim(), password);
   }
 
-  if (!showForm) {
+  function handleLoginSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!password) {
+      setError("Ingresa tu contraseña.");
+      return;
+    }
+    const customer = loginWithCredential(phone, password);
+    if (!customer) {
+      setError("Contraseña incorrecta. Verifica e intenta de nuevo.");
+      return;
+    }
+    setError("");
+    onSave(customer.name, customer.phone, customer.email ?? "", password);
+  }
+
+  if (mode === "login") {
     return (
       <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
-        <p className="text-sm font-bold text-orbi-text">¿Te reconocemos la próxima vez?</p>
+        <p className="text-sm font-bold text-orbi-text">Ya tienes una cuenta Orbi</p>
         <p className="mt-1 text-xs text-orbi-muted">
-          Crea tu cuenta Orbi para autocompletar tus datos y ver tu historial de misiones.
+          Encontramos una cuenta con este número. Inicia sesión para seguir tu misión.
         </p>
-        <p className="mt-2 rounded-md border border-orbi-cyan/15 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
-          {displayPhone || phone}
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <form onSubmit={handleLoginSubmit} className="mt-3 space-y-3" noValidate>
+          <div>
+            <label className="block text-xs font-semibold text-orbi-muted">WhatsApp</label>
+            <p className="mt-1 rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
+              {displayPhone || phone}
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-orbi-muted">Contraseña</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+              placeholder="Tu contraseña"
+              autoComplete="current-password"
+            />
+          </div>
+          {error ? (
+            <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+              {error}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          >
+            Iniciar sesión y seguir misión
+          </button>
+        </form>
+        <p className="mt-3 text-xs text-orbi-muted">
+          ¿Es una cuenta nueva?{" "}
           <button
             type="button"
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+            onClick={() => { setMode("register"); setError(""); setPassword(""); }}
+            className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
           >
-            Sí, crear mi cuenta
+            Regístrate
           </button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
-          >
-            No, gracias
-          </button>
-        </div>
+        </p>
       </div>
     );
   }
 
   return (
     <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
-      <p className="text-sm font-bold text-orbi-text">Crear cuenta Orbi</p>
-      <form onSubmit={handleSubmit} className="mt-3 space-y-3" noValidate>
+      <p className="text-sm font-bold text-orbi-text">¿Te reconocemos la próxima vez?</p>
+      <p className="mt-1 text-xs text-orbi-muted">
+        Crea tu cuenta Orbi para guardar tu historial, seguir tu misión y pedir más rápido.
+      </p>
+      <form onSubmit={handleRegisterSubmit} className="mt-3 space-y-3" noValidate>
         <div>
           <label className="block text-xs font-semibold text-orbi-muted">Nombre completo</label>
           <input
@@ -3025,147 +3054,27 @@ function SaveSessionPrompt({
             {error}
           </p>
         ) : null}
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="submit"
-            className="inline-flex items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
-          >
-            Crear cuenta
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowForm(false)}
-            className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
-          >
-            Cancelar
-          </button>
-        </div>
+        <button
+          type="submit"
+          className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+        >
+          Crear mi cuenta y seguir misión
+        </button>
       </form>
+      <p className="mt-3 text-xs text-orbi-muted">
+        ¿Ya tienes cuenta?{" "}
+        <button
+          type="button"
+          onClick={() => { setMode("login"); setError(""); setPassword(""); setConfirmPassword(""); }}
+          className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+        >
+          Inicia sesión
+        </button>
+      </p>
     </div>
   );
 }
 
-function getResumableMission(): ActiveMission | null {
-  const mission = getActiveMission();
-  if (!mission) return null;
-  // Only restore if this is a genuine unsent draft: created but agent not yet assigned.
-  // Sent missions (selected_agent_id present), completed, cancelled, and archived
-  // missions must NOT pre-fill the form — they belong to the tracking screen.
-  if (mission.status === "por_tomar" && !mission.selected_agent_id) return mission;
-  return null;
-}
-
-function getInitialWaitingMission() {
-  const mission = getActiveMission();
-
-  return mission?.status === "por_tomar" && !mission.selected_agent_id ? mission : null;
-}
-
-function getInitialServiceFromMission(mission: ActiveMission | null) {
-  if (!mission) {
-    return null;
-  }
-
-  return services.find((item) => item.label === mission.service_type) ?? services[0];
-}
-
-function getInitialCartItemsFromMission(mission: ActiveMission | null): CartItem[] {
-  if (!mission?.items?.length) {
-    return [];
-  }
-
-  return mission.items.map((item) => ({
-    product: {
-      id: item.product_id,
-      businessId: item.business_id,
-      businessName: item.business_name,
-      businessZone: "",
-      businessBaseText: mission.origin_text,
-      businessLat: mission.business_lat ?? mission.origin_lat,
-      businessLng: mission.business_lng ?? mission.origin_lng,
-      sector: (mission.sector as CatalogSearchResult["sector"]) || "Otro",
-      name: item.product_name,
-      description: item.product_name,
-      category: (mission.categoria_producto as CatalogSearchResult["category"]) || "Otro",
-      price: item.price,
-      available: true,
-      status: "disponible",
-      availability: "",
-      availabilityInherited: true,
-      searchTags: item.product_name,
-      serviceType: "Compra local"
-    },
-    quantity: item.quantity
-  }));
-}
-
-function getInitialDetailsFromMission(mission: ActiveMission | null): RequestDetails {
-  if (!mission) {
-    return emptyDetails;
-  }
-
-  return {
-    origin: mission.origin_text,
-    originLat: mission.origin_lat,
-    originLng: mission.origin_lng,
-    destination: mission.destination_text,
-    destinationLat: mission.destination_lat,
-    destinationLng: mission.destination_lng,
-    detail: mission.detail,
-    scheduleMode: "asap",
-    scheduledAt: "",
-    requesterName: mission.requester_name,
-    requesterPhone: mission.requester_phone
-  };
-}
-
-function getInitialAgentFromMission(mission: ActiveMission | null): OrbiAgent | null {
-  if (!mission?.selected_agent_id) {
-    return null;
-  }
-
-  return {
-    id: mission.selected_agent_id,
-    name: mission.selected_agent_name || "Agente Orbi",
-    photoUrl: "",
-    initials: mission.selected_agent_name ? mission.selected_agent_name.slice(0, 2).toUpperCase() : "AO",
-    serviceType: (agentServiceTypes.includes(mission.service_type as AgentServiceType)
-      ? (mission.service_type as AgentServiceType)
-      : "Todos los servicios") as AgentServiceType,
-    zone: mission.selected_agent_zone || "",
-    status: AGENT_STATUS.ONLINE,
-    isOnOrbit: false,
-    trustLevel: (agentLevels.includes(mission.selected_agent_trust as AgentTrustLevel)
-      ? (mission.selected_agent_trust as AgentTrustLevel)
-      : "Aprendiz") as AgentTrustLevel,
-    phone: "",
-    description: "",
-    vehicle: mission.selected_agent_vehicle || "",
-    availability: "",
-    lat: mission.selected_agent_lat ?? null,
-    lng: mission.selected_agent_lng ?? null,
-    currentLat: mission.selected_agent_lat ?? null,
-    currentLng: mission.selected_agent_lng ?? null,
-    latitude: mission.selected_agent_lat ?? null,
-    longitude: mission.selected_agent_lng ?? null,
-    operationalBaseLat: mission.selected_agent_lat ?? null,
-    operationalBaseLng: mission.selected_agent_lng ?? null,
-    operationalBaseText: mission.selected_agent_name || "",
-    radiusKm: 0
-  };
-}
-
-function getInitialPaymentStatusFromMission(mission: ActiveMission | null): PaymentStatus {
-  return paymentStatuses.includes(mission?.payment_status as PaymentStatus)
-    ? (mission?.payment_status as PaymentStatus)
-    : "Pago al finalizar la misión";
-}
-
-function getInitialPaymentMethodFromMission(mission: ActiveMission | null): PaymentMethod {
-  return paymentMethods.includes(mission?.payment_method as PaymentMethod)
-    ? (mission?.payment_method as PaymentMethod)
-    : "Efectivo";
-}
 
 function getInitialConfirmedDraftSections(mission: ActiveMission | null): ConfirmedDraftSections {
   return {
