@@ -42,6 +42,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { calcularMisionCatalogo, estimateMissionCost, PRICING_RULE } from "@/lib/pricing";
+import { logEvent } from "@/lib/event-log";
 
 // ── Admin client ──────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ function resolveDistance(
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const startedAt    = Date.now();
+  const requestId    = crypto.randomUUID();
+
   const admin = getAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
@@ -272,6 +276,18 @@ export async function POST(req: NextRequest) {
       return row && declaredBusinessId && row.business_id !== declaredBusinessId;
     });
     if (wrongBusiness.length > 0) {
+      await logEvent({
+        event_type:   "api.create.error_422",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: "cart_business_mismatch", product_ids: wrongBusiness, declared_business_id: declaredBusinessId },
+        http_status:  422,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
       return NextResponse.json(
         {
           error:
@@ -307,6 +323,18 @@ export async function POST(req: NextRequest) {
     const catalogResult = calcularMisionCatalogo(pricingDistanceKm, subtotalProductos, service_type as string);
 
     if (catalogResult.outOfRange) {
+      await logEvent({
+        event_type:   "api.create.error_422",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: "distance_out_of_range", distance_km: pricingDistanceKm },
+        http_status:  422,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
       return NextResponse.json(
         { error: "Distancia fuera de cobertura o no calculable." },
         { status: 422 }
@@ -420,8 +448,44 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     console.error("[missions/create] INSERT error:", error);
+    await logEvent({
+      event_type:   "api.create.error_500",
+      severity:     "error",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    id as string,
+      actor_type:   "system",
+      payload:      { mission_type: isCatalog ? "compra_negocio" : "directa" },
+      error_detail: error.message,
+      http_status:  500,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  await logEvent({
+    event_type:   "mission.created",
+    severity:     "info",
+    source:       "api_route",
+    entity_type:  "mission",
+    entity_id:    data.id as string,
+    actor_type:   "system",
+    payload:      {
+      mission_type:       data.mission_type,
+      service_type:       data.service_type,
+      total_amount:       data.total_amount,
+      service_fee:        data.service_fee,
+      subtotal_productos: data.subtotal_productos,
+      pricing_rule:       data.pricing_rule,
+      distance_km:        data.distance_km,
+      guest_id:           data.guest_id ?? null,
+      user_id:            data.user_id  ?? null,
+    },
+    http_status:  201,
+    duration_ms:  Date.now() - startedAt,
+    request_id:   requestId,
+  });
 
   return NextResponse.json({ ok: true, mission: data }, { status: 201 });
 }

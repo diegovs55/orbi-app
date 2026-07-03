@@ -30,6 +30,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { generarMovimientosMision, assertLedgerBalance, validateMissionIds } from "@/lib/ledger";
 import type { ActiveMission } from "@/lib/missions";
+import { logEvent } from "@/lib/event-log";
 
 // ── Admin client (SERVICE_ROLE_KEY — nunca exponer al cliente) ───────────────
 
@@ -43,6 +44,9 @@ function getAdmin() {
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
+  const requestId = crypto.randomUUID();
+
   const admin = getAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
@@ -81,6 +85,19 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     console.log(`[missions/complete] Idempotente: misión ${mission_id} ya tiene ${existingCount} entrada(s) en ledger.`);
+    await logEvent({
+      event_type:   "ledger.retry_success",
+      severity:     "info",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    mission_id,
+      actor_type:   "agent",
+      actor_id:     agent_id,
+      payload:      { ledger_count: existingCount, idempotent: true },
+      http_status:  200,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json({ ok: true, mission: existingMission, idempotent: true });
   }
 
@@ -99,6 +116,20 @@ export async function POST(req: NextRequest) {
 
   if (updateError) {
     console.error("[missions/complete] Error al actualizar misión:", updateError);
+    await logEvent({
+      event_type:   "api.complete.error_500",
+      severity:     "error",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    mission_id,
+      actor_type:   "agent",
+      actor_id:     agent_id,
+      payload:      { step: "update_status" },
+      error_detail: updateError.message,
+      http_status:  500,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json({ error: "Error al cerrar la misión." }, { status: 500 });
   }
 
@@ -118,6 +149,20 @@ export async function POST(req: NextRequest) {
 
   // Verificar que la misión fue correctamente cerrada o ya estaba cerrada
   if (mission.status !== "cumplida") {
+    await logEvent({
+      event_type:   "api.complete.error_409",
+      severity:     "warn",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    mission_id,
+      actor_type:   "agent",
+      actor_id:     agent_id,
+      payload:      { actual_status: mission.status },
+      error_detail: "La misión no pudo cerrarse. Estado inesperado post-UPDATE.",
+      http_status:  409,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json(
       { error: "La misión no pudo cerrarse. Verifica el estado y el agente." },
       { status: 409 }
@@ -159,13 +204,54 @@ export async function POST(req: NextRequest) {
     console.error("[missions/complete] Error al insertar ledger:", ledgerError);
     // La misión ya está 'cumplida' — el ledger puede recuperarse con un retry.
     // No revertimos el estado de la misión (el usuario ya vio la confirmación).
+    await logEvent({
+      event_type:   "ledger.pending",
+      severity:     "warn",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    mission_id,
+      actor_type:   "agent",
+      actor_id:     agent_id,
+      payload:      {
+        total_amount:  mission.total_amount,
+        pricing_rule:  mission.pricing_rule,
+        mission_type:  mission.mission_type,
+        entries_count: entries.length,
+      },
+      error_detail: ledgerError.message,
+      http_status:  207,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json(
       { error: "Misión cerrada pero ledger no pudo escribirse. Reintentable.", mission },
-      { status: 207 } // 207 Multi-Status: parcialmente exitoso
+      { status: 207 }
     );
   }
 
   console.log(`[missions/complete] Misión ${mission_id} cerrada. ${entries.length} movimientos escritos en ledger.`);
+
+  await logEvent({
+    event_type:   "mission.completed",
+    severity:     "info",
+    source:       "api_route",
+    entity_type:  "mission",
+    entity_id:    mission_id,
+    actor_type:   "agent",
+    actor_id:     agent_id,
+    payload:      {
+      ledger_entries: entries.length,
+      ledger_sum:     entries.reduce((s, e) => s + e.monto, 0),
+      total_amount:   mission.total_amount,
+      costo_agente:   mission.costo_agente,
+      ganancia_orbi:  mission.ganancia_orbi,
+      pricing_rule:   mission.pricing_rule,
+      mission_type:   mission.mission_type,
+    },
+    http_status:  200,
+    duration_ms:  Date.now() - startedAt,
+    request_id:   requestId,
+  });
 
   // 7. Respuesta exitosa
   return NextResponse.json({ ok: true, mission, ledger_entries: entries.length });
