@@ -39,7 +39,20 @@ export type ActiveMission = {
   customer_phone?: string;
   guest_name?: string;
   guest_phone?: string;
+  /**
+   * Identidad Supabase Auth del cliente autenticado.
+   * Fuente de verdad para owner_id en el ledger cuando el cliente tiene cuenta.
+   */
   user_id?: string;
+  /**
+   * Identidad temporal del cliente invitado.
+   * Se genera en el primer pedido y persiste en localStorage hasta que el cliente
+   * se autentique. Actúa como puente hacia user_id: cuando el cliente crea una
+   * cuenta, sus misiones previas con guest_id pueden vincularse a su customer_id
+   * definitivo. No es un identificador del dispositivo — es un identificador
+   * provisional del cliente, agnóstico al mecanismo de almacenamiento.
+   */
+  guest_id?: string;
   detail: string;
   business_id?: string;
   product_id?: string;
@@ -62,6 +75,9 @@ export type ActiveMission = {
   total_estimado?: number;
   total?: number;
   distance_km?: number | null;
+  duration_min?: number | null;
+  // [lat, lng] pairs stored in Leaflet order (converted from GeoJSON [lng, lat] at write time)
+  route_geometry?: [number, number][] | null;
   pricing_rule?: string;
   product_ids?: string[];
   sector?: string;
@@ -123,6 +139,31 @@ export function isMissionClosed(mission: ActiveMission | null) {
 
 export function getMissionStatusLabel(status: MissionStatus) {
   return missionStatusLabels[status];
+}
+
+// ── Identidad temporal del cliente ───────────────────────────────────────────
+
+const GUEST_ID_KEY = "orbi_guest_id";
+
+/**
+ * Devuelve la identidad temporal del cliente invitado para esta sesión.
+ * Si no existe, genera un UUID nuevo y lo persiste en localStorage.
+ *
+ * El guest_id no es un identificador del dispositivo — es un identificador
+ * provisional del cliente que actúa como puente hacia user_id (Supabase Auth)
+ * o hacia un customer_id definitivo cuando el cliente cree una cuenta.
+ *
+ * Mecanismo de almacenamiento: localStorage en el MVP.
+ * Cuando se implemente el módulo de auth completo, este UUID puede migrarse
+ * al perfil del cliente sin cambiar el schema del ledger.
+ */
+export function getOrCreateGuestId(): string {
+  if (typeof window === "undefined") return crypto.randomUUID();
+  const existing = window.localStorage.getItem(GUEST_ID_KEY);
+  if (existing) return existing;
+  const newId = crypto.randomUUID();
+  window.localStorage.setItem(GUEST_ID_KEY, newId);
+  return newId;
 }
 
 export function canTransitionMission(currentStatus: MissionStatus, nextStatus: MissionStatus) {
@@ -223,26 +264,6 @@ export function updateActiveMissionById(
 
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
 
-  // Sync state change to Supabase — fire-and-forget, does not block the return.
-  // Only columns that exist in public.missions are included here.
-  void supabase
-    .from("missions")
-    .update({
-      status:              nextMission.status,
-      selected_agent_id:   nextMission.selected_agent_id   || null,
-      selected_agent_name: nextMission.selected_agent_name || null,
-      active_agent_id:     nextMission.active_agent_id     ?? null,
-      accepted_at:         nextMission.accepted_at         ?? null,
-      payment_status:      nextMission.payment_status,
-      payment_method:      nextMission.payment_method,
-      total_amount:        nextMission.total_amount         ?? null,
-      updated_at:          nextMission.updated_at,
-    })
-    .eq("id", id)
-    .then(({ error }) => {
-      if (error) console.error("[missions] UPDATE failed:", error);
-    });
-
   return nextMission;
 }
 
@@ -278,9 +299,16 @@ export function migrateActiveMission(): void {
 
 export async function createMission(mission: CreateMissionInput): Promise<ActiveMission> {
   const now = new Date().toISOString();
+
+  // Construir el objeto local para addActiveMission y el retorno inmediato.
+  // Los campos financieros que aquí calculamos son provisionales para la UI —
+  // el servidor los recalculará de forma independiente y guardará los suyos.
   const nextMission: ActiveMission = {
     ...mission,
     id: crypto.randomUUID(),
+    // Asignar identidad temporal si el cliente no está autenticado.
+    // user_id tiene precedencia cuando existe (cliente con cuenta registrada).
+    guest_id: mission.guest_id ?? (mission.user_id ? undefined : getOrCreateGuestId()),
     status: normalizeMissionStatus(mission.status ?? mission.mission_status),
     mission_status: undefined,
     customer_name: mission.customer_name || mission.requester_name,
@@ -290,15 +318,40 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
     total_amount: mission.total_amount ?? mission.total ?? mission.precio_servicio ?? 0,
     created_at: mission.created_at || now,
     last_updated_at: now,
-    updated_at: now
+    updated_at: now,
   };
 
-  const insertResult = await supabase.from("missions").insert(missionToRow(nextMission)).select();
-  if (insertResult.error) throw insertResult.error;
+  // El API route es la única autoridad para calcular y persistir los campos
+  // financieros (service_fee, total_amount, costo_agente, ganancia_orbi).
+  // Los valores que nextMission trae del cliente son ignorados por el servidor.
+  const res = await fetch("/api/missions/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(nextMission),
+  });
 
-  addActiveMission(nextMission);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Error al crear misión (HTTP ${res.status})`);
+  }
 
-  return nextMission;
+  // El servidor devuelve la misión con los precios autoritativos.
+  // Actualizamos el objeto local para que el estado en memoria sea consistente.
+  const { mission: serverMission } = await res.json() as { mission: ActiveMission };
+  const finalMission: ActiveMission = {
+    ...nextMission,
+    // Sobrescribir con los valores del servidor — estos son los que están en DB.
+    total_amount:       serverMission.total_amount       ?? nextMission.total_amount,
+    service_fee:        serverMission.service_fee        ?? nextMission.service_fee,
+    subtotal_productos: serverMission.subtotal_productos ?? nextMission.subtotal_productos,
+    costo_agente:       serverMission.costo_agente       ?? nextMission.costo_agente,
+    ganancia_orbi:      serverMission.ganancia_orbi      ?? nextMission.ganancia_orbi,
+    pricing_rule:       serverMission.pricing_rule       ?? nextMission.pricing_rule,
+  };
+
+  addActiveMission(finalMission);
+
+  return finalMission;
 }
 
 // Maps an ActiveMission to the columns that exist in public.missions.
@@ -306,9 +359,12 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
 function missionToRow(m: ActiveMission) {
   return {
     id: m.id,
+    guest_id: m.guest_id ?? null,
+    user_id:  m.user_id  ?? null,
     status: m.status,
     service_type: m.service_type,
     detail: m.detail,
+    business_id:   m.business_id   ?? null,
     business_name: m.business_name ?? null,
     origin_text: m.origin_text,
     origin_lat: m.origin_lat ?? null,
@@ -324,9 +380,17 @@ function missionToRow(m: ActiveMission) {
     accepted_at: m.accepted_at ?? null,
     payment_status: m.payment_status,
     payment_method: m.payment_method,
-    total_amount: m.total_amount ?? null,
+    total_amount:        m.total_amount        ?? null,
+    costo_agente:        m.costo_agente        ?? null,
+    ganancia_orbi:       m.ganancia_orbi       ?? null,
+    subtotal_productos:  m.subtotal_productos  ?? null,
+    service_fee:         m.service_fee         ?? null,
+    pricing_rule:        m.pricing_rule        ?? null,
     estimated_orbit: m.estimated_orbit,
     mission_type: m.mission_type ?? "directa",
+    distance_km: m.distance_km ?? null,
+    duration_min: m.duration_min ?? null,
+    route_geometry: m.route_geometry ?? null,
     created_at: m.created_at ?? null,
     updated_at: m.updated_at,
   };
@@ -644,19 +708,68 @@ export async function startMission(id: string, agentId: string): Promise<ActiveM
   return data ? (normalizeMission(data) as ActiveMission) : null;
 }
 
-/** Agent confirms delivery: en_mision → cumplida. */
-export async function completeMission(id: string, agentId: string): Promise<ActiveMission | null> {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("missions")
-    .update({ status: "cumplida", updated_at: now })
-    .eq("id", id)
-    .eq("status", "en_mision")
-    .eq("selected_agent_id", agentId)
-    .select("*")
-    .maybeSingle();
-  if (error) { console.error("[missions] completeMission error:", error); return null; }
-  return data ? (normalizeMission(data) as ActiveMission) : null;
+/**
+ * Resultado tipado del cierre de misión con ledger.
+ *
+ * - ok:              200 — misión cumplida + ledger escrito. Todo correcto.
+ * - ledger_pending:  207 — misión cumplida en DB pero INSERT del ledger falló.
+ *                    Retriable de forma segura (el endpoint es idempotente).
+ * - error:           5xx / red — misión sigue en_mision. Retry seguro.
+ */
+export type MissionCompleteResult =
+  | { status: "ok";             mission: ActiveMission }
+  | { status: "ledger_pending"; mission: ActiveMission }
+  | { status: "error";          message: string };
+
+/**
+ * Cierra la misión Y escribe los movimientos contables en ledger_entries.
+ * Llama al API route /api/missions/complete (SERVICE_ROLE_KEY server-side).
+ *
+ * Sin fallback: si el endpoint falla la misión permanece en_mision y el
+ * caller debe mostrar un error con botón de reintento. El endpoint es
+ * idempotente — el retry es siempre seguro.
+ */
+export async function completeMissionWithLedger(
+  id: string,
+  agentId: string
+): Promise<MissionCompleteResult> {
+  let res: Response;
+  try {
+    res = await fetch("/api/missions/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mission_id: id, agent_id: agentId }),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error de red.";
+    console.error("[missions] completeMissionWithLedger fetch error:", message);
+    return { status: "error", message: "No se pudo conectar al servidor. Verifica tu conexión e intenta de nuevo." };
+  }
+
+  const body = await res.json().catch(() => ({})) as {
+    mission?: ActiveMission;
+    error?: string;
+  };
+
+  if (res.status === 207) {
+    // Misión cumplida en DB pero ledger no se escribió — retriable.
+    console.warn("[missions] completeMissionWithLedger: ledger pendiente (207)", id);
+    return {
+      status: "ledger_pending",
+      mission: normalizeMission(body.mission!) as ActiveMission,
+    };
+  }
+
+  if (!res.ok) {
+    const message = body.error ?? `Error al cerrar la misión (HTTP ${res.status}).`;
+    console.error("[missions] completeMissionWithLedger error:", message);
+    return { status: "error", message };
+  }
+
+  return {
+    status: "ok",
+    mission: normalizeMission(body.mission!) as ActiveMission,
+  };
 }
 
 /** Customer cancels mission (any active status). */

@@ -30,18 +30,20 @@ import {
   getAgents,
   OrbiAgent
 } from "@/lib/agents";
-import { subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
+import { supabase, subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
+import { CostBreakdown } from "@/components/CostBreakdown";
+import { estimateMissionCost, calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
-  loginWithCredential,
+  loginCustomerWithSupabase,
+  registerCustomerAccount,
   saveCustomerSession,
-  saveLocalCustomerAccount,
-  syncRegisteredCustomerToSupabase
 } from "@/lib/customers";
 import {
   ActiveMission,
+  cancelMissionByCustomer,
   createMission,
   getActiveMission,
   getMissionStatusLabel,
@@ -49,6 +51,7 @@ import {
   subscribeToMission,
   updateActiveMission
 } from "@/lib/missions";
+import { fetchRoute } from "@/lib/routing";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 const LocationPickerMap = dynamic(
@@ -191,7 +194,7 @@ const paymentStatuses: PaymentStatus[] = [
   "Esta misión requiere pago al inicio"
 ];
 const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"];
-const pricingRule = "MVP_DISTANCE_V1";
+const pricingRule = PRICING_RULE;
 
 export function ServiceRequestFlow() {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
@@ -541,18 +544,39 @@ export function ServiceRequestFlow() {
     () => getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }),
     [details.destinationLat, details.destinationLng]
   );
-  const routeDistance = useMemo(
-    () =>
-      originCoordinatePair && destinationCoordinatePair
-        ? calculateDistanceKm(
-            originCoordinatePair.lat,
-            originCoordinatePair.lng,
-            destinationCoordinatePair.lat,
-            destinationCoordinatePair.lng
-          )
-        : null,
-    [destinationCoordinatePair, originCoordinatePair]
-  );
+  const [routeDistance, setRouteDistance] = useState<number | null>(null);
+  const [routeDuration, setRouteDuration] = useState<number | null>(null);
+  const [routeGeometry, setRouteGeometry] = useState<[number, number][] | null>(null);
+
+  useEffect(() => {
+    if (!originCoordinatePair || !destinationCoordinatePair) {
+      setRouteDistance(null);
+      setRouteDuration(null);
+      setRouteGeometry(null);
+      return;
+    }
+    // Haversine as immediate fallback while routing fetch is in flight
+    const haversine = calculateDistanceKm(
+      originCoordinatePair.lat, originCoordinatePair.lng,
+      destinationCoordinatePair.lat, destinationCoordinatePair.lng
+    );
+    setRouteDistance(haversine);
+
+    let cancelled = false;
+    void fetchRoute(
+      originCoordinatePair.lat, originCoordinatePair.lng,
+      destinationCoordinatePair.lat, destinationCoordinatePair.lng
+    ).then((result) => {
+      if (cancelled) return;
+      if (result) {
+        setRouteDistance(result.distance_km);
+        setRouteDuration(result.duration_min);
+        setRouteGeometry(result.geometry);
+      }
+      // On failure: keep haversine distance, leave geometry/duration null
+    });
+    return () => { cancelled = true; };
+  }, [originCoordinatePair, destinationCoordinatePair]);
   const serviceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : null;
   const logisticsStatusMessage = getLogisticsStatusMessage({
     hasCatalogOrigin: Boolean(originCoordinatePair),
@@ -1057,6 +1081,8 @@ export function ServiceRequestFlow() {
       total: servicePrice,
       total_amount: servicePrice,
       distance_km: routeDistance,
+      duration_min: routeDuration ?? undefined,
+      route_geometry: routeGeometry ?? undefined,
       pricing_rule: isCatalogMission ? pricingRule : undefined,
       product_ids: cartItems.map((item) => item.product.id),
       sector: cartBusiness?.sector,
@@ -1071,12 +1097,13 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       precio_servicio: servicePrice,
-      costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
-      ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
+      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : cost.agentCost,
+      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : servicePrice - cost.agentCost,
       estimated_orbit: getEstimatedOrbit(distance),
       mission_type: isCatalogMission ? "compra_negocio" : "directa",
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
     });
+
 
     setActiveMission(mission);
     setSentMission(mission);
@@ -1167,6 +1194,8 @@ export function ServiceRequestFlow() {
       total: servicePrice,
       total_amount: servicePrice,
       distance_km: routeDistance,
+      duration_min: routeDuration ?? undefined,
+      route_geometry: routeGeometry ?? undefined,
       pricing_rule: isCatalogMission ? pricingRule : undefined,
       product_ids: cartItems.map((item) => item.product.id),
       sector: cartBusiness?.sector,
@@ -1176,8 +1205,8 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       precio_servicio: servicePrice,
-      costo_agente: isCatalogMission ? currentServiceFee ?? 0 : cost.agentCost,
-      ganancia_orbi: isCatalogMission ? currentServiceFee ?? 0 : servicePrice - cost.agentCost,
+      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : cost.agentCost,
+      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : servicePrice - cost.agentCost,
       estimated_orbit: "Por confirmar con el agente",
       mission_type: isCatalogMission ? "compra_negocio" : "directa",
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
@@ -1211,6 +1240,8 @@ export function ServiceRequestFlow() {
     setActiveMission(nextMission);
     setWaitingRequestMessage("Solicitud cancelada. No fue asignada a ningún agente.");
     setShowWaitingCancelConfirm(false);
+    // Persist cancel to Supabase. Fire-and-forget — local state already updated.
+    if (nextMission?.id) void cancelMissionByCustomer(nextMission.id);
   }
 
   return (
@@ -1651,12 +1682,10 @@ export function ServiceRequestFlow() {
           showRegisterPrompt={showRegisterPrompt}
           requesterName={details.requesterName || sentMission.requester_name}
           requesterPhone={details.requesterPhone || sentMission.requester_phone}
-          onSaveSession={(name, phone, email, password) => {
-            saveLocalCustomerAccount(name, phone, email, password);
+          onSaveSession={(name, phone, email) => {
             saveCustomerSession(name, phone, email);
             setCustomerSession({ name, phone, email });
             setShowRegisterPrompt(false);
-            void syncRegisteredCustomerToSupabase(name, phone, email);
           }}
           onDismissRegister={() => setShowRegisterPrompt(false)}
           onViewMission={() => {
@@ -1677,15 +1706,17 @@ export function ServiceRequestFlow() {
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
             <SummaryItem label="Agente" value={selectedAgent.name} />
             <SummaryItem
-              label="Total"
-              value={`$${(isCatalogMission ? cartSubtotal + (serviceFee ?? 0) : estimateMissionCost(null).price).toFixed(0)}`}
-            />
-            <SummaryItem
               label="Órbita estimada"
               value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
             />
             <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem label="Estado de pago" value={paymentStatus} />
+          </div>
+          <div className="mt-3">
+            {isCatalogMission
+              ? <CostBreakdown subtotal={cartSubtotal} serviceFee={serviceFee ?? 0} total={cartSubtotal + (serviceFee ?? 0)} />
+              : <CostBreakdown subtotal={null} serviceFee={estimateMissionCost(null).price} total={estimateMissionCost(null).price} />
+            }
           </div>
 
           <div className="mt-4 flex flex-wrap gap-3">
@@ -2579,18 +2610,22 @@ function CompactCostSummary({
     );
   }
 
+  if (serviceFee === null) {
+    return (
+      <>
+        <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
+        <InfoTile
+          label="Servicio / logística"
+          value={destinationReady ? logisticsStatusMessage : "Define destino"}
+        />
+      </>
+    );
+  }
+
   return (
-    <>
-      <InfoTile label="Subtotal productos" value={`$${subtotal}`} />
-      <InfoTile
-        label="Servicio/logística"
-        value={serviceFee === null ? logisticsStatusMessage : `$${serviceFee}`}
-      />
-      <InfoTile
-        label="Total a pagar"
-        value={serviceFee === null ? (destinationReady ? logisticsStatusMessage : "Define destino") : `$${subtotal + serviceFee}`}
-      />
-    </>
+    <div className="sm:col-span-2">
+      <CostBreakdown subtotal={subtotal} serviceFee={serviceFee} total={subtotal + serviceFee} />
+    </div>
   );
 }
 
@@ -2809,7 +2844,7 @@ function OrbitExperienceStage({
   showRegisterPrompt: boolean;
   requesterName: string;
   requesterPhone: string;
-  onSaveSession: (name: string, phone: string, email: string, password: string) => void;
+  onSaveSession: (name: string, phone: string, email: string) => void;
   onDismissRegister: () => void;
   onViewMission: () => void;
 }) {
@@ -2871,17 +2906,6 @@ function OrbitExperienceStage({
   );
 }
 
-function phoneHasLocalAccount(phone: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const raw = window.localStorage.getItem("orbi_customers");
-    if (!raw) return false;
-    const customers = JSON.parse(raw) as Array<{ phone: string }>;
-    const normalized = phone.replace(/\D/g, "");
-    return customers.some((c) => c.phone === normalized);
-  } catch { return false; }
-}
-
 function SaveSessionPrompt({
   name,
   phone,
@@ -2890,55 +2914,63 @@ function SaveSessionPrompt({
 }: {
   name: string;
   phone: string;
-  onSave: (name: string, phone: string, email: string, password: string) => void;
+  onSave: (name: string, phone: string, email: string) => void;
   onDismiss: () => void;
 }) {
-  const [mode, setMode] = useState<"register" | "login">(() =>
-    phoneHasLocalAccount(phone) ? "login" : "register"
-  );
+  const [mode, setMode] = useState<"register" | "login">("register");
   const [fullName, setFullName] = useState(name ?? "");
   const [email, setEmail] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const displayPhone = phone.replace(/\D/g, "").replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
 
-  function handleRegisterSubmit(e: FormEvent) {
+  async function handleRegisterSubmit(e: FormEvent) {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !password) {
-      setError("Todos los campos son obligatorios.");
-      return;
+      setError("Todos los campos son obligatorios."); return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Ingresa un correo electrónico válido.");
-      return;
+      setError("Ingresa un correo electrónico válido."); return;
     }
     if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.");
-      return;
+      setError("La contraseña debe tener al menos 6 caracteres."); return;
     }
     if (password !== confirmPassword) {
-      setError("Las contraseñas no coinciden.");
-      return;
+      setError("Las contraseñas no coinciden."); return;
     }
-    setError("");
-    onSave(fullName.trim(), phone, email.trim(), password);
+    setError(""); setIsSubmitting(true);
+    try {
+      const result = await registerCustomerAccount({
+        name: fullName.trim(), phone, email: email.trim(), password,
+      });
+      saveCustomerSession(result.name, result.phone, result.email);
+      onSave(result.name, result.phone, result.email);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible crear la cuenta.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
-  function handleLoginSubmit(e: FormEvent) {
+  async function handleLoginSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!password) {
-      setError("Ingresa tu contraseña.");
-      return;
+    if (!loginEmail.trim() || !password) {
+      setError("Ingresa tu correo y contraseña."); return;
     }
-    const customer = loginWithCredential(phone, password);
-    if (!customer) {
-      setError("Contraseña incorrecta. Verifica e intenta de nuevo.");
-      return;
+    setError(""); setIsSubmitting(true);
+    try {
+      const session = await loginCustomerWithSupabase(loginEmail.trim(), password);
+      saveCustomerSession(session.name, session.phone, session.email);
+      onSave(session.name, session.phone ?? phone, session.email ?? loginEmail.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Datos incorrectos.");
+    } finally {
+      setIsSubmitting(false);
     }
-    setError("");
-    onSave(customer.name, customer.phone, customer.email ?? "", password);
   }
 
   if (mode === "login") {
@@ -2946,14 +2978,19 @@ function SaveSessionPrompt({
       <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
         <p className="text-sm font-bold text-orbi-text">Ya tienes una cuenta Orbi</p>
         <p className="mt-1 text-xs text-orbi-muted">
-          Encontramos una cuenta con este número. Inicia sesión para seguir tu misión.
+          Inicia sesión para vincular esta misión a tu historial.
         </p>
         <form onSubmit={handleLoginSubmit} className="mt-3 space-y-3" noValidate>
           <div>
-            <label className="block text-xs font-semibold text-orbi-muted">WhatsApp</label>
-            <p className="mt-1 rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
-              {displayPhone || phone}
-            </p>
+            <label className="block text-xs font-semibold text-orbi-muted">Correo electrónico</label>
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+              placeholder="correo@ejemplo.com"
+              autoComplete="email"
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-orbi-muted">Contraseña</label>
@@ -2973,9 +3010,10 @@ function SaveSessionPrompt({
           ) : null}
           <button
             type="submit"
-            className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+            disabled={isSubmitting}
+            className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50"
           >
-            Iniciar sesión y seguir misión
+            {isSubmitting ? "Verificando…" : "Iniciar sesión y seguir misión"}
           </button>
         </form>
         <p className="mt-3 text-xs text-orbi-muted">
@@ -3056,9 +3094,10 @@ function SaveSessionPrompt({
         ) : null}
         <button
           type="submit"
-          className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
+          disabled={isSubmitting}
+          className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50"
         >
-          Crear mi cuenta y seguir misión
+          {isSubmitting ? "Creando cuenta…" : "Crear mi cuenta y seguir misión"}
         </button>
       </form>
       <p className="mt-3 text-xs text-orbi-muted">
@@ -3136,45 +3175,6 @@ function getEstimatedOrbit(distance: number | null) {
   return "35-60 min";
 }
 
-function estimateMissionCost(distance: number | null) {
-  const safeDistance = distance ?? 3;
-  const price = Math.round(45 + safeDistance * 12);
-  const agentCost = Math.round(price * 0.7);
-
-  return {
-    price,
-    agentCost,
-    orbiProfit: price - agentCost
-  };
-}
-
-function calculateServiceFee(distance: number | null, subtotal: number) {
-  if (distance === null || !Number.isFinite(distance) || distance < 0 || distance > 30) {
-    return null;
-  }
-
-  let fee = 25;
-
-  if (distance <= 2) {
-    fee = 25;
-  } else if (distance <= 5) {
-    fee = 35;
-  } else if (distance <= 8) {
-    fee = 45;
-  } else if (distance <= 12) {
-    fee = 60;
-  } else if (distance <= 20) {
-    fee = 80;
-  }
-
-  if (subtotal > 600) {
-    fee += 20;
-  } else if (subtotal > 300) {
-    fee += 10;
-  }
-
-  return fee;
-}
 
 function getCartSubtotal(items: CartItem[]) {
   return items.reduce((total, item) => total + item.product.price * item.quantity, 0);
