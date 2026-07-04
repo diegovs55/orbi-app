@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 import { ActiveMission, associateMissionsToUserByPhone } from "@/lib/missions";
 
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
@@ -240,7 +241,7 @@ export type CustomerStats = {
 
 export async function fetchCustomerStats(): Promise<CustomerStats> {
   try {
-    const res = await fetch("/api/customers/list?stats=1");
+    const res = await adminFetch("/api/customers/list?stats=1");
     if (!res.ok) return { total: 0, registered: 0, totalOrders: 0, totalSpent: 0 };
     return (await res.json()) as CustomerStats;
   } catch {
@@ -260,7 +261,7 @@ export async function fetchCustomersPage(
   if (status && status !== "todos") params.set("status", status);
 
   try {
-    const res = await fetch(`/api/customers/list?${params.toString()}`);
+    const res = await adminFetch(`/api/customers/list?${params.toString()}`);
     if (!res.ok) return { customers: [], hasMore: false, total: 0 };
     const body = (await res.json()) as {
       customers: CustomerRow[];

@@ -34,7 +34,7 @@ type ApprovedCredentials = { email: string; password?: string; supabaseBusinessI
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 async function fetchRequests(): Promise<PendingRequest[]> {
-  const res = await fetch("/api/requests/list");
+  const res = await adminFetch("/api/requests/list");
   if (!res.ok) return [];
   const rows = (await res.json()) as Parameters<typeof mapRequestRow>[0][];
   return rows.map(mapRequestRow);

@@ -6,6 +6,7 @@ import { AGENT_STATUS, getAgents } from "@/lib/agents";
 import { getBusinesses } from "@/lib/businesses";
 import { ActiveMission, fetchActiveMissions, getMissionStatusLabel } from "@/lib/missions";
 import { subscribeToAgents, subscribeToBusinesses, subscribeToTableChanges } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -70,7 +71,7 @@ export function AdminLiveOperations() {
 
   useEffect(() => {
     const load = () => {
-      void fetch("/api/requests/list")
+      void adminFetch("/api/requests/list")
         .then((r) => r.json())
         .then((rows: { status: string }[]) => {
           setPendingCount(rows.filter((r) => r.status === "pending").length);

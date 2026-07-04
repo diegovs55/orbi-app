@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ActiveMission, fetchMissionsForEconomy } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -86,7 +87,7 @@ export function AdminNetworkEconomy() {
         ? `/api/ledger/summary?from=${encodeURIComponent(start.toISOString())}`
         : "/api/ledger/summary";
       try {
-        const res = await fetch(url);
+        const res = await adminFetch(url);
         if (res.ok) setLedger(await res.json() as typeof ledger);
       } catch {
         // Ledger no disponible — mantiene null (muestra "—")
