@@ -28,17 +28,16 @@ Auditada en: Sprint 1.1
 | `GET /api/requests/list` | Admin | 🔴 ALTO | ✅ Protegida | 1.3 | `assertAdminJWT` — expone PII de solicitantes (nombre, email, teléfono, mensaje) |
 | `POST /api/requests/update` | Admin | 🔴 ALTO | ✅ Protegida | 1.2 | `assertAdminJWT` — modificación de solicitudes requiere admin |
 | `DELETE /api/requests/delete` | Admin | 🔴 ALTO | ✅ Protegida | 1.2 | `assertAdminJWT` — eliminación de solicitudes requiere admin |
-| `GET /api/routing/*` | Interno | 🟡 MEDIO | 🔍 Pendiente revisión | — | No auditado en profundidad. Clasificar en Sprint 1.6. |
+| `GET /api/routing/route` | Público | 🟢 BAJO | ✅ Aceptada | 1.6 | Proxy a OSRM/ORS externos. No accede a BD. No expone datos de ORBI. No requiere autenticación: solo recibe coordenadas y retorna geometría de ruta. Sin estado. Riesgo aceptado en MVP: abuso de cuota de OSRM/ORS (rate limiting es responsabilidad del proveedor externo). |
 
 ---
 
-## Resumen por Estado
+## Resumen por Estado (actualizado Sprint 1.6)
 
 | Estado | Cantidad |
 |--------|----------|
-| ✅ Protegida / Corregida | 12 |
-| ⚠️ Pendiente (registrado) | 4 |
-| 🔍 Pendiente revisión | 1 |
+| ✅ Protegida / Corregida / Aceptada | 16 |
+| ⚠️ Aceptada con deuda documentada | 2 |
 
 ---
 
@@ -86,11 +85,20 @@ Auditada en: Sprint 1.1
 - PoC verificado: 4 vectores (UID arbitrario, UID ajeno, omitir, campos inesperados) → `auth_user_id=null` en todos los casos. Ninguno modifica el campo.
 - TypeScript: 0 errores. E2E: 52/52 ✅
 
-## Pendientes Registrados (futuros sprints)
+### Sprint 1.6 — Auditoría Final de ETAPA 1
+- Fecha: 2026-07-03
+- Acción: Reauditoría completa de las 18 rutas leyendo el código actual. Sin asumir corrección de sprints anteriores.
+- Hallazgos nuevos: ninguno de severidad ALTO. `routing/route` clasificada como 🟢 BAJO/aceptada.
+- Vectores de ataque ejecutados: mass assignment en `missions/create` (bloqueado por servidor), update-profile sin auth (riesgo documentado P2), routing sin auth (sin acceso a BD), cancel-customer con mission_id inexistente (409).
+- TypeScript: 0 errores. E2E: 52/52 + 105/105 ✅
+- Dictamen: **ETAPA 1 PUEDE CERRARSE**.
+
+## Pendientes Registrados (ETAPA 2)
 
 | Prioridad | Ruta | Vulnerabilidad | Sprint objetivo |
 |-----------|------|----------------|-----------------|
 | ~~P1~~ | ~~`POST /api/missions/complete`~~ | ~~Agente no autenticado puede cerrar cualquier misión~~ | ✅ Corregido en 1.4 |
 | ~~P1~~ | ~~`POST /api/customers/upsert`~~ | ~~`auth_user_id` aceptado del caller → account takeover~~ | ✅ Corregido en 1.5 |
-| P2 | `PATCH /api/businesses/update-profile` | Sin ownership validation — separar ruta admin de ruta negocio | 1.5 |
-| P2 | `POST /api/missions/cancel-customer` | Sin ownership del cliente (aceptable en MVP anónimo) | 1.5+ |
+| P2 | `PATCH /api/businesses/update-profile` | Sin ownership validation — separar ruta admin de ruta negocio | ETAPA 2 |
+| P2 | `POST /api/missions/cancel-customer` | Sin ownership del cliente (aceptable en MVP anónimo) | ETAPA 2 |
+| P2 | `GET /api/routing/route` | Sin rate limiting propio (depende del proveedor externo). Abuso potencial de cuota. | ETAPA 2 |
