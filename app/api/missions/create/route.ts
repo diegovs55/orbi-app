@@ -265,6 +265,12 @@ export async function POST(req: NextRequest) {
 
     // Verificar que todos los productos pertenecen al mismo business_id declarado
     const declaredBusinessId = typeof business_id === "string" ? business_id : null;
+    if (!declaredBusinessId) {
+      return NextResponse.json(
+        { error: "business_id es requerido para misiones de catálogo." },
+        { status: 400 }
+      );
+    }
     const wrongBusiness = productIds.filter((pid) => {
       const row = catalogMap.get(pid);
       return row && declaredBusinessId && row.business_id !== declaredBusinessId;

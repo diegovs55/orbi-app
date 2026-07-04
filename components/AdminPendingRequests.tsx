@@ -5,6 +5,7 @@ import { Copy, Loader2, Trash2 } from "lucide-react";
 import { PendingRequest, RequestStatus, mapRequestRow } from "@/lib/pendingRequests";
 import { createCatalogBusiness } from "@/lib/catalog";
 import { AgentStatus, createAgent, getAgentInitials } from "@/lib/agents";
+import { adminFetch } from "@/lib/admin-fetch";
 
 const POLL_INTERVAL_MS = 8_000;
 
@@ -40,7 +41,7 @@ async function fetchRequests(): Promise<PendingRequest[]> {
 }
 
 async function apiUpdateRequest(id: string, status: RequestStatus): Promise<void> {
-  await fetch("/api/requests/update", {
+  await adminFetch("/api/requests/update", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, status }),
@@ -48,7 +49,7 @@ async function apiUpdateRequest(id: string, status: RequestStatus): Promise<void
 }
 
 async function apiDeleteRequest(id: string): Promise<void> {
-  await fetch(`/api/requests/delete?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  await adminFetch(`/api/requests/delete?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -100,14 +101,14 @@ export function AdminPendingRequests() {
       let tempPassword: string | undefined;
       if (supabaseBusinessId) {
         try {
-          const emailRes = await fetch("/api/businesses/set-email", {
+          const emailRes = await adminFetch("/api/businesses/set-email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ businessId: supabaseBusinessId, email: r.email }),
           });
           if (!emailRes.ok) throw new Error("No se pudo guardar el correo del negocio.");
 
-          const activateRes = await fetch("/api/businesses/activate", {
+          const activateRes = await adminFetch("/api/businesses/activate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ businessId: supabaseBusinessId }),
@@ -157,7 +158,7 @@ export function AdminPendingRequests() {
       }
       let tempPassword: string | undefined;
       try {
-        const activateRes = await fetch("/api/agents/activate", {
+        const activateRes = await adminFetch("/api/agents/activate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agentId: supabaseAgentId }),

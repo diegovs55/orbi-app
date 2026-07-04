@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Copy, KeyRound, RotateCcw, Store, Trash2 } from "lucide-react";
 import { AffiliateBusiness, getBusinesses, setBusinessStatus } from "@/lib/businesses";
 import { subscribeToBusinesses } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 type CredResult = { email: string; tempPassword: string; action: "activated" | "reset" };
 
@@ -59,7 +60,7 @@ export function AdminBusinessesPanel() {
     setSavingEmail((p) => new Set(p).add(b.id));
     setErrors((p) => { const n = { ...p }; delete n[b.id]; return n; });
     try {
-      const res = await fetch("/api/businesses/set-email", {
+      const res = await adminFetch("/api/businesses/set-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ businessId: b.id, email }),
@@ -83,13 +84,13 @@ export function AdminBusinessesPanel() {
     try {
       // Ensure email is persisted on the row first
       if (b.email) {
-        await fetch("/api/businesses/set-email", {
+        await adminFetch("/api/businesses/set-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ businessId: b.id, email: b.email }),
         });
       }
-      const res = await fetch("/api/businesses/activate", {
+      const res = await adminFetch("/api/businesses/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ businessId: b.id }),
@@ -116,7 +117,7 @@ export function AdminBusinessesPanel() {
     setCredResults((p) => { const n = { ...p }; delete n[b.id]; return n; });
 
     try {
-      const res = await fetch("/api/businesses/reset-access", {
+      const res = await adminFetch("/api/businesses/reset-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ businessId: b.id }),

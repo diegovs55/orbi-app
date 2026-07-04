@@ -3,6 +3,8 @@ import { getAdmin } from "@/lib/supabase-admin";
 
 
 export async function PATCH(req: NextRequest) {
+  // Note: called by both admin panel and authenticated business users.
+  // Full per-owner auth check is tracked as a future sprint item.
   const admin = getAdmin();
   if (!admin) return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
 
@@ -40,7 +42,6 @@ export async function PATCH(req: NextRequest) {
       lng,
       opening_time: availabilityStart || null,
       closing_time: availabilityEnd || null,
-      status: "activo",
     })
     .eq("id", id);
 

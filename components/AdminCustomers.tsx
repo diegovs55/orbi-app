@@ -17,6 +17,7 @@ import {
   OrbiCustomer,
 } from "@/lib/customers";
 import { subscribeToCustomers } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -149,7 +150,7 @@ export function AdminCustomers() {
     setActivateErrors((p) => { const n = { ...p }; delete n[c.id]; return n; });
     setCredResults((p) => { const n = { ...p }; delete n[c.id]; return n; });
     try {
-      const res = await fetch("/api/customers/activate", {
+      const res = await adminFetch("/api/customers/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerId: c.id }),
