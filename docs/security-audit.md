@@ -23,7 +23,7 @@ Auditada en: Sprint 1.1
 | `POST /api/customers/upsert` | Público | 🔴 ALTO | ⚠️ Pendiente | — | Acepta `auth_user_id` del caller sin verificación. Riesgo de account takeover. Registrado P1 para Sprint 1.4. |
 | `GET /api/ledger/summary` | Admin | 🔴 ALTO | ✅ Protegida | 1.3 | `assertAdminJWT` — expone GMV, comisión ORBI, pagos agentes/negocios |
 | `POST /api/missions/cancel-customer` | Público | 🟡 MEDIO | ⚠️ Pendiente | — | Sin verificación de ownership del cliente. Aceptable en MVP anónimo. Registrado P2 para cuando clientes tengan autenticación. |
-| `POST /api/missions/complete` | Agente | 🔴 ALTO | ⚠️ Pendiente | — | Agente no se autentica con JWT. Cualquiera con un `mission_id` puede cerrar la misión y activar el ledger. Registrado P1 para Sprint 1.4. |
+| `POST /api/missions/complete` | Agente | 🔴 ALTO | ✅ Protegida | 1.4 | JWT Bearer obligatorio + `admin.auth.getUser` server-side + `agents.auth_user_id` ownership check. Sin token → 401. JWT ajeno → 403. Agente no asignado a la misión → 409. |
 | `POST /api/missions/create` | Público | 🟢 BAJO | ✅ Corregida | 1.2 | Corrección BLOQUEANTE-2: `business_id` requerido para misiones de catálogo (antes aceptaba null, causaba corrupción de datos) |
 | `GET /api/requests/list` | Admin | 🔴 ALTO | ✅ Protegida | 1.3 | `assertAdminJWT` — expone PII de solicitantes (nombre, email, teléfono, mensaje) |
 | `POST /api/requests/update` | Admin | 🔴 ALTO | ✅ Protegida | 1.2 | `assertAdminJWT` — modificación de solicitudes requiere admin |
@@ -70,11 +70,19 @@ Auditada en: Sprint 1.1
 
 ---
 
+### Sprint 1.4 — Ownership y autenticación del agente
+- Fecha: 2026-07-03
+- Commit: `2b67153`
+- Correcciones:
+  - **P1** `POST /api/missions/complete` — JWT Bearer obligatorio: `admin.auth.getUser(token)` server-side obtiene `callerUid`; query `agents WHERE id=agent_id AND auth_user_id=callerUid` verifica que el caller sea el agente declarado. El guard existente `.eq("selected_agent_id", agent_id)` verifica que ese agente sea el asignado a la misión.
+- PoC verificado: 4 vectores de ataque, todos bloqueados. Ledger = 0 en todos los ataques.
+- TypeScript: 0 errores. E2E: 52/52 ✅
+
 ## Pendientes Registrados (futuros sprints)
 
 | Prioridad | Ruta | Vulnerabilidad | Sprint objetivo |
 |-----------|------|----------------|-----------------|
-| P1 | `POST /api/missions/complete` | Agente no autenticado puede cerrar cualquier misión | 1.4 |
+| ~~P1~~ | ~~`POST /api/missions/complete`~~ | ~~Agente no autenticado puede cerrar cualquier misión~~ | ✅ Corregido en 1.4 |
 | P1 | `POST /api/customers/upsert` | `auth_user_id` aceptado del caller → account takeover | 1.4 |
 | P2 | `PATCH /api/businesses/update-profile` | Sin ownership validation — separar ruta admin de ruta negocio | 1.5 |
 | P2 | `POST /api/missions/cancel-customer` | Sin ownership del cliente (aceptable en MVP anónimo) | 1.5+ |
