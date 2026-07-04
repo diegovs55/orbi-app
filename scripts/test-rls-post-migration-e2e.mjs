@@ -65,10 +65,12 @@ function assert(condition, label) {
 
 function info(msg) { console.log(`    ℹ️  ${msg}`); }
 
-async function api(path, body) {
+async function api(path, body, token = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   let json = {};
@@ -284,15 +286,33 @@ const totalAmount = 200;
 const costoAgente = 150;
 const gananciaOrbi = 50;
 
+// Crear usuario real en Supabase Auth para el agente E2E
+const agentEmail = `e2e_agent_${TAG}@test.com`;
+const agentPassword = `E2eTest_${TAG}!`;
+const { data: authUserData } = await admin.auth.admin.createUser({
+  email: agentEmail,
+  password: agentPassword,
+  email_confirm: true,
+});
+const agentAuthUid = authUserData?.user?.id;
+
+// Obtener JWT del agente via signInWithPassword
+const anonForAgent = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
+const { data: signInData } = await anonForAgent.auth.signInWithPassword({
+  email: agentEmail,
+  password: agentPassword,
+});
+const agentJWT = signInData?.session?.access_token;
+
 // Crear agente temporal en BD via admin (bypassa RLS)
 await admin.from("agents").insert({
   id: agentId,
   name: `E2E Agent ${TAG}`,
-  email: `e2e_${TAG}@test.com`,
+  email: agentEmail,
   phone: "5559999999",
-  status: "online",
+  status: "Disponible",
   trust_level: "standard",
-  auth_user_id: crypto.randomUUID(),
+  auth_user_id: agentAuthUid,
 });
 
 // Crear misión via API Route
@@ -336,11 +356,11 @@ await setMissionStatus(cycleActualId, "en_mision");
 const { data: mStarted } = await admin.from("missions").select("status").eq("id", cycleActualId).single();
 assert(mStarted?.status === "en_mision", "PUNTO 6 — Estado en_mision alcanzado");
 
-// Agente completa via /api/missions/complete (el único path real)
+// Agente completa via /api/missions/complete — requiere JWT del agente
 const rComplete = await api("/api/missions/complete", {
   mission_id: cycleActualId,
   agent_id:   agentId,
-});
+}, agentJWT);
 assert(rComplete.status === 200,                       "PUNTO 7 — HTTP 200 al completar misión");
 assert(rComplete.json?.ok === true,                    "PUNTO 7 — ok = true");
 assert(rComplete.json?.ledger_entries === 3,           "PUNTO 7 — 3 ledger entries creadas");
@@ -490,7 +510,7 @@ assert(contableSum === 0, `Integridad contable: -${actualTotal}+${actualAgente}+
 const rIdempotent = await api("/api/missions/complete", {
   mission_id: cycleActualId,
   agent_id:   agentId,
-});
+}, agentJWT);
 const { data: ledgerAfterRetry } = await admin
   .from("ledger_entries")
   .select("monto")
@@ -500,6 +520,7 @@ assert(ledgerAfterRetry?.length === 3, "Idempotencia: ledger sigue en 3 entradas
 // ─── Cleanup ────────────────────────────────────────────────────────────────
 await cleanupMissions([directMissionId, catalogMissionId, cycleActualId, anonInsertId]);
 await admin.from("agents").delete().eq("id", agentId);
+if (agentAuthUid) await admin.auth.admin.deleteUser(agentAuthUid);
 
 // ─── Resultado final ────────────────────────────────────────────────────────
 console.log("\n════════════════════════════════════════════════════════════════════");

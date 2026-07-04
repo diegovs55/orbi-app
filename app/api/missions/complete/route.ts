@@ -32,9 +32,6 @@ import type { ActiveMission } from "@/lib/missions";
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
 
-// ── Admin client (SERVICE_ROLE_KEY — nunca exponer al cliente) ───────────────
-
-
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -45,6 +42,18 @@ export async function POST(req: NextRequest) {
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
   }
+
+  // 0. Autenticación del agente — JWT Bearer obligatorio
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  const { data: authData, error: authError } = await admin.auth.getUser(token);
+  if (authError || !authData.user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  const callerUid = authData.user.id;
 
   // 1. Validar entrada
   let body: { mission_id?: string; agent_id?: string };
@@ -57,6 +66,18 @@ export async function POST(req: NextRequest) {
   const { mission_id, agent_id } = body;
   if (!mission_id || !agent_id) {
     return NextResponse.json({ error: "mission_id y agent_id son requeridos." }, { status: 400 });
+  }
+
+  // 1b. Verificar ownership: el JWT debe corresponder al agente declarado en el body
+  const { data: agentRow, error: agentError } = await admin
+    .from("agents")
+    .select("id")
+    .eq("id", agent_id)
+    .eq("auth_user_id", callerUid)
+    .maybeSingle();
+
+  if (agentError || !agentRow) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
   // 2. Idempotencia — ¿ya existen entradas de ledger para esta misión?
