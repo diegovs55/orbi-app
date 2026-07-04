@@ -20,7 +20,7 @@ Auditada en: Sprint 1.1
 | `PATCH /api/businesses/update-profile` | Negocio | 🟡 MEDIO | ⚠️ Pendiente | — | Sin validación de ownership por negocio. Ruta compartida con flujo de auto-edición del negocio (`lib/catalog.ts:624`). No se puede proteger con `assertAdminJWT` sin romper ese flujo. Registrado P2 para Sprint futuro. |
 | `POST /api/customers/activate` | Admin | 🔴 ALTO | ✅ Protegida | 1.2 | `assertAdminJWT` — activación de cliente requiere admin |
 | `GET /api/customers/list` | Admin | 🔴 ALTO | ✅ Protegida | 1.3 | `assertAdminJWT` — expone PII completo de clientes (nombre, teléfono, email, total gastado) |
-| `POST /api/customers/upsert` | Público | 🔴 ALTO | ⚠️ Pendiente | — | Acepta `auth_user_id` del caller sin verificación. Riesgo de account takeover. Registrado P1 para Sprint 1.4. |
+| `POST /api/customers/upsert` | Público | 🔴 ALTO | ✅ Protegida | 1.5 | `auth_user_id` eliminado del body aceptado. Solo se preserva el valor existente en BD. Nunca se acepta del caller. PoC: 4 vectores, todos retornan `auth_user_id=null`. |
 | `GET /api/ledger/summary` | Admin | 🔴 ALTO | ✅ Protegida | 1.3 | `assertAdminJWT` — expone GMV, comisión ORBI, pagos agentes/negocios |
 | `POST /api/missions/cancel-customer` | Público | 🟡 MEDIO | ⚠️ Pendiente | — | Sin verificación de ownership del cliente. Aceptable en MVP anónimo. Registrado P2 para cuando clientes tengan autenticación. |
 | `POST /api/missions/complete` | Agente | 🔴 ALTO | ✅ Protegida | 1.4 | JWT Bearer obligatorio + `admin.auth.getUser` server-side + `agents.auth_user_id` ownership check. Sin token → 401. JWT ajeno → 403. Agente no asignado a la misión → 409. |
@@ -78,11 +78,19 @@ Auditada en: Sprint 1.1
 - PoC verificado: 4 vectores de ataque, todos bloqueados. Ledger = 0 en todos los ataques.
 - TypeScript: 0 errores. E2E: 52/52 ✅
 
+### Sprint 1.5 — Permisos y consistencia
+- Fecha: 2026-07-03
+- Commit: `bb7fa94`
+- Correcciones:
+  - **P1** `POST /api/customers/upsert` — eliminado `auth_user_id` del tipo del body. La expresión `body.auth_user_id ?? existing?.auth_user_id ?? null` reemplazada por `existing?.auth_user_id ?? null`. El campo es ahora exclusivamente server-side.
+- PoC verificado: 4 vectores (UID arbitrario, UID ajeno, omitir, campos inesperados) → `auth_user_id=null` en todos los casos. Ninguno modifica el campo.
+- TypeScript: 0 errores. E2E: 52/52 ✅
+
 ## Pendientes Registrados (futuros sprints)
 
 | Prioridad | Ruta | Vulnerabilidad | Sprint objetivo |
 |-----------|------|----------------|-----------------|
 | ~~P1~~ | ~~`POST /api/missions/complete`~~ | ~~Agente no autenticado puede cerrar cualquier misión~~ | ✅ Corregido en 1.4 |
-| P1 | `POST /api/customers/upsert` | `auth_user_id` aceptado del caller → account takeover | 1.4 |
+| ~~P1~~ | ~~`POST /api/customers/upsert`~~ | ~~`auth_user_id` aceptado del caller → account takeover~~ | ✅ Corregido en 1.5 |
 | P2 | `PATCH /api/businesses/update-profile` | Sin ownership validation — separar ruta admin de ruta negocio | 1.5 |
 | P2 | `POST /api/missions/cancel-customer` | Sin ownership del cliente (aceptable en MVP anónimo) | 1.5+ |
