@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
     phone?: string;
     email?: string;
     is_registered?: boolean;
-    auth_user_id?: string;
   };
 
   try {
@@ -45,8 +44,8 @@ export async function POST(req: NextRequest) {
 
   const id = existing?.id ?? crypto.randomUUID();
   const isRegistered = body.is_registered ?? existing?.is_registered ?? false;
-  // Preserve existing auth_user_id unless a new one is provided
-  const authUserId = body.auth_user_id ?? existing?.auth_user_id ?? null;
+  // auth_user_id is server-only — never accept it from the caller
+  const authUserId = existing?.auth_user_id ?? null;
 
   const { data, error } = await supabaseAdmin
     .from("customers")
