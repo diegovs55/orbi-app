@@ -7,44 +7,57 @@ import { signIn, signOut } from "@/lib/auth";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
+/**
+ * Verifica el rol del usuario contra /api/admin/verify.
+ * El servidor compara el email del JWT contra ADMIN_EMAILS (var de entorno server-only).
+ * Un agente o negocio autenticado con JWT válido pero email no autorizado recibe false.
+ */
+async function verifyAdminRole(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return false;
+
+    const res = await fetch("/api/admin/verify", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return false;
+    const body = await res.json() as { isAdmin?: boolean };
+    return body.isAdmin === true;
+  } catch {
+    return false;
+  }
+}
+
 export function AdminAccessGate({ children }: { children: ReactNode }) {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  // On mount: re-verify an existing session against the server-side role check.
+  // This prevents an agent/business JWT from unlocking the admin panel.
   useEffect(() => {
     let active = true;
 
     async function syncSession() {
-      try {
-        const [{ data: userData }] = await Promise.all([supabase.auth.getUser()]);
+      const isAdmin = await verifyAdminRole();
+      if (!active) return;
 
-        if (!active) return;
-
-        const user = userData.user;
-
-        if (user) {
-          window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-        } else {
-          window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
-        }
-
-        window.dispatchEvent(new Event("orbi-admin-session-change"));
-      } catch {
-        if (!active) return;
+      if (isAdmin) {
+        window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+      } else {
         window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
-        window.dispatchEvent(new Event("orbi-admin-session-change"));
       }
+      window.dispatchEvent(new Event("orbi-admin-session-change"));
     }
 
     if (typeof window !== "undefined") {
       void syncSession();
     }
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
@@ -53,24 +66,32 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
 
     try {
       await signIn(email.trim(), password);
-      window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-      window.dispatchEvent(new Event("orbi-admin-session-change"));
-      setEmail("");
-      setPassword("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible iniciar sesión.");
+      return;
     }
+
+    // Verify role immediately after login — rejects non-admin credentials
+    const isAdmin = await verifyAdminRole();
+    if (!isAdmin) {
+      await signOut().catch(() => undefined);
+      setError("Credenciales válidas pero sin permisos de administrador.");
+      return;
+    }
+
+    window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+    window.dispatchEvent(new Event("orbi-admin-session-change"));
+    setEmail("");
+    setPassword("");
   }
 
   async function handleLogout() {
     setError("");
-
     try {
       await signOut();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible cerrar sesión.");
     }
-
     window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
     window.dispatchEvent(new Event("orbi-admin-session-change"));
   }
@@ -147,17 +168,13 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
 }
 
 function readAdminSession() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
+  if (typeof window === "undefined") return false;
   return window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "true";
 }
 
 function subscribeToAdminSession(callback: () => void) {
   window.addEventListener("storage", callback);
   window.addEventListener("orbi-admin-session-change", callback);
-
   return () => {
     window.removeEventListener("storage", callback);
     window.removeEventListener("orbi-admin-session-change", callback);

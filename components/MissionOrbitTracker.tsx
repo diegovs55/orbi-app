@@ -12,8 +12,6 @@ import {
   upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
   saveCustomerSession,
-  saveLocalCustomerAccount,
-  syncRegisteredCustomerToSupabase
 } from "@/lib/customers";
 import {
   ActiveMission,
@@ -24,7 +22,9 @@ import {
   MissionStatus,
   missionProgressStatuses,
 } from "@/lib/missions";
+import { getAgentById } from "@/lib/agents";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { CostBreakdown } from "@/components/CostBreakdown";
 
 const MissionOrbitMap = dynamic(
   () => import("@/components/MissionOrbitMap").then((mod) => mod.MissionOrbitMap),
@@ -56,6 +56,8 @@ export function MissionOrbitTracker() {
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
   const [showSaveSessionPrompt, setShowSaveSessionPrompt] = useState(false);
   const [lastClosedMission, setLastClosedMission] = useState<ActiveMission | null>(null);
+  // Live agent position updated via agents Realtime subscription.
+  const [liveAgentPoint, setLiveAgentPoint] = useState<MissionPoint | null>(null);
   const prevActiveMissionIdsRef = useRef<string[]>([]);
   const userClosedDetailRef = useRef(false);
 
@@ -106,6 +108,31 @@ export function MissionOrbitTracker() {
       }
     });
   }, []);
+
+  // Live agent position: subscribe to agents table and refresh current_lat/lng
+  // whenever any agent row changes. Re-runs when the assigned agent changes.
+  const agentIdForMission = mission?.selected_agent_id ?? null;
+  useEffect(() => {
+    if (!agentIdForMission) {
+      setLiveAgentPoint(null);
+      return;
+    }
+    // Load initial live position.
+    void getAgentById(agentIdForMission).then((a) => {
+      if (!a) return;
+      const lat = a.currentLat ?? a.lat;
+      const lng = a.currentLng ?? a.lng;
+      if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+    });
+    // Subscribe to any change in agents table, then refresh this agent's row.
+    return subscribeToTableChanges("agents", async () => {
+      const a = await getAgentById(agentIdForMission);
+      if (!a) return;
+      const lat = a.currentLat ?? a.lat;
+      const lng = a.currentLng ?? a.lng;
+      if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+    });
+  }, [agentIdForMission]);
 
   useEffect(() => {
     if (mission?.last_updated_at) {
@@ -247,6 +274,7 @@ export function MissionOrbitTracker() {
             <MissionDetailBody
               mission={mission}
               lastUpdated={lastUpdated}
+              liveAgentPoint={liveAgentPoint}
               waitingMessage={waitingMessage}
               rating={rating}
               ratingComment={ratingComment}
@@ -260,7 +288,7 @@ export function MissionOrbitTracker() {
               onLaterInvite={() => setHideAccountInvite(true)}
               onRegister={handleRegisterCustomer}
               showSaveSessionPrompt={showSaveSessionPrompt}
-              onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+              onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
               onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
             />
           </div>
@@ -302,6 +330,7 @@ export function MissionOrbitTracker() {
         <MissionDetailBody
           mission={lastClosedMission}
           lastUpdated={lastUpdated}
+          liveAgentPoint={null}
           waitingMessage={waitingMessage}
           rating={rating}
           ratingComment={ratingComment}
@@ -315,7 +344,7 @@ export function MissionOrbitTracker() {
           onLaterInvite={() => setHideAccountInvite(true)}
           onRegister={handleRegisterCustomer}
           showSaveSessionPrompt={showSaveSessionPrompt}
-          onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+          onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
           onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
         />
         <div className="pt-1">
@@ -354,6 +383,7 @@ export function MissionOrbitTracker() {
     <MissionDetailBody
       mission={mission}
       lastUpdated={lastUpdated}
+      liveAgentPoint={liveAgentPoint}
       waitingMessage={waitingMessage}
       rating={rating}
       ratingComment={ratingComment}
@@ -367,7 +397,7 @@ export function MissionOrbitTracker() {
       onLaterInvite={() => setHideAccountInvite(true)}
       onRegister={handleRegisterCustomer}
       showSaveSessionPrompt={showSaveSessionPrompt}
-      onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+      onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
       onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
     />
   );
@@ -424,6 +454,7 @@ function MissionSummaryCard({
 type MissionDetailBodyProps = {
   mission: ActiveMission;
   lastUpdated: Date;
+  liveAgentPoint: MissionPoint | null;
   waitingMessage: string;
   rating: number;
   ratingComment: string;
@@ -444,6 +475,7 @@ type MissionDetailBodyProps = {
 function MissionDetailBody({
   mission,
   lastUpdated,
+  liveAgentPoint,
   waitingMessage,
   rating,
   ratingComment,
@@ -638,7 +670,8 @@ function MissionDetailBody({
           <MissionOrbitMap
             origin={getMissionPoint(mission.origin_lat, mission.origin_lng)}
             destination={getMissionPoint(mission.destination_lat, mission.destination_lng)}
-            agent={getMissionPoint(mission.selected_agent_lat, mission.selected_agent_lng)}
+            agent={liveAgentPoint ?? getMissionPoint(mission.selected_agent_lat, mission.selected_agent_lng)}
+            routeGeometry={mission.route_geometry ?? null}
           />
         </div>
       </article>
@@ -688,6 +721,15 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
         <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
         <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
       </div>
+      {(mission.total_amount ?? 0) > 0 ? (
+        <div className="mt-3">
+          <CostBreakdown
+            subtotal={mission.subtotal_productos ?? null}
+            serviceFee={mission.service_fee ?? null}
+            total={mission.total_amount ?? 0}
+          />
+        </div>
+      ) : null}
     </article>
   );
 }

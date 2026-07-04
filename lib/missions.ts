@@ -62,13 +62,14 @@ export type ActiveMission = {
   business_name?: string;
   product_price?: number;
   items?: Array<{
-    product_id: string;
+    product_id:   string;
     product_name: string;
-    business_id: string;
+    business_id:  string;
     business_name: string;
-    quantity: number;
-    price: number;
-    subtotal: number;
+    quantity:     number;
+    price:        number;
+    subtotal:     number;
+    category:     string;
   }>;
   subtotal_productos?: number;
   service_fee?: number;
@@ -772,15 +773,21 @@ export async function completeMissionWithLedger(
   };
 }
 
-/** Customer cancels mission (any active status). */
+/** Customer cancels mission (any active status). Goes through API route — anon client never writes missions. */
 export async function cancelMissionByCustomer(id: string): Promise<void> {
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from("missions")
-    .update({ status: "cancelada", updated_at: now })
-    .eq("id", id)
-    .in("status", ["por_tomar", "aceptada", "en_mision"]);
-  if (error) console.error("[missions] cancelMissionByCustomer error:", error);
+  try {
+    const res = await fetch("/api/missions/cancel-customer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mission_id: id }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      console.error("[missions] cancelMissionByCustomer error:", body.error ?? res.status);
+    }
+  } catch (err) {
+    console.error("[missions] cancelMissionByCustomer fetch error:", err);
+  }
 }
 
 /** Agent cancels assigned mission → resets to por_tomar for reassignment. */

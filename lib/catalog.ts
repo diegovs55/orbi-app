@@ -621,23 +621,15 @@ export async function updateBusinessProfile(
     availabilityEnd: string;
   }
 ): Promise<void> {
-  if (!supabase) throw new Error("Supabase no disponible.");
-  const { error } = await supabase
-    .from("businesses")
-    .update({
-      name: fields.name,
-      category: fields.category,
-      zone: fields.zone,
-      description: fields.baseText,
-      address: fields.baseText,
-      lat: fields.lat,
-      lng: fields.lng,
-      opening_time: fields.availabilityStart || null,
-      closing_time: fields.availabilityEnd || null,
-      status: "activo"
-    })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
+  const res = await fetch("/api/businesses/update-profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, ...fields }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? "Error al guardar perfil.");
+  }
 }
 
 export async function getBusinessOwnProducts(

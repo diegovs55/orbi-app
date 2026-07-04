@@ -1,13 +1,14 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { UsersRound } from "lucide-react";
+import { Copy, KeyRound, UsersRound } from "lucide-react";
 import {
   CustomerPageFilters,
   CustomerStats,
@@ -70,6 +71,10 @@ export function AdminCustomers() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [activating, setActivating] = useState<Set<string>>(new Set());
+  const [activateErrors, setActivateErrors] = useState<Record<string, string>>({});
+  type CredResult = { email: string; tempPassword: string };
+  const [credResults, setCredResults] = useState<Record<string, CredResult>>({});
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -137,6 +142,32 @@ export function AdminCustomers() {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => setSearchDebounced(v), 400);
   };
+
+  async function handleActivate(c: OrbiCustomer) {
+    if (activating.has(c.id)) return;
+    setActivating((p) => new Set(p).add(c.id));
+    setActivateErrors((p) => { const n = { ...p }; delete n[c.id]; return n; });
+    setCredResults((p) => { const n = { ...p }; delete n[c.id]; return n; });
+    try {
+      const res = await fetch("/api/customers/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: c.id }),
+      });
+      const data = (await res.json()) as { email?: string; tempPassword?: string; error?: string; alreadyActivated?: boolean };
+      if (!res.ok) throw new Error(data.error ?? "Error al activar");
+      if (data.alreadyActivated) {
+        setActivateErrors((p) => ({ ...p, [c.id]: "El cliente ya tiene acceso activo en Supabase Auth." }));
+      } else if (data.tempPassword && data.email) {
+        setCredResults((p) => ({ ...p, [c.id]: { email: data.email!, tempPassword: data.tempPassword! } }));
+        void refreshPage({ page, search: searchDebounced, isRegistered: isRegisteredFilter, status: statusFilter });
+      }
+    } catch (err) {
+      setActivateErrors((p) => ({ ...p, [c.id]: err instanceof Error ? err.message : "Error al activar" }));
+    } finally {
+      setActivating((p) => { const n = new Set(p); n.delete(c.id); return n; });
+    }
+  }
 
   if (!isUnlocked) return null;
 
@@ -236,11 +267,12 @@ export function AdminCustomers() {
               {[
                 "Nombre",
                 "WhatsApp",
+                "Correo",
                 "Pedidos",
                 "Gasto acumulado",
                 "Último pedido",
                 "Registro",
-                "Status",
+                "Auth",
               ].map((h) => (
                 <th
                   key={h}
@@ -255,7 +287,7 @@ export function AdminCustomers() {
             {loading ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-orbi-muted"
                 >
                   Cargando…
@@ -264,7 +296,7 @@ export function AdminCustomers() {
             ) : customers.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-orbi-muted"
                 >
                   {total === 0 && !search && isRegisteredFilter === null
@@ -274,48 +306,84 @@ export function AdminCustomers() {
               </tr>
             ) : (
               customers.map((c) => (
-                <tr
-                  key={c.id}
-                  className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]"
-                >
-                  <td className="px-4 py-3 font-semibold text-orbi-text">
-                    {c.name || "—"}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-orbi-cyan">
-                    {displayPhone(c.phone)}
-                  </td>
-                  <td className="px-4 py-3 text-center text-orbi-text">
-                    {c.totalOrders}
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-orbi-text">
-                    {c.totalSpent > 0 ? `$${c.totalSpent.toFixed(0)}` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-orbi-muted">
-                    {formatDate(c.lastOrderAt)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {c.isRegistered ? (
-                      <span className="rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-2 py-0.5 text-[10px] font-bold text-orbi-cyan">
-                        Registrado
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-bold text-orbi-muted">
-                        Anónimo
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                        (c.customerStatus ?? "activo") === "activo"
-                          ? "border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-300"
-                          : "border-white/10 bg-white/[0.04] text-orbi-muted"
-                      }`}
-                    >
-                      {c.customerStatus ?? "activo"}
-                    </span>
-                  </td>
-                </tr>
+                <Fragment key={c.id}>
+                  <tr className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]">
+                    <td className="px-4 py-3 font-semibold text-orbi-text">
+                      {c.name || "—"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-orbi-cyan">
+                      {displayPhone(c.phone)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-orbi-muted break-all">
+                      {c.email || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-center text-orbi-text">
+                      {c.totalOrders}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-orbi-text">
+                      {c.totalSpent > 0 ? `$${c.totalSpent.toFixed(0)}` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-orbi-muted">
+                      {formatDate(c.lastOrderAt)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.isRegistered ? (
+                        <span className="rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-2 py-0.5 text-[10px] font-bold text-orbi-cyan">
+                          Registrado
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-bold text-orbi-muted">
+                          Anónimo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.isRegistered ? (
+                        c.authUserId ? (
+                          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                            Auth activo
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={activating.has(c.id) || !c.email}
+                            onClick={() => void handleActivate(c)}
+                            title={!c.email ? "El cliente no tiene correo registrado" : undefined}
+                            className="inline-flex items-center gap-1 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-2 py-0.5 text-[10px] font-bold text-orbi-cyan disabled:opacity-50"
+                          >
+                            <KeyRound className="h-2.5 w-2.5" aria-hidden="true" />
+                            {activating.has(c.id) ? "Activando…" : "Activar acceso"}
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-[10px] text-orbi-muted/50">—</span>
+                      )}
+                    </td>
+                  </tr>
+                  {activateErrors[c.id] ? (
+                    <tr className="border-b border-red-400/20 bg-red-400/[0.05]">
+                      <td colSpan={8} className="px-4 py-2 text-xs font-semibold text-red-300">
+                        {activateErrors[c.id]}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {credResults[c.id] ? (
+                    <tr className="border-b border-orbi-cyan/10 bg-orbi-blue/[0.04]">
+                      <td colSpan={8} className="px-4 py-3">
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-3 text-xs">
+                            <span className="font-bold text-orbi-cyan">Acceso activado →</span>
+                            <CredChip label="Correo" value={credResults[c.id].email} />
+                            <CredChip label="Contraseña temporal" value={credResults[c.id].tempPassword} />
+                          </div>
+                          <p className="text-[11px] font-bold text-yellow-200">
+                            ⚠ Esta contraseña solo se muestra una vez. Compártela únicamente con el cliente por WhatsApp.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))
             )}
           </tbody>
@@ -359,6 +427,25 @@ export function AdminCustomers() {
       </p>
 
     </section>
+  );
+}
+
+function CredChip({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded border border-white/10 bg-white/[0.05] px-2 py-1">
+      <span className="text-orbi-muted">{label}:</span>
+      <code className="font-mono font-bold text-orbi-text">{value}</code>
+      <button
+        type="button"
+        title="Copiar"
+        onClick={() => { void navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+        className="ml-0.5 text-orbi-muted hover:text-orbi-cyan"
+      >
+        <Copy className="h-3 w-3" aria-hidden="true" />
+        {copied && <span className="sr-only">Copiado</span>}
+      </button>
+    </span>
   );
 }
 

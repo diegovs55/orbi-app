@@ -2,16 +2,18 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
 import {
   clearCustomerSession,
   getCurrentCustomerSession,
-  loginWithCredential,
+  loginCustomerWithSupabase,
+  registerCustomerAccount,
   saveCustomerSession,
-  saveLocalCustomerAccount,
-  syncRegisteredCustomerToSupabase,
+  getCustomerByAuthUserId,
   CustomerSession,
 } from "@/lib/customers";
+import { supabase } from "@/lib/supabase";
 import {
   ActiveMission,
   CustomerMissionStats,
@@ -46,17 +48,35 @@ type View = "choice" | "login" | "register";
 // ── Root component ────────────────────────────────────────────────────────────
 
 export function MyAccount() {
+  const router = useRouter();
   const [session, setSession] = useState<CustomerSession | null>(null);
   const [view, setView] = useState<View>("choice");
   const [cleared, setCleared] = useState(false);
 
   useEffect(() => {
-    const s = getCurrentCustomerSession();
-    setSession(s);
-  }, []);
+    const cached = getCurrentCustomerSession();
+    // Cross-device: recover session from Supabase JWT
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) {
+        if (cached) setSession(cached);
+        return;
+      }
+      if (data.user.user_metadata?.must_change_password) {
+        router.replace("/usuarios/cambiar-contrasena");
+        return;
+      }
+      if (cached) { setSession(cached); return; }
+      const customer = await getCustomerByAuthUserId(data.user.id);
+      if (customer) {
+        saveCustomerSession(customer.name, customer.phone, customer.email);
+        setSession({ name: customer.name, phone: customer.phone, email: customer.email });
+      }
+    });
+  }, [router]);
 
   function handleLogout() {
     clearCustomerSession();
+    void supabase.auth.signOut();
     setSession(null);
     setCleared(true);
   }
@@ -409,6 +429,7 @@ function LoginForm({
   onSwitch: () => void;
   onBack: () => void;
 }) {
+  const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -420,18 +441,19 @@ function LoginForm({
       setError("Ingresa tu WhatsApp o correo y la contraseña.");
       return;
     }
-    const customer = loginWithCredential(identifier.trim(), password);
-    if (!customer) {
-      setError("Datos incorrectos. Verifica tu WhatsApp/correo y contraseña.");
-      return;
-    }
-    saveCustomerSession(customer.name, customer.phone, customer.email);
     try {
-      await syncRegisteredCustomerToSupabase(customer.name, customer.phone, customer.email);
+      const session = await loginCustomerWithSupabase(identifier.trim(), password);
+      // Guard: force password change if admin-activated account
+      const { data } = await supabase.auth.getUser();
+      if (data.user?.user_metadata?.must_change_password) {
+        router.replace("/usuarios/cambiar-contrasena");
+        return;
+      }
+      saveCustomerSession(session.name, session.phone, session.email);
+      onSuccess(session);
     } catch (err) {
-      console.error("[cuenta] sync supabase en login falló:", err);
+      setError(err instanceof Error ? err.message : "Datos incorrectos.");
     }
-    onSuccess({ name: customer.name, phone: customer.phone, email: customer.email });
   }
 
   return (
@@ -538,14 +560,18 @@ function RegisterForm({
       setError("Las contraseñas no coinciden.");
       return;
     }
-    saveLocalCustomerAccount(fullName.trim(), phone.trim(), email.trim(), password);
-    saveCustomerSession(fullName.trim(), phone.trim(), email.trim());
     try {
-      await syncRegisteredCustomerToSupabase(fullName.trim(), phone.trim(), email.trim());
+      const result = await registerCustomerAccount({
+        name: fullName.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        password,
+      });
+      saveCustomerSession(result.name, result.phone, result.email);
+      onSuccess({ name: result.name, phone: result.phone, email: result.email });
     } catch (err) {
-      console.error("[cuenta] sync supabase en registro falló:", err);
+      setError(err instanceof Error ? err.message : "No fue posible crear la cuenta.");
     }
-    onSuccess({ name: fullName.trim(), phone: phone.trim(), email: email.trim() });
   }
 
   return (

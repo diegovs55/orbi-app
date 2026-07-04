@@ -5,7 +5,6 @@ import { Bell, Orbit, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents } from "@/lib/agents";
 import { getBusinesses } from "@/lib/businesses";
 import { ActiveMission, fetchActiveMissions, getMissionStatusLabel } from "@/lib/missions";
-import { getPendingRequests } from "@/lib/pendingRequests";
 import { subscribeToAgents, subscribeToBusinesses, subscribeToTableChanges } from "@/lib/supabase";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -70,9 +69,17 @@ export function AdminLiveOperations() {
   }, []);
 
   useEffect(() => {
-    setPendingCount(
-      getPendingRequests().filter((r) => r.status === "pending").length
-    );
+    const load = () => {
+      void fetch("/api/requests/list")
+        .then((r) => r.json())
+        .then((rows: { status: string }[]) => {
+          setPendingCount(rows.filter((r) => r.status === "pending").length);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const interval = setInterval(load, 8_000);
+    return () => { clearInterval(interval); };
   }, []);
 
   if (!isUnlocked) return null;
