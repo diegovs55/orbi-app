@@ -227,6 +227,7 @@ export function ServiceRequestFlow() {
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
   const [customerSession, setCustomerSession] = useState<{ name: string; phone: string; email?: string } | null>(null);
+  const [sessionSource, setSessionSource] = useState<"auth" | "local" | null>(null);
   const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
     getInitialConfirmedDraftSections(null)
@@ -414,18 +415,40 @@ export function ServiceRequestFlow() {
     return subscribeToMission(() => setActiveMission(getActiveMission()));
   }, []);
 
-  // Autofill solicitante from saved session (runs once on mount, SSR-safe).
+  // Autofill solicitante — Auth is source of truth, localStorage is fallback.
+  // Runs once on mount (SSR-safe). Two-phase: localStorage fills immediately,
+  // then Supabase Auth upgrades the source if the customer is authenticated.
   useEffect(() => {
-    const session = getCurrentCustomerSession();
-    if (!session) return;
-    setCustomerSession(session);
-    if (!details.requesterName && !details.requesterPhone) {
+    let cancelled = false;
+
+    // Phase 1 — immediate sync fill from localStorage
+    const localSession = getCurrentCustomerSession();
+    if (localSession) {
+      setCustomerSession(localSession);
+      setSessionSource("local");
+      setDetails((prev) => {
+        if (prev.requesterName || prev.requesterPhone) return prev;
+        return { ...prev, requesterName: localSession.name, requesterPhone: localSession.phone };
+      });
+    }
+
+    // Phase 2 — upgrade to Supabase Auth if available (~200 ms async)
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (cancelled || !user) return;
+      const meta = user.user_metadata as { name?: string; phone?: string } | undefined;
+      const name = meta?.name?.trim() ?? "";
+      const phone = meta?.phone?.trim() ?? "";
+      if (!name && !phone) return; // authenticated but no metadata — keep localStorage
+      setCustomerSession({ name, phone });
+      setSessionSource("auth");
       setDetails((prev) => ({
         ...prev,
-        requesterName: session.name,
-        requesterPhone: session.phone
+        requesterName: name || prev.requesterName,
+        requesterPhone: phone || prev.requesterPhone,
       }));
-    }
+    });
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1121,7 +1144,9 @@ export function ServiceRequestFlow() {
     setIsSending(true);
     setOrbitExperienceActive(true);
 
-    const needsRegistration = !getCurrentCustomerSession();
+    // Authenticated users never see the register prompt.
+    // Anonymous users without any session get the register invite.
+    const needsRegistration = sessionSource !== "auth" && !getCurrentCustomerSession();
     if (needsRegistration) {
       setShowRegisterPrompt(true);
     } else {
@@ -1511,9 +1536,13 @@ export function ServiceRequestFlow() {
           {orderIsConfirmed && destinationIsConfirmed ? (
             activeDraftSection === "solicitante" ? (
               <FormSection title="Datos del solicitante">
-                {customerSession ? (
+                {customerSession && sessionSource === "auth" ? (
                   <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
-                    Ya te conocemos — ponemos tu misión en órbita más rápido.
+                    Usando tu cuenta ORBI.
+                  </p>
+                ) : customerSession && sessionSource === "local" ? (
+                  <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
+                    Recordamos tu última visita.
                   </p>
                 ) : null}
                 <RequestInput
