@@ -1,12 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAdmin } from "@/lib/supabase-admin";
 
-function getAdmin() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!serviceRoleKey || !supabaseUrl) return null;
-  return createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-}
 
 export async function GET(req: NextRequest) {
   const admin = getAdmin();
@@ -44,7 +38,7 @@ export async function GET(req: NextRequest) {
   let query = admin
     .from("customers")
     .select(
-      "id,name,phone,email,is_registered,created_at,updated_at,last_order_at,total_orders,total_spent,status",
+      "id,name,phone,email,is_registered,auth_user_id,created_at,updated_at,last_order_at,total_orders,total_spent,status",
       { count: "exact" }
     )
     .order("updated_at", { ascending: false })

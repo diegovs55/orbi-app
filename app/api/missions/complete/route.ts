@@ -26,20 +26,14 @@
  * llamada salta el UPDATE (ya está 'cumplida') y solo hace el INSERT.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { generarMovimientosMision, assertLedgerBalance, validateMissionIds } from "@/lib/ledger";
 import type { ActiveMission } from "@/lib/missions";
 import { logEvent } from "@/lib/event-log";
+import { getAdmin } from "@/lib/supabase-admin";
 
 // ── Admin client (SERVICE_ROLE_KEY — nunca exponer al cliente) ───────────────
 
-function getAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 
@@ -175,10 +169,21 @@ export async function POST(req: NextRequest) {
   } catch (idError) {
     const message = idError instanceof Error ? idError.message : "IDs de misión inválidos.";
     console.error("[missions/complete] IDs inválidos:", message);
-    return NextResponse.json(
-      { error: message },
-      { status: 422 }
-    );
+    await logEvent({
+      event_type:   "api.complete.error_422",
+      severity:     "error",
+      source:       "api_route",
+      entity_type:  "mission",
+      entity_id:    mission_id,
+      actor_type:   "agent",
+      actor_id:     agent_id,
+      payload:      { step: "validate_ids" },
+      error_detail: message,
+      http_status:  422,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
+    return NextResponse.json({ error: message }, { status: 422 });
   }
 
   // 5b. Generar movimientos contables
@@ -188,7 +193,21 @@ export async function POST(req: NextRequest) {
   try {
     assertLedgerBalance(entries);
   } catch (balanceError) {
+    const message = balanceError instanceof Error ? balanceError.message : "Balance contable inconsistente.";
     console.error("[missions/complete] Balance roto:", balanceError);
+    await logEvent({
+      event_type:   "api.complete.error_500",
+      severity:     "critical",
+      source:       "api_route",
+      entity_type:  "ledger",
+      entity_id:    mission_id,
+      actor_type:   "system",
+      payload:      { step: "assert_balance", entries_count: entries.length },
+      error_detail: message,
+      http_status:  500,
+      duration_ms:  Date.now() - startedAt,
+      request_id:   requestId,
+    });
     return NextResponse.json(
       { error: "Error interno: balance contable inconsistente." },
       { status: 500 }

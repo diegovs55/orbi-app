@@ -39,19 +39,13 @@
  *   No requiere RLS — la inserción es autorizada por el servidor.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { calcularMisionCatalogo, estimateMissionCost, PRICING_RULE } from "@/lib/pricing";
 import { logEvent } from "@/lib/event-log";
+import { getAdmin } from "@/lib/supabase-admin";
 
 // ── Admin client ──────────────────────────────────────────────────────────────
 
-function getAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
 
 // ── Haversine server-side ─────────────────────────────────────────────────────
 
@@ -246,9 +240,9 @@ export async function POST(req: NextRequest) {
 
     const productIds = clientLineItems.map((i) => i.product_id);
 
-    // Consultar precios y metadata desde public.catalog — fuente autoritativa
+    // Consultar precios y metadata desde public.products — fuente autoritativa
     const { data: catalogRows, error: catalogError } = await admin
-      .from("catalog")
+      .from("products")
       .select("id, name, price, business_id, category")
       .in("id", productIds);
 
@@ -379,10 +373,6 @@ export async function POST(req: NextRequest) {
 
     requester_name:     (requester_name as string) ?? "",
     requester_phone:    requester_phone as string,
-    customer_name:      (requester_name as string | null) ?? null,
-    customer_phone:     (requester_phone as string | null) ?? null,
-    guest_name:         (requester_name as string | null) ?? null,
-    guest_phone:        (requester_phone as string | null) ?? null,
 
     origin_text:        (origin_text as string) ?? "",
     origin_lat:         oLat,
@@ -391,31 +381,19 @@ export async function POST(req: NextRequest) {
     destination_lat:    dLat,
     destination_lng:    dLng,
 
-    // Datos del negocio: business_id es autoritativo del cliente;
-    // business_name, lat, lng se enriquecerán desde public.businesses en Fase 3.
     business_id:        (business_id as string | null) ?? null,
     business_name:      (business_name as string | null) ?? null,
-    business_lat:       typeof business_lat === "number" ? business_lat : null,
-    business_lng:       typeof business_lng === "number" ? business_lng : null,
 
-    // Datos de productos: todos vienen del servidor (catálogo), no del cliente.
-    product_id:         firstItem?.product_id ?? null,
-    product_name:       authoritativeItems.map((i) => i.product_name).join(", ") || null,
+    // Snapshot autoritativo del carrito — inmutable después del INSERT.
+    // Reemplaza product_id, product_ids, product_name y categoria_producto
+    // como fuente histórica de la compra.
     items:              authoritativeItems.length > 0 ? authoritativeItems : null,
-    product_ids:        authoritativeItems.map((i) => i.product_id),
-
-    // El servidor solo usa product_id y quantity del cliente; ignora price,
-    // product_name, subtotal y business_name enviados por el cliente.
-    categoria_producto: firstItem?.category ?? (categoria_producto as string | null) ?? null,
-    sector:             (sector as string | null) ?? null,
 
     selected_agent_id:      (selected_agent_id as string | null) || null,
     selected_agent_name:    (selected_agent_name as string | null) || null,
-    selected_agent_zone:    (selected_agent_zone as string | null) ?? null,
-    selected_agent_vehicle: (selected_agent_vehicle as string | null) ?? null,
-    selected_agent_trust:   (selected_agent_trust as string | null) ?? null,
     selected_agent_lat:     typeof selected_agent_lat === "number" ? selected_agent_lat : null,
     selected_agent_lng:     typeof selected_agent_lng === "number" ? selected_agent_lng : null,
+    selected_agent_zone:    (selected_agent_zone as string | null) ?? null,
     active_agent_id:        (active_agent_id as string | null) ?? null,
     accepted_at:            (accepted_at as string | null) ?? null,
 

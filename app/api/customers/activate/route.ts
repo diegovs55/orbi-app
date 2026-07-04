@@ -9,30 +9,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
   }
 
-  let agentId: string;
+  let customerId: string;
   try {
-    const body = (await req.json()) as { agentId?: string };
-    agentId = body.agentId?.trim() ?? "";
+    const body = (await req.json()) as { customerId?: string };
+    customerId = body.customerId?.trim() ?? "";
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  if (!agentId) {
-    return NextResponse.json({ error: "agentId is required." }, { status: 400 });
+  if (!customerId) {
+    return NextResponse.json({ error: "customerId is required." }, { status: 400 });
   }
 
-  // Fetch agent profile
-  const { data: agent, error: agentError } = await admin
-    .from("agents")
+  const { data: customer, error: custError } = await admin
+    .from("customers")
     .select("id,name,email,phone,auth_user_id")
-    .eq("id", agentId)
+    .eq("id", customerId)
     .maybeSingle();
 
-  if (agentError || !agent) {
-    return NextResponse.json({ error: "Agente no encontrado." }, { status: 404 });
+  if (custError || !customer) {
+    return NextResponse.json({ error: "Cliente no encontrado." }, { status: 404 });
   }
 
-  const agentRow = agent as {
+  const row = customer as {
     id: string;
     name: string;
     email: string | null;
@@ -40,32 +39,34 @@ export async function POST(req: NextRequest) {
     auth_user_id: string | null;
   };
 
-  const email = agentRow.email?.trim();
+  const email = row.email?.trim();
   if (!email) {
-    return NextResponse.json({ error: "El agente no tiene correo registrado." }, { status: 422 });
+    return NextResponse.json(
+      { error: "El cliente no tiene correo registrado." },
+      { status: 422 }
+    );
   }
 
-  // Idempotent: already activated
-  if (agentRow.auth_user_id) {
-    return NextResponse.json({ alreadyActivated: true, email, agentId });
+  if (row.auth_user_id) {
+    return NextResponse.json({ alreadyActivated: true, email, customerId });
   }
 
   const tempPassword = generateTempPassword();
 
-  // Create Supabase Auth user
   const { data: authData, error: authError } = await admin.auth.admin.createUser({
     email,
     password: tempPassword,
     email_confirm: true,
     user_metadata: {
       must_change_password: true,
-      agent_id: agentId,
-      name: agentRow.name,
+      customer_id: customerId,
+      name: row.name,
+      phone: row.phone ?? "",
     },
   });
 
   if (authError || !authData.user) {
-    console.error("[agents/activate] createUser error:", authError?.message);
+    console.error("[customers/activate] createUser error:", authError?.message);
     return NextResponse.json(
       { error: authError?.message ?? "No fue posible crear el usuario en Supabase Auth." },
       { status: 500 }
@@ -74,21 +75,19 @@ export async function POST(req: NextRequest) {
 
   const authUserId = authData.user.id;
 
-  // Link auth user to agent profile
   const { error: updateError } = await admin
-    .from("agents")
+    .from("customers")
     .update({ auth_user_id: authUserId })
-    .eq("id", agentId);
+    .eq("id", customerId);
 
   if (updateError) {
-    console.error("[agents/activate] update error:", updateError.message);
-    // Best-effort cleanup so we don't leave an orphaned Auth user
+    console.error("[customers/activate] update error:", updateError.message);
     await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
     return NextResponse.json(
-      { error: "No fue posible vincular el usuario con la ficha del agente." },
+      { error: "No fue posible vincular el usuario con el cliente." },
       { status: 500 }
     );
   }
 
-  return NextResponse.json({ email, tempPassword, agentId, authUserId });
+  return NextResponse.json({ email, tempPassword, customerId, authUserId });
 }

@@ -1,15 +1,13 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAdmin } from "@/lib/supabase-admin";
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "");
 }
 
 export async function POST(req: NextRequest) {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-  if (!serviceRoleKey || !supabaseUrl) {
+  const supabaseAdmin = getAdmin();
+  if (!supabaseAdmin) {
     return NextResponse.json(
       { error: "Server misconfiguration: missing Supabase service role key." },
       { status: 500 }
@@ -21,6 +19,7 @@ export async function POST(req: NextRequest) {
     phone?: string;
     email?: string;
     is_registered?: boolean;
+    auth_user_id?: string;
   };
 
   try {
@@ -34,21 +33,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "phone is required." }, { status: 400 });
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false },
-  });
 
   const now = new Date().toISOString();
 
-  // Fetch existing row to preserve counters and timestamps
+  // Fetch existing row to preserve counters, timestamps, and auth link
   const { data: existing } = await supabaseAdmin
     .from("customers")
-    .select("id, created_at, last_order_at, total_orders, total_spent, is_registered")
+    .select("id, created_at, last_order_at, total_orders, total_spent, is_registered, auth_user_id")
     .eq("phone", phone)
     .maybeSingle();
 
   const id = existing?.id ?? crypto.randomUUID();
   const isRegistered = body.is_registered ?? existing?.is_registered ?? false;
+  // Preserve existing auth_user_id unless a new one is provided
+  const authUserId = body.auth_user_id ?? existing?.auth_user_id ?? null;
 
   const { data, error } = await supabaseAdmin
     .from("customers")
@@ -59,6 +57,7 @@ export async function POST(req: NextRequest) {
         phone,
         email: body.email?.trim() || null,
         is_registered: isRegistered,
+        auth_user_id: authUserId,
         status: "activo",
         // Preserve existing counters — never reset them on login/register
         total_orders: existing?.total_orders ?? 0,
