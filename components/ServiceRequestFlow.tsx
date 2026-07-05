@@ -1131,6 +1131,8 @@ export function ServiceRequestFlow() {
 
     setActiveMission(mission);
     setSentMission(mission);
+    // Persist missionId so /orbita always shows THIS customer's mission.
+    sessionStorage.setItem("orbi_active_mission_id", mission.id);
     try {
       await upsertGuestCustomerFromMission(mission);
     } catch (err) {
