@@ -734,11 +734,20 @@ export async function completeMissionWithLedger(
   id: string,
   agentId: string
 ): Promise<MissionCompleteResult> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    return { status: "error", message: "Sesión expirada. Vuelve a iniciar sesión e intenta de nuevo." };
+  }
+
   let res: Response;
   try {
     res = await fetch("/api/missions/complete", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
       body: JSON.stringify({ mission_id: id, agent_id: agentId }),
     });
   } catch (err) {

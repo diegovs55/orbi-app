@@ -18,7 +18,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AGENT_STATUS,
   AgentServiceType,
@@ -53,6 +53,7 @@ import {
 } from "@/lib/missions";
 import { fetchRoute } from "@/lib/routing";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
 
 const LocationPickerMap = dynamic(
   async () => {
@@ -1140,8 +1141,8 @@ export function ServiceRequestFlow() {
     }
     setRequestStatusMessage(
       isCatalogMission
-        ? "Pedido enviado. Esperando confirmación del negocio."
-        : "Solicitud enviada. Poniendo tu misión en órbita."
+        ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
+        : "Ya lo tenemos. Buscando quién te ayude."
     );
     setIsSending(true);
     setOrbitExperienceActive(true);
@@ -1170,7 +1171,7 @@ export function ServiceRequestFlow() {
     }
 
     if (activeMission?.status === "por_tomar" && !activeMission.selected_agent_id) {
-      setWaitingRequestMessage("Solicitud en espera. Seguimos buscando disponibilidad compatible.");
+      setWaitingRequestMessage("Ya lo tenemos. Seguimos buscando quién te ayude.");
       return;
     }
 
@@ -1249,8 +1250,8 @@ export function ServiceRequestFlow() {
     }
     setWaitingRequestMessage(
       isCatalogMission
-        ? "Pedido enviado. Esperando confirmación del negocio."
-        : "Solicitud en espera. Te avisaremos cuando un agente compatible pueda tomarla."
+        ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
+        : "Ya lo tenemos. Buscando quién te ayude."
     );
     setShowWaitingCancelConfirm(false);
   }
@@ -1267,7 +1268,7 @@ export function ServiceRequestFlow() {
   function handleCancelWaitingRequest() {
     const nextMission = updateActiveMission({ status: "cancelada" });
     setActiveMission(nextMission);
-    setWaitingRequestMessage("Solicitud cancelada. No fue asignada a ningún agente.");
+    setWaitingRequestMessage("Cancelado. No hubo ningún cargo.");
     setShowWaitingCancelConfirm(false);
     // Persist cancel to Supabase. Fire-and-forget — local state already updated.
     if (nextMission?.id) void cancelMissionByCustomer(nextMission.id);
@@ -1289,23 +1290,16 @@ export function ServiceRequestFlow() {
       {!selectedService ? (
         <>
           <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-              Red Orbi
-            </p>
-            <h1 className="mt-3 text-4xl font-black text-orbi-text">¿Qué necesitas hoy?</h1>
-            <h2 className="mt-3 text-3xl font-black text-orbi-text">Búscalo y ponlo en órbita</h2>
+            <h1 className="text-4xl font-black text-orbi-text">¿Qué necesitas?</h1>
             <div className="mt-5 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
               <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Buscar productos, servicios, mandados o trámites..."
+                placeholder="Dime qué necesitas..."
                 className="min-w-0 flex-1 bg-transparent py-4 text-base font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
               />
             </div>
-            <p className="mt-3 text-sm leading-6 text-orbi-muted">
-              Describe tu necesidad y la Red Orbi te ayudará a ponerla en órbita.
-            </p>
             {catalogError ? (
               <p className="mt-3 rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
                 {catalogError}
@@ -1320,11 +1314,7 @@ export function ServiceRequestFlow() {
                 onSelectProduct={handleSelectProduct}
                 onSelectCustomMission={handleSelectCustomMission}
               />
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-orbi-muted">
-                Escribe algo como frappe, medicina, traslado al centro, pago de recibo, recoger paquete o impresiones.
-              </p>
-            )}
+            ) : null}
           </section>
 
           <section className="space-y-3">
@@ -1653,7 +1643,7 @@ export function ServiceRequestFlow() {
                   Agente disponible
                 </p>
                 <h2 className="mt-1 text-lg font-black text-orbi-text">
-                  Elige quién pondrá tu misión en órbita
+                  Elige quién te ayudará
                 </h2>
               </div>
               {details.originLat === null || details.originLng === null ? (
@@ -1682,9 +1672,9 @@ export function ServiceRequestFlow() {
             <>
               {activeMission?.status === "cancelada" ? (
                 <StateCard
-                  title="Solicitud cancelada"
-                  body="Solicitud cancelada. No fue asignada a ningún agente."
-                  actionLabel="Modificar solicitud"
+                  title="Pedido cancelado"
+                  body="Cancelado. No había ningún cargo pendiente."
+                  actionLabel="Cambiar algo"
                   onAction={handleModifyWaitingRequest}
                 />
               ) : (
@@ -1709,9 +1699,7 @@ export function ServiceRequestFlow() {
 
       {isOrbitExperienceActive && sentMission ? (
         <OrbitExperienceStage
-          service={selectedService?.label ?? sentMission.service_type}
-          agent={selectedAgent?.name ?? sentMission.selected_agent_name}
-          total={sentMission.total ?? (isCatalogMission ? cartSubtotal + (serviceFee ?? 0) : estimateMissionCost(routeDistance).price)}
+          missionId={sentMission.id}
           showRegisterPrompt={showRegisterPrompt}
           requesterName={details.requesterName || sentMission.requester_name}
           requesterPhone={details.requesterPhone || sentMission.requester_phone}
@@ -1721,25 +1709,22 @@ export function ServiceRequestFlow() {
             setShowRegisterPrompt(false);
           }}
           onDismissRegister={() => setShowRegisterPrompt(false)}
-          onViewMission={() => {
-            router.push("/orbita");
-          }}
         />
       ) : null}
 
       {selectedService && selectedAgent && !isOrbitExperienceActive ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-            Confirmar misión
+            Tu pedido
           </p>
-          <h2 className="mt-2 text-2xl font-black text-orbi-text">Misión lista para enviar</h2>
+          <h2 className="mt-2 text-2xl font-black text-orbi-text">¿Lo pedimos así?</h2>
           <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Servicio" value={selectedService.label} />
             {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
             <SummaryItem label="Agente" value={selectedAgent.name} />
             <SummaryItem
-              label="Órbita estimada"
+              label="Tiempo estimado"
               value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
             />
             <SummaryItem label="Método de pago" value={paymentMethod} />
@@ -1768,7 +1753,7 @@ export function ServiceRequestFlow() {
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
                 {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-                <SummaryItem label="Órbita estimada" value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))} />
+                <SummaryItem label="Tiempo estimado" value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))} />
                 <SummaryItem label="Estado de pago" value={paymentStatus} />
                 <SummaryItem label="Método de pago" value={paymentMethod} />
               </div>
@@ -1779,7 +1764,7 @@ export function ServiceRequestFlow() {
             {isSending ? (
               <div className="sm:col-span-2 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-6 text-center">
                 <div className="mx-auto mb-3 h-12 w-12 animate-pulse rounded-full bg-orbi-cyan/30" />
-                <p className="text-lg font-black text-orbi-text">Poniendo tu misión en órbita…</p>
+                <p className="text-lg font-black text-orbi-text">Ya lo tenemos…</p>
                 <p className="mt-2 text-sm text-orbi-muted">Estamos conectando tu solicitud con el agente seleccionado.</p>
               </div>
             ) : null}
@@ -2123,6 +2108,39 @@ function CompactStepCard({
   );
 }
 
+// ── Intention detection ───────────────────────────────────────────────────────
+
+type DetectedIntention = {
+  serviceLabel: "Compra local" | "Traslado" | "Recolección" | "Pago o trámite" | "Mandado";
+  proposal: string;
+};
+
+function detectIntention(query: string): DetectedIntention {
+  const q = query.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+  const is = (...words: string[]) => words.some((w) => q.includes(w));
+
+  if (is("traslado", "llevame", "llevame", "llévenme", "llevenme", "llevar", "lleven", "ir a", "quiero ir", "me llevan", "me lleven", "necesito ir", "necesito que me lleven", "necesito que me lleve")) {
+    return { serviceLabel: "Traslado", proposal: "Entendí. Vamos a ayudarte a llegar." };
+  }
+
+  if (is("recoger", "recoge", "recogen", "recoleccion", "recolección", "paquete", "que recojan", "que recoja")) {
+    return { serviceLabel: "Recolección", proposal: "Entendí. Mandamos a alguien a recogerlo." };
+  }
+
+  if (is("pagar", "pago", "recibo", "tramite", "trámite", "fila", "cfe", "agua ", " luz", "predial", "banco", "servicio", "factura")) {
+    return { serviceLabel: "Pago o trámite", proposal: "Entendí. Podemos hacer ese trámite por ti." };
+  }
+
+  if (is("comprar", "compra", "quiero", "tráeme", "traeme", "conseguir", "buscar", "cafe", "café", "medicina", "farmacia", "comida", "producto")) {
+    return { serviceLabel: "Compra local", proposal: "Entendí. Vamos a conseguirlo." };
+  }
+
+  return { serviceLabel: "Mandado", proposal: "Entendí. Mandamos a alguien." };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function CatalogSuggestions({
   query,
   results,
@@ -2138,23 +2156,38 @@ function CatalogSuggestions({
   onSelectProduct: (product: CatalogSearchResult) => void;
   onSelectCustomMission: (label: "Mandado" | "Compra local" | "Servicio personalizado") => void;
 }) {
-  if (!results.length) {
+  const intention = detectIntention(query);
+  const isNonCatalogService =
+    intention.serviceLabel === "Traslado" ||
+    intention.serviceLabel === "Recolección" ||
+    intention.serviceLabel === "Pago o trámite";
+
+  if (!results.length || isNonCatalogService) {
+    const missionLabel = intention.serviceLabel === "Compra local"
+      ? "Compra local"
+      : intention.serviceLabel === "Mandado"
+        ? "Mandado"
+        : "Servicio personalizado";
+
     return (
-      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.04] p-4">
-        <p className="text-sm font-bold text-orbi-text">
-          No encontramos algo exacto, pero podemos ayudarte con un mandado o misión personalizada.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {(["Mandado", "Compra local", "Servicio personalizado"] as const).map((label) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => onSelectCustomMission(label)}
-              className="min-h-10 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-            >
-              {label}
-            </button>
-          ))}
+      <div className="mt-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-5">
+        <p className="text-base font-black text-orbi-text">{intention.proposal}</p>
+        <p className="mt-1 text-sm text-orbi-muted">¿Lo pedimos así?</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onSelectCustomMission(missionLabel as "Mandado" | "Compra local" | "Servicio personalizado")}
+            className="inline-flex min-h-10 items-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            Sí, pedir
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectCustomMission("Mandado")}
+            className="inline-flex min-h-10 items-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-muted transition hover:bg-white/10"
+          >
+            Es otra cosa
+          </button>
         </div>
       </div>
     );
@@ -2734,9 +2767,9 @@ function WaitingRequestCard({
       <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
         <Radar aria-hidden="true" className="h-7 w-7" />
       </div>
-      <h2 className="text-center text-2xl font-black text-orbi-text">Solicitud en espera</h2>
+      <h2 className="text-center text-2xl font-black text-orbi-text">Ya lo tenemos</h2>
       <p className="mx-auto mt-3 max-w-lg text-center text-sm leading-6 text-orbi-muted">
-        No hay agentes compatibles disponibles en este momento. Tu solicitud aún no ha sido asignada.
+        Ahora mismo no hay alguien disponible cerca. Estamos buscando.
       </p>
       {message ? (
         <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-center text-sm font-bold text-emerald-200">
@@ -2745,9 +2778,9 @@ function WaitingRequestCard({
       ) : null}
       {showCancelConfirm ? (
         <div className="mt-5 rounded-md border border-red-300/20 bg-red-400/10 p-4">
-          <h3 className="font-black text-red-100">¿Deseas cancelar esta solicitud?</h3>
+          <h3 className="font-black text-red-100">¿Cancelamos?</h3>
           <p className="mt-2 text-sm leading-6 text-red-100/85">
-            No ha sido asignada a ningún agente y no existe ningún cobro pendiente.
+            Todavía no hay ningún cargo. Puedes cancelar sin problema.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <button
@@ -2755,7 +2788,7 @@ function WaitingRequestCard({
               onClick={onConfirmCancel}
               className="min-h-11 rounded-md border border-red-300/25 bg-red-400/15 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
             >
-              Sí, cancelar solicitud
+              Sí, cancelar
             </button>
             <button
               type="button"
@@ -2773,21 +2806,21 @@ function WaitingRequestCard({
             onClick={onWait}
             className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
           >
-            Esperar disponibilidad
+            Seguir esperando
           </button>
           <button
             type="button"
             onClick={onModify}
             className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
           >
-            Modificar solicitud
+            Cambiar algo
           </button>
           <button
             type="button"
             onClick={onCancel}
             className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
           >
-            Cancelar solicitud
+            Cancelar
           </button>
         </div>
       )}
@@ -2810,10 +2843,10 @@ function PendingMissionCard({
     <section className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">Seguimiento de misión</p>
-          <h2 className="mt-2 text-2xl font-black text-orbi-text">Misión pendiente de confirmación</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">Cómo va tu pedido</p>
+          <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya lo tenemos</h2>
           <p className="mt-2 text-sm leading-6 text-orbi-muted">
-            Tu solicitud ya fue enviada al agente y está a la espera de su confirmación.
+            Esperando confirmación del agente.
           </p>
         </div>
         <span className="inline-flex items-center rounded-full border border-orbi-cyan/20 bg-orbi-blue/15 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
@@ -2861,81 +2894,34 @@ function PendingMissionCard({
 }
 
 function OrbitExperienceStage({
-  service,
-  agent,
-  total,
+  missionId,
   showRegisterPrompt,
   requesterName,
   requesterPhone,
   onSaveSession,
   onDismissRegister,
-  onViewMission
 }: {
-  service: string;
-  agent: string;
-  total: number;
+  missionId: string;
   showRegisterPrompt: boolean;
   requesterName: string;
   requesterPhone: string;
   onSaveSession: (name: string, phone: string, email: string) => void;
   onDismissRegister: () => void;
-  onViewMission: () => void;
 }) {
   return (
-    <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_340px]">
-        <div className="space-y-4">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">Red Orbi</p>
-          <h2 className="text-3xl font-black text-orbi-text">Poniendo tu misión en órbita</h2>
-          <p className="max-w-xl text-sm leading-6 text-orbi-muted">
-            Esperando que el agente acepte la misión…
-          </p>
-          <p className="text-sm leading-6 text-orbi-muted">
-            Red Orbi mantiene tu solicitud activa.
-          </p>
-
-          <div className="space-y-3 rounded-3xl border border-orbi-cyan/15 bg-orbi-black/80 p-4">
-            <SummaryItem label="Servicio" value={service} />
-            <SummaryItem label="Agente" value={agent} />
-            <SummaryItem label="Total" value={`$${total}`} />
-          </div>
-
-          {showRegisterPrompt ? (
-            <SaveSessionPrompt
-              name={requesterName}
-              phone={requesterPhone}
-              onSave={onSaveSession}
-              onDismiss={onDismissRegister}
-            />
-          ) : null}
-
-          {!showRegisterPrompt ? (
-            <button
-              type="button"
-              onClick={onViewMission}
-              className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-            >
-              Ver misión en órbita
-            </button>
-          ) : null}
-        </div>
-        <div className="relative overflow-hidden rounded-[2rem] border border-orbi-cyan/15 bg-[#061224] p-6">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.12),transparent_45%)]" />
-          <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full border border-orbi-cyan/20 opacity-60" />
-          <div className="absolute left-[15%] top-[50%] h-3 w-3 -translate-y-1/2 rounded-full bg-orbi-cyan animate-ping" />
-          <div className="absolute left-[70%] top-[20%] h-4 w-4 rounded-full bg-orbi-blue animate-pulse" />
-          <div className="absolute left-[82%] top-[68%] h-2 w-2 rounded-full bg-white/80 animate-ping" />
-          <div className="absolute left-[40%] top-[20%] h-2 w-2 rounded-full bg-white/80 animate-pulse" />
-          <div className="absolute left-[50%] top-[50%] h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-orbi-cyan/30 bg-orbi-blue/20 shadow-[0_0_40px_rgba(56,189,248,0.22)]" />
-          <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-orbi-cyan/30 bg-orbi-blue/30 text-center text-sm font-black text-orbi-cyan shadow-[0_0_30px_rgba(56,189,248,0.18)]">
-            <span>🚀</span>
-          </div>
-          <div className="absolute left-[50%] top-[50%] h-8 w-28 -translate-x-1/2 -translate-y-1/2 rounded-full border border-orbi-cyan/25 bg-orbi-black/80 text-center text-xs font-bold uppercase tracking-[0.16em] text-orbi-cyan/80">
-            En órbita
-          </div>
-        </div>
-      </div>
-    </section>
+    <div className="space-y-4">
+      <Suspense>
+        <MissionOrbitTracker initialMissionId={missionId} />
+      </Suspense>
+      {showRegisterPrompt ? (
+        <SaveSessionPrompt
+          name={requesterName}
+          phone={requesterPhone}
+          onSave={onSaveSession}
+          onDismiss={onDismissRegister}
+        />
+      ) : null}
+    </div>
   );
 }
 

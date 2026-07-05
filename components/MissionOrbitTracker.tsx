@@ -40,12 +40,12 @@ const MissionOrbitMap = dynamic(
 
 const fallbackPoint: MissionPoint = { lat: 18.8349, lng: -99.5818 };
 
-export function MissionOrbitTracker() {
+export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: string } = {}) {
   const searchParams = useSearchParams();
   // All state is loaded after mount (client-only) to avoid hydration mismatches.
   const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(
-    () => searchParams.get("missionId")
+    () => initialMissionId ?? searchParams.get("missionId")
   );
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
   const [rating, setRating] = useState(5);
