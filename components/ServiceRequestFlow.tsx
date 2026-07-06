@@ -1700,6 +1700,7 @@ export function ServiceRequestFlow() {
       {isOrbitExperienceActive && sentMission ? (
         <OrbitExperienceStage
           missionId={sentMission.id}
+          serviceType={sentMission.service_type}
           showRegisterPrompt={showRegisterPrompt}
           requesterName={details.requesterName || sentMission.requester_name}
           requesterPhone={details.requesterPhone || sentMission.requester_phone}
@@ -2893,8 +2894,44 @@ function PendingMissionCard({
   );
 }
 
+function commitmentTextForService(serviceType: string): {
+  searching: string;
+  horizon: string;
+} {
+  const t = serviceType.toLowerCase();
+  if (t.includes("traslado")) {
+    return {
+      searching: "Buscando quién te lleve.",
+      horizon: "Normalmente encontramos a alguien en menos de 8 minutos.",
+    };
+  }
+  if (t.includes("recolección") || t.includes("recoleccion") || t.includes("entrega")) {
+    return {
+      searching: "Buscando quién lo recoja.",
+      horizon: "Normalmente encontramos a alguien en menos de 8 minutos.",
+    };
+  }
+  if (t.includes("pago") || t.includes("trámite") || t.includes("tramite")) {
+    return {
+      searching: "Buscando quién haga ese trámite.",
+      horizon: "Normalmente encontramos a alguien en menos de 8 minutos.",
+    };
+  }
+  if (t.includes("compra")) {
+    return {
+      searching: "Buscando quién lo consiga.",
+      horizon: "Normalmente encontramos a alguien en menos de 8 minutos.",
+    };
+  }
+  return {
+    searching: "Buscando quién te ayude.",
+    horizon: "Normalmente encontramos a alguien en menos de 8 minutos.",
+  };
+}
+
 function OrbitExperienceStage({
   missionId,
+  serviceType,
   showRegisterPrompt,
   requesterName,
   requesterPhone,
@@ -2902,17 +2939,38 @@ function OrbitExperienceStage({
   onDismissRegister,
 }: {
   missionId: string;
+  serviceType: string;
   showRegisterPrompt: boolean;
   requesterName: string;
   requesterPhone: string;
   onSaveSession: (name: string, phone: string, email: string) => void;
   onDismissRegister: () => void;
 }) {
+  const folio = missionId.replace(/-/g, "").slice(-6).toUpperCase();
+  const { searching, horizon } = commitmentTextForService(serviceType);
+
   return (
     <div className="space-y-4">
+      {/* Capa de compromiso — Bloque A */}
+      <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-5">
+        <p className="text-xl font-black text-orbi-text">
+          Ya puedes dejar esto en nuestras manos.
+        </p>
+        <p className="mt-1 text-sm font-mono font-semibold tracking-widest text-orbi-cyan">
+          #{folio}
+        </p>
+        <p className="mt-4 text-sm text-orbi-muted">{searching}</p>
+        <p className="text-sm text-orbi-muted">{horizon}</p>
+        <p className="mt-3 text-xs text-orbi-muted/70">
+          Si en 10 minutos no encontramos a nadie, te avisamos aquí.
+        </p>
+      </div>
+
+      {/* Tracker de estado */}
       <Suspense>
         <MissionOrbitTracker initialMissionId={missionId} />
       </Suspense>
+
       {showRegisterPrompt ? (
         <SaveSessionPrompt
           name={requesterName}
