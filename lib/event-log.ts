@@ -68,7 +68,6 @@ export async function logEvent(params: LogEventParams): Promise<void> {
       duration_ms:  params.duration_ms  ?? null,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (admin.from("event_log") as any).insert(row);
 
     if (error) {
