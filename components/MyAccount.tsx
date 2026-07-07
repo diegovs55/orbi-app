@@ -505,16 +505,27 @@ function LoginForm({
           Entrar
         </button>
       </form>
-      <p className="text-xs text-orbi-muted">
-        ¿No tienes cuenta?{" "}
-        <button
-          type="button"
-          onClick={onSwitch}
-          className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
-        >
-          Crear cuenta
-        </button>
-      </p>
+      <div className="space-y-2">
+        <p className="text-xs text-orbi-muted">
+          ¿No tienes cuenta?{" "}
+          <button
+            type="button"
+            onClick={onSwitch}
+            className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+          >
+            Crear cuenta
+          </button>
+        </p>
+        <p className="text-xs text-orbi-muted">
+          ¿Olvidaste tu contraseña?{" "}
+          <a
+            href="/usuarios/recuperar-contrasena"
+            className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+          >
+            Recuperar acceso
+          </a>
+        </p>
+      </div>
     </div>
   );
 }

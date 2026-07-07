@@ -42,6 +42,13 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
     let active = true;
 
     async function syncSession() {
+      // First check if there is an active Supabase session.
+      // If there is no session (e.g. token is still refreshing after navigation),
+      // leave the admin key untouched — a missing session is not a sign-out.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!active) return;
+      if (!sessionData.session) return;
+
       const isAdmin = await verifyAdminRole();
       if (!active) return;
 
@@ -57,7 +64,19 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
       void syncSession();
     }
 
-    return () => { active = false; };
+    // Clear the admin key immediately on a real Supabase sign-out,
+    // regardless of whether the component re-mounts.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        window.dispatchEvent(new Event("orbi-admin-session-change"));
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
