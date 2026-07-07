@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { Building2, PackagePlus, Route, UserRound, UsersRound } from "lucide-react";
+import { SupabaseAuthListener } from "@/components/SupabaseAuthListener";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body>
+        <SupabaseAuthListener />
         <div className="relative min-h-screen overflow-hidden pb-24">
           <div className="orbit-grid pointer-events-none absolute inset-0 opacity-80" />
           <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-6 sm:px-8">

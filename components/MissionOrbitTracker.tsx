@@ -87,10 +87,25 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Filters the full mission list to only missions belonging to this user.
+  // Matches by stored mission ID or by phone number (handles +52 prefix variants).
+  function filterToUserMissions(all: ActiveMission[]): ActiveMission[] {
+    const storedId = sessionStorage.getItem("orbi_active_mission_id");
+    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
+    return all.filter((m) => {
+      if (storedId && m.id === storedId) return true;
+      if (customerPhone) {
+        const mp = (m.requester_phone ?? "").replace(/\D/g, "");
+        return mp.endsWith(customerPhone) || customerPhone.endsWith(mp);
+      }
+      return false;
+    });
+  }
+
   // Carga inicial + re-fetch al cambiar selectedId (multi-misión)
   useEffect(() => {
     void (async () => {
-      const all = await fetchActiveMissions();
+      const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
         const primary = all.find((m) => !isMissionClosed(m)) ?? null;
@@ -99,12 +114,13 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
         }
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   // Suscripción estable — no se recrea por cambios de selectedId
   useEffect(() => {
     return subscribeToTableChanges("missions", async () => {
-      const all = await fetchActiveMissions();
+      const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
         const primary = all.find((m) => !isMissionClosed(m)) ?? null;
@@ -113,6 +129,7 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
         }
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Live agent position: subscribe to agents table and refresh current_lat/lng

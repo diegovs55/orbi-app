@@ -36,36 +36,36 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // On mount: re-verify an existing session against the server-side role check.
-  // This prevents an agent/business JWT from unlocking the admin panel.
+  // On mount: restore an admin session that existed before a page refresh.
+  // If the key is already set (navigation within the SPA), trust it and skip
+  // the network round-trip — clearing it on a failed verify is what caused
+  // the session to vanish on every navigation.
   useEffect(() => {
     let active = true;
 
-    async function syncSession() {
-      // First check if there is an active Supabase session.
-      // If there is no session (e.g. token is still refreshing after navigation),
-      // leave the admin key untouched — a missing session is not a sign-out.
+    async function tryRestoreSession() {
+      // Key already present — no action needed.
+      if (window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "true") return;
+
+      // Key absent (e.g. after a full page refresh, sessionStorage was wiped).
+      // Check if the user still has a valid Supabase session and re-unlock.
       const { data: sessionData } = await supabase.auth.getSession();
       if (!active) return;
       if (!sessionData.session) return;
 
       const isAdmin = await verifyAdminRole();
       if (!active) return;
+      if (!isAdmin) return;
 
-      if (isAdmin) {
-        window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-      } else {
-        window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
-      }
+      window.sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
       window.dispatchEvent(new Event("orbi-admin-session-change"));
     }
 
     if (typeof window !== "undefined") {
-      void syncSession();
+      void tryRestoreSession();
     }
 
-    // Clear the admin key immediately on a real Supabase sign-out,
-    // regardless of whether the component re-mounts.
+    // Clear the admin key immediately on a real Supabase sign-out.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
