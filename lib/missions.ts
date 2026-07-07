@@ -624,6 +624,23 @@ export async function fetchActiveMissions(): Promise<ActiveMission[]> {
   return (data ?? []).map(normalizeMission) as ActiveMission[];
 }
 
+/**
+ * Returns the real count of active missions using a server-side COUNT.
+ * Avoids Supabase's default 1000-row page limit that distorts the KPI number.
+ * Use this for admin counters; use fetchActiveMissions() for list display.
+ */
+export async function fetchActiveMissionsCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from("missions")
+    .select("*", { count: "exact", head: true })
+    .not("status", "in", "(cumplida,cancelada,archivada)");
+  if (error) {
+    console.error("[missions] fetchActiveMissionsCount error:", error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 /** Business accepts order → esperando_negocio → preparando (starts preparation). */
 export async function confirmMissionByBusiness(id: string): Promise<boolean> {
   const now = new Date().toISOString();

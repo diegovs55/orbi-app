@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Bell, Orbit, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents } from "@/lib/agents";
 import { getBusinesses } from "@/lib/businesses";
-import { ActiveMission, fetchActiveMissions, getMissionStatusLabel } from "@/lib/missions";
+import { ActiveMission, fetchActiveMissions, fetchActiveMissionsCount, getMissionStatusLabel } from "@/lib/missions";
 import { subscribeToAgents, subscribeToBusinesses, subscribeToTableChanges } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
 
@@ -38,18 +38,21 @@ function shortId(id: string): string {
 export function AdminLiveOperations() {
   const isUnlocked = useSyncExternalStore(subscribeToAdminSession, readAdminSession, () => false);
   const [missions, setMissions] = useState<ActiveMission[]>([]);
+  const [activeMissionsCount, setActiveMissionsCount] = useState(0);
   const [agentsInOrbit, setAgentsInOrbit] = useState(0);
   const [businessCount, setBusinessCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     const refresh = async () => {
-      const [missionData, agentData, businessData] = await Promise.all([
+      const [missionData, missionCount, agentData, businessData] = await Promise.all([
         fetchActiveMissions(),
+        fetchActiveMissionsCount(),
         getAgents(),
         getBusinesses()
       ]);
       setMissions(missionData);
+      setActiveMissionsCount(missionCount);
       setAgentsInOrbit(
         agentData.filter((a) => a.status === AGENT_STATUS.ONLINE && a.isOnOrbit).length
       );
@@ -101,8 +104,8 @@ export function AdminLiveOperations() {
         <LiveKpiCard
           icon={Orbit}
           label="Misiones activas"
-          value={missions.length}
-          accent={missions.length > 0}
+          value={activeMissionsCount}
+          accent={activeMissionsCount > 0}
         />
         <LiveKpiCard
           icon={UsersRound}
