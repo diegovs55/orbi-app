@@ -39,7 +39,9 @@ export function AdminMissions() {
     });
     setMission(nextMission);
     setMessage("Misión aceptada. Ya estás en órbita.");
-    router.push(`/orbita/${nextMission.id}`);
+    if (nextMission) {
+      router.push(`/orbita/${nextMission.id}`);
+    }
   }
 
   function handleRejectMission() {
