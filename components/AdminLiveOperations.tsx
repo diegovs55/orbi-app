@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { Bell, Orbit, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents } from "@/lib/agents";
 import { getBusinesses } from "@/lib/businesses";
@@ -196,7 +197,7 @@ function MissionRow({ mission }: { mission: ActiveMission }) {
   };
 
   return (
-    <div className="grid grid-cols-[6rem_1fr_1fr_1fr_auto_auto] items-center gap-3 px-4 py-3 text-xs">
+    <div className="grid grid-cols-[6rem_1fr_1fr_1fr_auto_auto_auto] items-center gap-3 px-4 py-3 text-xs">
       <span className="font-mono font-bold text-orbi-muted">
         Folio: #{shortId(mission.id)}
       </span>
@@ -218,6 +219,12 @@ function MissionRow({ mission }: { mission: ActiveMission }) {
       <span className="whitespace-nowrap text-orbi-muted/70">
         {timeAgo(mission.updated_at || mission.last_updated_at)}
       </span>
+      <Link
+        href={`/orbita/${mission.id}`}
+        className="whitespace-nowrap font-semibold text-orbi-cyan hover:underline"
+      >
+        Ver órbita
+      </Link>
     </div>
   );
 }

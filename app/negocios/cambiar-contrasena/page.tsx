@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
-import { supabase } from "@/lib/supabase";
+import { supabaseBusiness as supabase } from "@/lib/supabase-business-client";
 import { getBusinessByAuthUserId } from "@/lib/businesses";
 import { saveBusinessSession } from "@/lib/businessSession";
 

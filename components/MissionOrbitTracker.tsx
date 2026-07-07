@@ -60,8 +60,12 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   const [lastClosedMission, setLastClosedMission] = useState<ActiveMission | null>(null);
   // Live agent position updated via agents Realtime subscription.
   const [liveAgentPoint, setLiveAgentPoint] = useState<MissionPoint | null>(null);
+  // True only when initialMissionId was provided but the mission row doesn't exist in the DB.
+  const [missionNotFound, setMissionNotFound] = useState(false);
   const prevActiveMissionIdsRef = useRef<string[]>([]);
   const userClosedDetailRef = useRef(false);
+  // Tracks whether the mission reached a terminal state so we can clean up sessionStorage on unmount.
+  const missionClosedRef = useRef(false);
 
   // Órbita solo muestra misiones con agente asignado (aceptada o en_mision).
   // Las misiones por_tomar sin agente siguen en Supabase para que otros agentes las vean.
@@ -132,7 +136,13 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       if (initialMissionId) {
         // Single-mission mode: load exactly one mission by ID.
         const m = await fetchMissionById(initialMissionId);
-        if (m) setMissions([m]);
+        if (m) {
+          setMissions([m]);
+          setMissionNotFound(false);
+        } else {
+          // Mission row doesn't exist — show "not found" UI instead of listing all missions.
+          setMissionNotFound(true);
+        }
         return;
       }
       const all = filterToUserMissions(await fetchActiveMissions());
@@ -152,7 +162,12 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
     return subscribeToTableChanges("missions", async () => {
       if (initialMissionId) {
         const m = await fetchMissionById(initialMissionId);
-        if (m) setMissions([m]);
+        if (m) {
+          setMissions([m]);
+          setMissionNotFound(false);
+        } else {
+          setMissionNotFound(true);
+        }
         return;
       }
       const all = filterToUserMissions(await fetchActiveMissions());
@@ -235,6 +250,23 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       setShowSaveSessionPrompt(true);
     }
   }, [mission?.status]);
+
+  // Track when mission reaches a terminal state so we can clean up on unmount.
+  useEffect(() => {
+    if (mission && isMissionClosed(mission)) {
+      missionClosedRef.current = true;
+    }
+  }, [mission?.status]);
+
+  // When the user navigates away from a closed mission, clear the stored ID so it
+  // never acts as a ghost reference for future visits to /orbita.
+  useEffect(() => {
+    return () => {
+      if (missionClosedRef.current) {
+        sessionStorage.removeItem("orbi_active_mission_id");
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -413,6 +445,27 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
             + Nueva misión
           </Link>
         </div>
+      </section>
+    );
+  }
+
+  // Single-mission mode: mission row not found in the DB — never fall back to listing all missions.
+  if (initialMissionId && missionNotFound) {
+    return (
+      <section className="rounded-md border border-white/10 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted">
+          <Radar aria-hidden="true" className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-black text-orbi-text">Esta misión ya no existe o terminó</h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
+          Es posible que el pedido haya sido cancelado o que el enlace haya expirado.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+        >
+          Volver al inicio
+        </Link>
       </section>
     );
   }
@@ -689,6 +742,20 @@ function MissionDetailBody({
   }
 
   if (mission.status === "cumplida") {
+    const isAdmin = typeof window !== "undefined" &&
+      window.sessionStorage.getItem("orbi_admin_unlocked") === "true";
+
+    if (isAdmin) {
+      return (
+        <section className="space-y-5">
+          <div className="rounded-md border border-orbi-cyan/20 bg-orbi-panel/60 px-4 py-2 text-xs font-semibold text-orbi-cyan">
+            Vista de administrador — solo lectura
+          </div>
+          <MissionSummary mission={mission} title="Misión completada" />
+        </section>
+      );
+    }
+
     const shouldShowRatingPanel = !hasMissionRating(mission);
     const shouldShowAccountInvite = customerIsRegistered === false && !hideAccountInvite;
     return (

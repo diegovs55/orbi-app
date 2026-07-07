@@ -1051,6 +1051,8 @@ export function ServiceRequestFlow() {
       return;
     }
 
+    // Lock immediately — before any await — so rapid double-clicks are blocked.
+    setIsSending(true);
     setSubmitError(null);
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
@@ -1144,7 +1146,6 @@ export function ServiceRequestFlow() {
         ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
         : "Ya lo tenemos. Buscando quién te ayude."
     );
-    setIsSending(true);
     setOrbitExperienceActive(true);
 
     // Authenticated users never see the register prompt.
@@ -1157,6 +1158,8 @@ export function ServiceRequestFlow() {
       router.push(`/orbita/${mission.id}`);
     }
     } catch (err) {
+      // Re-enable the button so the user can retry after a failure.
+      setIsSending(false);
       setSubmitError(
         err instanceof Error
           ? err.message

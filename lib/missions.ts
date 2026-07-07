@@ -526,6 +526,7 @@ export type MissionHistoryFilters = {
   agentName?: string;
   status?: string;
   requesterSearch?: string;
+  search?: string;
 };
 
 /** Fetch closed missions for the paginated history panel.
@@ -533,7 +534,7 @@ export type MissionHistoryFilters = {
 export async function fetchMissionHistory(
   filters: MissionHistoryFilters = {}
 ): Promise<{ missions: ActiveMission[]; hasMore: boolean; total: number }> {
-  const { page = 0, serviceType, agentName, status, requesterSearch } = filters;
+  const { page = 0, serviceType, agentName, status, requesterSearch, search } = filters;
 
   let query = supabase
     .from("missions")
@@ -556,6 +557,26 @@ export async function fetchMissionHistory(
   }
   if (requesterSearch?.trim()) {
     query = query.ilike("requester_name", `%${requesterSearch.trim()}%`);
+  }
+  if (search?.trim()) {
+    // Strip folio prefixes/symbols before deciding how to filter.
+    const stripped = search
+      .replace(/folio:/gi, "")
+      .replace(/#/g, "")
+      .trim()
+      .toLowerCase();
+
+    if (stripped) {
+      const isFolioTerm = /^[0-9a-f]{4,12}$/.test(stripped);
+      if (!isFolioTerm) {
+        // Text search: filter server-side across readable fields.
+        query = query.or(
+          `requester_name.ilike.%${stripped}%,selected_agent_name.ilike.%${stripped}%,service_type.ilike.%${stripped}%`
+        );
+      }
+      // Folio terms: no server filter — UUID column ilike is unreliable.
+      // The component's client filter matches visible rows by m.id suffix.
+    }
   }
 
   const { data, error, count } = await query;
@@ -737,10 +758,10 @@ export type MissionCompleteResult =
  */
 export async function completeMissionWithLedger(
   id: string,
-  agentId: string
+  agentId: string,
+  agentToken: string
 ): Promise<MissionCompleteResult> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
+  const token = agentToken;
   if (!token) {
     return { status: "error", message: "Sesión expirada. Vuelve a iniciar sesión e intenta de nuevo." };
   }

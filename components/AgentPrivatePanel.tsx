@@ -39,6 +39,14 @@ import {
   startMission,
 } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { supabaseAgent } from "@/lib/supabase-agent-client";
+import {
+  isAudioReady,
+  enableAutoUnlock,
+  playAgentAlert,
+  startRepeatingAlert,
+  stopRepeatingAlert,
+} from "@/lib/notificationSound";
 import { CostBreakdown } from "@/components/CostBreakdown";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -145,6 +153,42 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     const unsub = subscribeToTableChanges("missions", () => void refresh());
     return unsub;
   }, []);
+
+  // ── Sound notifications for new available missions ────────────────────────
+  const agentInitialMissionIds = useRef<Set<string> | null>(null);
+  const [agentAudioBlocked, setAgentAudioBlocked] = useState(false);
+  const AGENT_ALERT_KEY = "agent-available";
+
+  // Register auto-unlock once on mount — fires silently on first gesture.
+  useEffect(() => { enableAutoUnlock(); }, []);
+
+  useEffect(() => {
+    const availableIds = missions
+      .filter((m) => m.status === "por_tomar" && !releasedIds.has(m.id))
+      .map((m) => m.id);
+
+    if (agentInitialMissionIds.current === null) {
+      // First load: record existing available missions, no sound.
+      agentInitialMissionIds.current = new Set(availableIds);
+      return;
+    }
+
+    const hasNew = availableIds.some((id) => !agentInitialMissionIds.current!.has(id));
+
+    if (hasNew) {
+      if (!isAudioReady()) {
+        setAgentAudioBlocked(true);
+      } else {
+        setAgentAudioBlocked(false);
+        startRepeatingAlert(AGENT_ALERT_KEY, playAgentAlert, 15_000);
+      }
+    } else {
+      setAgentAudioBlocked(false);
+      stopRepeatingAlert(AGENT_ALERT_KEY);
+    }
+  }, [missions, releasedIds]);
+
+  useEffect(() => () => stopRepeatingAlert(AGENT_ALERT_KEY), []);
 
   // ── GPS continuous tracking helpers ──────────────────────────────────────
   const MIN_DISTANCE_M = 15;
@@ -357,7 +401,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     } else if (mission.status === "en_mision") {
       setMissionError("");
       setMissionMessage("");
-      const result: MissionCompleteResult = await completeMissionWithLedger(mission.id, realAgentId);
+      const { data: agentSessionData } = await supabaseAgent.auth.getSession();
+      const agentToken = agentSessionData.session?.access_token ?? "";
+      const result: MissionCompleteResult = await completeMissionWithLedger(mission.id, realAgentId, agentToken);
 
       if (result.status === "error") {
         // Misión sigue en_mision — el botón "Confirmar entrega" actúa como retry.
@@ -383,9 +429,12 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     if (!pendingLedger) return;
     setIsRetryingLedger(true);
     setMissionError("");
+    const { data: retrySessionData } = await supabaseAgent.auth.getSession();
+    const retryToken = retrySessionData.session?.access_token ?? "";
     const result: MissionCompleteResult = await completeMissionWithLedger(
       pendingLedger.missionId,
-      pendingLedger.agentId
+      pendingLedger.agentId,
+      retryToken
     );
     setIsRetryingLedger(false);
 
@@ -445,6 +494,12 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
   return (
     <div className="space-y-6">
+
+      {agentAudioBlocked ? (
+        <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.05] px-3 py-2 text-center text-xs text-orbi-muted">
+          Toca la pantalla para activar alertas de sonido.
+        </p>
+      ) : null}
 
       {/* ── Estado operativo ─────────────────────────────────────── */}
       <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 space-y-4">

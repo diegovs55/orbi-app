@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { OrbiButton } from "@/components/OrbiButton";
-import { supabase } from "@/lib/supabase";
+import { supabaseAgent as supabase } from "@/lib/supabase-agent-client";
 import { getAgentByAuthUserId } from "@/lib/agents";
 import { saveAgentSession } from "@/lib/agentSession";
 

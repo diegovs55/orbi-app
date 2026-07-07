@@ -6,7 +6,7 @@ import { AffiliatedBusinesses } from "@/components/AffiliatedBusinesses";
 import { BusinessAccessPanel } from "@/components/BusinessAccessPanel";
 import { BusinessCatalog } from "@/components/BusinessCatalog";
 import { PageShell } from "@/components/PageShell";
-import { supabase } from "@/lib/supabase";
+import { supabaseBusiness as supabase } from "@/lib/supabase-business-client";
 import { getBusinessByAuthUserId } from "@/lib/businesses";
 import {
   getBusinessSession,
