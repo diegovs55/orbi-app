@@ -16,7 +16,10 @@ Cualquier decisión de producto debe poder justificarse desde aquí.
 > - [`docs/conversation-guide.md`](./conversation-guide.md) — **La Guía de Conversación ORBI.** Responde *cómo debe hablar ORBI*. Rige todo texto visible al usuario: mensajes, confirmaciones, errores, propuestas.
 > - [`docs/emotional-map.md`](./emotional-map.md) — **El Mapa Emocional ORBI.** Define el miedo, la expectativa, la información necesaria y la emoción objetivo en cada momento del recorrido. Es el criterio de aceptación de cualquier texto.
 >
-> Los cinco documentos tienen jerarquía explícita: las Leyes son el criterio de rechazo. Los otros cuatro son el criterio de construcción.
+> - [`docs/orbi-identity.md`](./orbi-identity.md) — **Identidad ORBI.** El ADN de la institución. Independiente de la tecnología. Responde quién es ORBI, qué jamás sacrificaría, qué significa servir, resolver y confiar. Válido en 2026 y en 2046. **Leer antes de tomar cualquier decisión que no tenga precedente.**
+> - [`docs/orbi-agent-experience.md`](./orbi-agent-experience.md) — **La Experiencia del Agente.** Los 20 recorridos del agente, las 10 Leyes A, el Modelo Mental y el Laboratorio del Agente. Complemento simétrico a las Leyes del usuario. Nació de la tesis: *La experiencia del usuario termina donde comienza la experiencia del agente.*
+>
+> Los documentos tienen jerarquía explícita: las Leyes del usuario y las Leyes del agente son el criterio de rechazo. Los otros son el criterio de construcción.
 > El **Principio 0** que los rige a todos: *ORBI nunca obliga al usuario a pensar como ORBI.*
 > El **criterio único** que los une: *¿Esta decisión hace que el usuario sienta "ya no tengo que preocuparme por esto"?*
 
