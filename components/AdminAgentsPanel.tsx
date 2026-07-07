@@ -11,6 +11,7 @@ import {
   hasValidAgentId,
 } from "@/lib/agents";
 import { subscribeToAgents } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 type CredResult = { email: string; tempPassword: string; action: "activated" | "reset" };
 
@@ -53,7 +54,7 @@ export function AdminAgentsPanel() {
     setErrors((p) => { const n = { ...p }; delete n[agent.id]; return n; });
 
     try {
-      const res = await fetch("/api/agents/activate", {
+      const res = await adminFetch("/api/agents/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agentId: agent.id }),
@@ -80,7 +81,7 @@ export function AdminAgentsPanel() {
     setCredResults((p) => { const n = { ...p }; delete n[agent.id]; return n; });
 
     try {
-      const res = await fetch("/api/agents/reset-access", {
+      const res = await adminFetch("/api/agents/reset-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agentId: agent.id }),

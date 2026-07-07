@@ -39,7 +39,7 @@ export function AdminMissions() {
     });
     setMission(nextMission);
     setMessage("Misión aceptada. Ya estás en órbita.");
-    router.push("/orbita");
+    router.push(`/orbita/${nextMission.id}`);
   }
 
   function handleRejectMission() {
@@ -134,12 +134,14 @@ export function AdminMissions() {
                 </button>
               </>
             ) : null}
-            <Link
-              href="/orbita"
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-            >
-              Ver misión en órbita
-            </Link>
+            {mission ? (
+              <Link
+                href={`/orbita/${mission.id}`}
+                className="inline-flex min-h-11 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+              >
+                Ver misión en órbita
+              </Link>
+            ) : null}
           </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-3">

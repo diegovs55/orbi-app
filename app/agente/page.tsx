@@ -8,7 +8,7 @@ import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
 import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
 import { getAgentByAuthUserId } from "@/lib/agents";
-import { supabase } from "@/lib/supabase";
+import { supabaseAgent as supabase } from "@/lib/supabase-agent-client";
 
 export default function AgentePage() {
   const router = useRouter();

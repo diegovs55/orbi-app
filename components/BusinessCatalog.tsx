@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { LocateFixed, LogOut, MapPin, Pencil, Plus, PowerOff, RotateCcw, Store } from "lucide-react";
 import {
@@ -28,6 +28,13 @@ import {
   markOrderReadyByBusiness,
 } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import {
+  isAudioReady,
+  enableAutoUnlock,
+  playBusinessAlert,
+  startRepeatingAlert,
+  stopRepeatingAlert,
+} from "@/lib/notificationSound";
 
 const LocationPickerMap = dynamic(
   async () => {
@@ -593,9 +600,15 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
 // ── Pedidos pendientes ────────────────────────────────────────────────────────
 
+const BUSINESS_ALERT_KEY = "business-pending";
+
 function PendingOrders({ businessName }: { businessName: string }) {
   const [orders, setOrders] = useState<ActiveMission[]>([]);
   const [confirming, setConfirming] = useState<Set<string>>(new Set());
+  const [audioBlocked, setAudioBlocked] = useState(false);
+
+  // IDs seen on the very first load — never alert for these.
+  const initialIds = useRef<Set<string> | null>(null);
 
   const load = useCallback(async () => {
     const result = await fetchBusinessPendingMissions(businessName);
@@ -605,7 +618,39 @@ function PendingOrders({ businessName }: { businessName: string }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => subscribeToTableChanges("missions", () => void load()), [load]);
 
-  if (orders.length === 0) return null;
+  // Register auto-unlock once on mount — fires silently on first gesture.
+  useEffect(() => { enableAutoUnlock(); }, []);
+
+  // Sound detection: run after every orders update.
+  useEffect(() => {
+    if (initialIds.current === null) {
+      // First load: record existing IDs, no sound.
+      initialIds.current = new Set(orders.map((o) => o.id));
+      return;
+    }
+
+    const hasNewUnconfirmed = orders.some(
+      (o) => o.status === "esperando_negocio" && !initialIds.current!.has(o.id)
+    );
+
+    if (hasNewUnconfirmed) {
+      if (!isAudioReady()) {
+        // Auto-unlock already registered; show fallback only if gesture never happened.
+        setAudioBlocked(true);
+      } else {
+        setAudioBlocked(false);
+        startRepeatingAlert(BUSINESS_ALERT_KEY, playBusinessAlert, 20_000);
+      }
+    } else {
+      setAudioBlocked(false);
+      stopRepeatingAlert(BUSINESS_ALERT_KEY);
+    }
+  }, [orders]);
+
+  // Stop alert when component unmounts.
+  useEffect(() => () => stopRepeatingAlert(BUSINESS_ALERT_KEY), []);
+
+  if (orders.length === 0 && !audioBlocked) return null;
 
   async function handleAction(id: string, status: string) {
     setConfirming((prev) => new Set(prev).add(id));
@@ -617,6 +662,11 @@ function PendingOrders({ businessName }: { businessName: string }) {
 
   return (
     <div className="space-y-2">
+      {audioBlocked ? (
+        <p className="rounded-md border border-yellow-300/20 bg-yellow-300/[0.05] px-3 py-2 text-center text-xs text-yellow-200/80">
+          Toca la pantalla para activar alertas de sonido.
+        </p>
+      ) : null}
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
         Pedidos pendientes · {orders.length}
       </p>

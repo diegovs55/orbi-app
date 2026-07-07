@@ -1,11 +1,10 @@
 import { supabase } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 import { ActiveMission, associateMissionsToUserByPhone } from "@/lib/missions";
 
-const CUSTOMERS_KEY = "orbi_customers";
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
-const CUSTOMER_PASSWORDS_KEY = "orbi_customer_passwords"; // MVP only — not for production
 
-// ── Session ───────────────────────────────────────────────────────────────────
+// ── Session cache (localStorage only — Supabase Auth is source of truth) ──────
 
 export type CustomerSession = {
   name: string;
@@ -38,53 +37,96 @@ export function clearCustomerSession(): void {
   window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
 }
 
-// ── Local account (MVP auth — localStorage only) ──────────────────────────────
+// ── Supabase Auth — register ───────────────────────────────────────────────────
 
-export function saveLocalCustomerAccount(
-  name: string,
-  phone: string,
-  email: string,
-  password: string
-): void {
-  if (typeof window === "undefined") return;
+export async function registerCustomerAccount({
+  name,
+  phone,
+  email,
+  password,
+}: {
+  name: string;
+  phone: string;
+  email: string;
+  password: string;
+}) {
   const normalizedPhone = normalizePhone(phone);
-  const now = new Date().toISOString();
-  const customer: OrbiCustomer = {
-    id: `local_${normalizedPhone}`,
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { name, phone: normalizedPhone } },
+  });
+
+  if (error) throw new Error(getAuthErrorMessage(error.message));
+
+  const userId = data.user?.id;
+  if (!userId) throw new Error("No pudimos crear la cuenta. Intenta de nuevo.");
+
+  await callUpsertAPI({
     name: name.trim(),
     phone: normalizedPhone,
     email: email.trim(),
-    isRegistered: true,
-    createdAt: now,
-    updatedAt: now,
-    lastOrderAt: now,
-    totalOrders: 0,
-    totalSpent: 0,
-  };
-  const customers = readLocalCustomers();
-  const next = [customer, ...customers.filter((c) => c.phone !== normalizedPhone)];
-  window.localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(next));
-  const passwords: Record<string, string> = readLocalPasswords();
-  passwords[normalizedPhone] = password;
-  window.localStorage.setItem(CUSTOMER_PASSWORDS_KEY, JSON.stringify(passwords));
+    is_registered: true,
+    auth_user_id: userId,
+  });
+
+  associateMissionsToUserByPhone(normalizedPhone, userId);
+  return { name, phone: normalizedPhone, email };
 }
 
-export function loginWithCredential(
+// ── Supabase Auth — login ─────────────────────────────────────────────────────
+
+export async function loginCustomerWithSupabase(
   identifier: string,
   password: string
-): OrbiCustomer | null {
-  if (typeof window === "undefined") return null;
-  const customers = readLocalCustomers();
-  const customer = customers.find((c) => {
-    const matchPhone = c.phone === normalizePhone(identifier);
-    const matchEmail = (c.email ?? "").toLowerCase() === identifier.trim().toLowerCase();
-    return matchPhone || matchEmail;
-  });
-  if (!customer) return null;
-  const passwords = readLocalPasswords();
-  const stored = passwords[customer.phone];
-  if (!stored || stored !== password) return null;
-  return customer;
+): Promise<CustomerSession> {
+  const norm = identifier.trim();
+  let email = norm;
+
+  // If identifier looks like a phone, look up the email in public.customers
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(norm)) {
+    const { data } = await supabase
+      .from("customers")
+      .select("email")
+      .eq("phone", normalizePhone(norm))
+      .maybeSingle();
+    if (!data?.email) {
+      throw new Error("No encontramos una cuenta con ese número. Regístrate primero.");
+    }
+    email = data.email as string;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.user) {
+    throw new Error("Datos incorrectos. Verifica tu correo/WhatsApp y contraseña.");
+  }
+
+  const customer = await getCustomerByAuthUserId(data.user.id);
+  if (customer) {
+    return { name: customer.name, phone: customer.phone, email: customer.email };
+  }
+
+  // Fallback: build session from Auth user metadata
+  const meta = data.user.user_metadata as { name?: string; phone?: string } | undefined;
+  return {
+    name: meta?.name ?? email,
+    phone: meta?.phone ? normalizePhone(meta.phone) : "",
+    email,
+  };
+}
+
+// ── Supabase lookup ───────────────────────────────────────────────────────────
+
+export async function getCustomerByAuthUserId(
+  authUserId: string
+): Promise<OrbiCustomer | null> {
+  const { data, error } = await supabase
+    .from("customers")
+    .select(CUSTOMERS_SELECT)
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapCustomerRow(data as unknown as CustomerRow);
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -92,6 +134,7 @@ export function loginWithCredential(
 export type OrbiCustomer = {
   id: string;
   userId?: string;
+  authUserId?: string | null;
   name: string;
   phone: string;
   email?: string;
@@ -111,6 +154,7 @@ type CustomerRow = {
   id: string;
   user_id?: string | null;
   auth_id?: string | null;
+  auth_user_id?: string | null;
   name?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -127,7 +171,7 @@ type CustomerRow = {
 };
 
 const CUSTOMERS_SELECT =
-  "id,user_id,auth_id,name,phone,email,is_registered,created_at,updated_at," +
+  "id,user_id,auth_id,auth_user_id,name,phone,email,is_registered,created_at,updated_at," +
   "last_order_at,total_orders,total_spent,registered_at,preferred_address,notes,status";
 
 // ── Supabase writes — all go through /api/customers/upsert ────────────────────
@@ -137,6 +181,7 @@ async function callUpsertAPI(payload: {
   phone: string;
   email?: string | null;
   is_registered: boolean;
+  auth_user_id?: string;
 }): Promise<void> {
   try {
     const res = await fetch("/api/customers/upsert", {
@@ -178,41 +223,7 @@ export async function syncRegisteredCustomerToSupabase(
   });
 }
 
-export async function registerCustomerAccount({
-  name,
-  phone,
-  email,
-  password,
-}: {
-  name: string;
-  phone: string;
-  email: string;
-  password: string;
-}) {
-  const normalizedPhone = normalizePhone(phone);
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { name, phone: normalizedPhone } },
-  });
-
-  if (error) throw new Error(getAuthErrorMessage(error.message));
-
-  const userId = data.user?.id;
-  if (!userId) throw new Error("No pudimos crear la cuenta. Intenta de nuevo.");
-
-  await callUpsertAPI({
-    name: name.trim(),
-    phone: normalizedPhone,
-    email: email.trim(),
-    is_registered: true,
-  });
-
-  associateMissionsToUserByPhone(normalizedPhone, userId);
-  return { name, phone: normalizedPhone, email };
-}
-
-// ── Supabase reads (anon key — SELECT) ────────────────────────────────────────
+// ── Supabase reads (admin API — SELECT) ───────────────────────────────────────
 
 export type CustomerPageFilters = {
   page?: number;
@@ -228,11 +239,9 @@ export type CustomerStats = {
   totalSpent: number;
 };
 
-const CUSTOMERS_PAGE_SIZE = 25;
-
 export async function fetchCustomerStats(): Promise<CustomerStats> {
   try {
-    const res = await fetch("/api/customers/list?stats=1");
+    const res = await adminFetch("/api/customers/list?stats=1");
     if (!res.ok) return { total: 0, registered: 0, totalOrders: 0, totalSpent: 0 };
     return (await res.json()) as CustomerStats;
   } catch {
@@ -252,7 +261,7 @@ export async function fetchCustomersPage(
   if (status && status !== "todos") params.set("status", status);
 
   try {
-    const res = await fetch(`/api/customers/list?${params.toString()}`);
+    const res = await adminFetch(`/api/customers/list?${params.toString()}`);
     if (!res.ok) return { customers: [], hasMore: false, total: 0 };
     const body = (await res.json()) as {
       customers: CustomerRow[];
@@ -282,7 +291,7 @@ export async function getCustomers(): Promise<OrbiCustomer[]> {
   } catch {
     // fall through
   }
-  return readLocalCustomers();
+  return [];
 }
 
 export async function isCustomerRegistered(phone: string): Promise<boolean> {
@@ -297,32 +306,7 @@ export async function isCustomerRegistered(phone: string): Promise<boolean> {
   } catch {
     // fall through
   }
-  return readLocalCustomers().some((c) => c.phone === normalizedPhone && c.isRegistered);
-}
-
-// ── localStorage helpers ──────────────────────────────────────────────────────
-
-function readLocalCustomers(): OrbiCustomer[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(CUSTOMERS_KEY) ?? "[]";
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as OrbiCustomer[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function readLocalPasswords(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(CUSTOMER_PASSWORDS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
+  return false;
 }
 
 // ── Mapping & utils ───────────────────────────────────────────────────────────
@@ -332,6 +316,7 @@ function mapCustomerRow(row: CustomerRow): OrbiCustomer {
   return {
     id: row.id,
     userId: row.user_id ?? row.auth_id ?? undefined,
+    authUserId: row.auth_user_id ?? null,
     name: row.name ?? "",
     phone: normalizePhone(row.phone ?? ""),
     email: row.email ?? undefined,

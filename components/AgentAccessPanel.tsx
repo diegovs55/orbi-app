@@ -31,20 +31,26 @@ export function AgentAccessPanel() {
     router.push("/agente/login");
   }
 
-  function handleRequest(e: FormEvent) {
+  async function handleRequest(e: FormEvent) {
     e.preventDefault();
     setError("");
     if (!reqName.trim() || !identifier.trim() || !reqPhone.trim()) {
       setError("Nombre, correo y teléfono son obligatorios.");
       return;
     }
-    addPendingRequest({
+    setLoading(true);
+    const ok = await addPendingRequest({
       type: "agent",
       name: reqName.trim(),
       email: identifier.trim(),
       phone: reqPhone.trim(),
       message: reqMessage.trim()
     });
+    setLoading(false);
+    if (!ok) {
+      setError("No fue posible enviar la solicitud. Intenta de nuevo.");
+      return;
+    }
     setSuccess("Solicitud enviada. El equipo Orbi la revisará pronto.");
     reset();
   }
@@ -101,7 +107,7 @@ export function AgentAccessPanel() {
           </div>
           {error ? <ErrorMsg msg={error} /> : null}
           <div className="flex flex-wrap gap-2 pt-1">
-            <PrimaryBtn label="Enviar solicitud" />
+            <PrimaryBtn label={loading ? "Enviando…" : "Enviar solicitud"} disabled={loading} />
             <SecondaryBtn label="Ya tengo acceso" onClick={() => { setPanel("login"); reset(); }} />
           </div>
         </form>

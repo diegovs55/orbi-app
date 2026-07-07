@@ -1,22 +1,12 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { getAdmin, generateTempPassword, assertAdminJWT } from "@/lib/supabase-admin";
 
-function getAdmin() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!serviceRoleKey || !supabaseUrl) return null;
-  return createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-}
 
-function generateTempPassword(): string {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  return Array.from(randomBytes(12))
-    .map((b) => chars[b % chars.length])
-    .join("");
-}
 
 export async function POST(req: NextRequest) {
+  const auth = await assertAdminJWT(req);
+  if (auth instanceof NextResponse) return auth;
+
   const admin = getAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });

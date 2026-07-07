@@ -1,59 +1,59 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Building2, X } from "lucide-react";
-import {
-  loginBusiness,
-  saveBusinessSession
-} from "@/lib/businessSession";
 import { addPendingRequest } from "@/lib/pendingRequests";
 
 type Panel = "closed" | "login" | "request";
 
 export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
+  const router = useRouter();
   const [panel, setPanel] = useState<Panel>("closed");
   const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
   const [regName, setRegName] = useState("");
   const [regPhone, setRegPhone] = useState("");
   const [reqMessage, setReqMessage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // onLogin prop kept for interface compatibility; actual login redirects to /negocios/login
+  void onLogin;
 
   function reset() {
-    setError(""); setSuccess(""); setIdentifier(""); setPassword("");
+    setError(""); setSuccess(""); setIdentifier("");
     setRegName(""); setRegPhone(""); setReqMessage("");
   }
 
   function handleLogin(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    if (!identifier.trim() || !password) { setError("Completa todos los campos."); return; }
-    const result = loginBusiness(identifier.trim(), password);
-    if (!result) { setError("Credenciales incorrectas. Verifica tus datos."); return; }
-    saveBusinessSession(result);
-    reset();
-    onLogin();
+    router.push("/negocios/login");
   }
 
-  function handleRequest(e: FormEvent) {
+  async function handleRequest(e: FormEvent) {
     e.preventDefault();
     setError("");
     if (!regName.trim() || !identifier.trim() || !regPhone.trim()) {
       setError("Nombre, correo y teléfono son obligatorios."); return;
     }
-    addPendingRequest({
+    setLoading(true);
+    const ok = await addPendingRequest({
       type: "business",
       name: regName.trim(),
       email: identifier.trim(),
       phone: regPhone.trim(),
       message: reqMessage.trim()
     });
+    setLoading(false);
+    if (!ok) {
+      setError("No fue posible enviar la solicitud. Intenta de nuevo.");
+      return;
+    }
     setSuccess("Solicitud enviada. El equipo Orbi revisará tu alta pronto.");
     reset();
   }
 
-  // ── Collapsed button ──────────────────────────────────────────────────────
   if (panel === "closed") {
     return (
       <div className="flex justify-end">
@@ -81,11 +81,12 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
         <p className="mt-3 rounded-md border border-orbi-cyan/15 bg-orbi-blue/10 px-3 py-2 text-xs font-semibold text-orbi-cyan">{success}</p>
       ) : panel === "login" ? (
         <form onSubmit={handleLogin} className="mt-4 space-y-3" noValidate>
-          <FieldInput label="Correo o teléfono" type="text" value={identifier} onChange={setIdentifier} placeholder="correo@negocio.com" autoComplete="username" />
-          <FieldInput label="Contraseña" type="password" value={password} onChange={setPassword} placeholder="Tu contraseña" autoComplete="current-password" />
+          <p className="text-sm text-orbi-muted">
+            El acceso de negocio requiere correo y contraseña. Serás redirigido a la página de inicio de sesión.
+          </p>
           {error ? <ErrorMsg msg={error} /> : null}
           <div className="flex flex-wrap gap-2 pt-1">
-            <PrimaryBtn label="Entrar" />
+            <PrimaryBtn label="Ir al login" />
             <SecondaryBtn label="Solicitar alta" onClick={() => { setPanel("request"); reset(); }} />
           </div>
         </form>
@@ -102,7 +103,7 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
           </div>
           {error ? <ErrorMsg msg={error} /> : null}
           <div className="flex flex-wrap gap-2 pt-1">
-            <PrimaryBtn label="Enviar solicitud" />
+            <PrimaryBtn label={loading ? "Enviando…" : "Enviar solicitud"} disabled={loading} />
             <SecondaryBtn label="Ya tengo acceso" onClick={() => { setPanel("login"); reset(); }} />
           </div>
         </form>
@@ -124,9 +125,9 @@ function FieldInput({ label, type, value, onChange, placeholder, autoComplete }:
   );
 }
 
-function PrimaryBtn({ label }: { label: string }) {
+function PrimaryBtn({ label, disabled }: { label: string; disabled?: boolean }) {
   return (
-    <button type="submit" className="inline-flex min-h-10 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]">
+    <button type="submit" disabled={disabled} className="inline-flex min-h-10 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50">
       {label}
     </button>
   );

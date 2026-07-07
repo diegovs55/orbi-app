@@ -1,4 +1,4 @@
-const KEY = "orbi_pending_requests";
+import { supabase } from "@/lib/supabase";
 
 export type RequestType = "agent" | "business";
 export type RequestStatus = "pending" | "approved" | "rejected";
@@ -12,50 +12,46 @@ export type PendingRequest = {
   message: string;
   status: RequestStatus;
   createdAt: string;
-  approvedCredentials?: { email: string; password?: string; supabaseBusinessId?: string; supabaseAgentId?: string };
 };
 
-export function getPendingRequests(): PendingRequest[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as PendingRequest[]) : [];
-  } catch {
-    return [];
-  }
-}
+type RequestRow = {
+  id: string;
+  type: RequestType;
+  status: RequestStatus;
+  name: string;
+  email: string;
+  phone: string;
+  message: string | null;
+  created_at: string;
+};
 
-export function addPendingRequest(
-  req: Omit<PendingRequest, "id" | "status" | "createdAt">
-): PendingRequest {
-  const full: PendingRequest = {
-    ...req,
-    id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    status: "pending",
-    createdAt: new Date().toISOString()
+export function mapRequestRow(row: RequestRow): PendingRequest {
+  return {
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    message: row.message ?? "",
+    status: row.status,
+    createdAt: row.created_at,
   };
-  const list = getPendingRequests();
-  window.localStorage.setItem(KEY, JSON.stringify([full, ...list]));
-  window.dispatchEvent(new Event("orbi-pending-requests-change"));
-  return full;
 }
 
-export function updatePendingRequest(
-  id: string,
-  status: RequestStatus,
-  extra?: Partial<Pick<PendingRequest, "approvedCredentials">>
-): void {
-  if (typeof window === "undefined") return;
-  const list = getPendingRequests().map((r) =>
-    r.id === id ? { ...r, status, ...(extra ?? {}) } : r
-  );
-  window.localStorage.setItem(KEY, JSON.stringify(list));
-  window.dispatchEvent(new Event("orbi-pending-requests-change"));
-}
-
-export function subscribeToPendingRequests(cb: () => void) {
-  window.addEventListener("orbi-pending-requests-change", cb);
-  return () => window.removeEventListener("orbi-pending-requests-change", cb);
+// Public: called from AgentAccessPanel / BusinessAccessPanel with anon key.
+// Does NOT chain .select() after insert — anon has no SELECT policy, and PostgREST
+// would roll back the entire transaction if asked to return the row (Prefer: return=representation).
+export async function addPendingRequest(
+  req: Omit<PendingRequest, "id" | "status" | "createdAt">
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("requests")
+    .insert({
+      type: req.type,
+      name: req.name,
+      email: req.email,
+      phone: req.phone,
+      message: req.message,
+    });
+  return !error;
 }

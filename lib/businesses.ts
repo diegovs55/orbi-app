@@ -21,6 +21,8 @@ export type AffiliateBusiness = {
   estimatedTime: string;
   status: BusinessStatus;
   rating: string;
+  email?: string | null;
+  authUserId?: string | null;
 };
 
 export type CreateBusinessInput = Omit<AffiliateBusiness, "id">;
@@ -32,6 +34,8 @@ type BusinessRow = {
   description: string;
   status: string;
   rating: string | number;
+  email?: string | null;
+  auth_user_id?: string | null;
 };
 
 type BusinessInsert = {
@@ -47,7 +51,7 @@ export async function getBusinesses() {
 
   const { data, error } = await client
     .from("businesses")
-    .select("id,name,category,description,status,rating")
+    .select("id,name,category,description,status,rating,email,auth_user_id")
     .order("category", { ascending: true })
     .order("name", { ascending: true });
 
@@ -56,6 +60,17 @@ export async function getBusinesses() {
   }
 
   return (data ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
+}
+
+export async function getBusinessByAuthUserId(authUserId: string): Promise<AffiliateBusiness | null> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("businesses")
+    .select("id,name,category,description,status,rating,email,auth_user_id")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapBusinessRow(data as BusinessRow);
 }
 
 export async function createBusiness(business: CreateBusinessInput) {
@@ -121,7 +136,9 @@ function mapBusinessRow(row: BusinessRow): AffiliateBusiness {
     description: row.description,
     estimatedTime: "",
     status: row.status === "activo" ? "activo" : "inactivo",
-    rating: String(row.rating)
+    rating: String(row.rating),
+    email: row.email ?? null,
+    authUserId: row.auth_user_id ?? null,
   };
 }
 

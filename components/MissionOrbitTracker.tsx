@@ -12,8 +12,6 @@ import {
   upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
   saveCustomerSession,
-  saveLocalCustomerAccount,
-  syncRegisteredCustomerToSupabase
 } from "@/lib/customers";
 import {
   ActiveMission,
@@ -24,7 +22,11 @@ import {
   MissionStatus,
   missionProgressStatuses,
 } from "@/lib/missions";
+import { getAgentById } from "@/lib/agents";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { CostBreakdown } from "@/components/CostBreakdown";
+import { getAgentSession } from "@/lib/agentSession";
+import { getBusinessSession } from "@/lib/businessSession";
 
 const MissionOrbitMap = dynamic(
   () => import("@/components/MissionOrbitMap").then((mod) => mod.MissionOrbitMap),
@@ -40,12 +42,12 @@ const MissionOrbitMap = dynamic(
 
 const fallbackPoint: MissionPoint = { lat: 18.8349, lng: -99.5818 };
 
-export function MissionOrbitTracker() {
+export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: string } = {}) {
   const searchParams = useSearchParams();
   // All state is loaded after mount (client-only) to avoid hydration mismatches.
   const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(
-    () => searchParams.get("missionId")
+    () => initialMissionId ?? searchParams.get("missionId")
   );
   const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
   const [rating, setRating] = useState(5);
@@ -56,8 +58,14 @@ export function MissionOrbitTracker() {
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
   const [showSaveSessionPrompt, setShowSaveSessionPrompt] = useState(false);
   const [lastClosedMission, setLastClosedMission] = useState<ActiveMission | null>(null);
+  // Live agent position updated via agents Realtime subscription.
+  const [liveAgentPoint, setLiveAgentPoint] = useState<MissionPoint | null>(null);
+  // True only when initialMissionId was provided but the mission row doesn't exist in the DB.
+  const [missionNotFound, setMissionNotFound] = useState(false);
   const prevActiveMissionIdsRef = useRef<string[]>([]);
   const userClosedDetailRef = useRef(false);
+  // Tracks whether the mission reached a terminal state so we can clean up sessionStorage on unmount.
+  const missionClosedRef = useRef(false);
 
   // Órbita solo muestra misiones con agente asignado (aceptada o en_mision).
   // Las misiones por_tomar sin agente siguen en Supabase para que otros agentes las vean.
@@ -66,23 +74,78 @@ export function MissionOrbitTracker() {
   );
 
   // The mission currently shown in the detail tracker. Source of truth: Supabase state only.
+  // Without a known selectedId we show nothing — never expose another customer's mission.
   const mission = useMemo(() => {
-    if (selectedId) {
-      return activeMissions.find((m) => m.id === selectedId) ?? null;
-    }
-    // Priority: en_mision > aceptada > por_tomar
-    const priority: Record<string, number> = { en_mision: 0, aceptada: 1, por_tomar: 2 };
-    return activeMissions.slice().sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3))[0] ?? null;
-  }, [selectedId, activeMissions]);
+    if (!selectedId) return null;
+    // Search all fetched missions so cumplida state is visible after the mission closes.
+    return missions.find((m) => m.id === selectedId) ?? null;
+  }, [selectedId, missions]);
 
   // Ref para evitar stale closure de selectedId dentro del callback de Realtime
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
+  // Restore missionId from sessionStorage when not provided via query string (SSR-safe).
+  useEffect(() => {
+    if (selectedId) return;
+    const stored = sessionStorage.getItem("orbi_active_mission_id");
+    if (stored) setSelectedId(stored);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Filters the full mission list to only missions belonging to this user.
+  // Matches by stored mission ID or by phone number (handles +52 prefix variants).
+  function filterToUserMissions(all: ActiveMission[]): ActiveMission[] {
+    const storedId = sessionStorage.getItem("orbi_active_mission_id");
+    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
+    return all.filter((m) => {
+      if (storedId && m.id === storedId) return true;
+      if (customerPhone) {
+        const mp = (m.requester_phone ?? "").replace(/\D/g, "");
+        return mp.endsWith(customerPhone) || customerPhone.endsWith(mp);
+      }
+      return false;
+    });
+  }
+
+  // Checks whether the current viewer (customer / agent / business / admin) can see this mission.
+  function hasPermission(m: ActiveMission): boolean {
+    // Admin
+    if (typeof window !== "undefined" &&
+        window.sessionStorage.getItem("orbi_admin_unlocked") === "true") return true;
+    // Agent
+    const agentSession = getAgentSession();
+    if (agentSession?.id && m.selected_agent_id === agentSession.id) return true;
+    // Business
+    const bizSession = getBusinessSession();
+    if (bizSession?.supabaseBusinessId && m.business_id === bizSession.supabaseBusinessId) return true;
+    // Customer — by stored mission ID or by phone
+    const storedId = sessionStorage.getItem("orbi_active_mission_id");
+    if (storedId && m.id === storedId) return true;
+    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
+    if (customerPhone) {
+      const mp = (m.requester_phone ?? "").replace(/\D/g, "");
+      if (mp.endsWith(customerPhone) || customerPhone.endsWith(mp)) return true;
+    }
+    return false;
+  }
+
   // Carga inicial + re-fetch al cambiar selectedId (multi-misión)
   useEffect(() => {
     void (async () => {
-      const all = await fetchActiveMissions();
+      if (initialMissionId) {
+        // Single-mission mode: load exactly one mission by ID.
+        const m = await fetchMissionById(initialMissionId);
+        if (m) {
+          setMissions([m]);
+          setMissionNotFound(false);
+        } else {
+          // Mission row doesn't exist — show "not found" UI instead of listing all missions.
+          setMissionNotFound(true);
+        }
+        return;
+      }
+      const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
         const primary = all.find((m) => !isMissionClosed(m)) ?? null;
@@ -91,12 +154,23 @@ export function MissionOrbitTracker() {
         }
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   // Suscripción estable — no se recrea por cambios de selectedId
   useEffect(() => {
     return subscribeToTableChanges("missions", async () => {
-      const all = await fetchActiveMissions();
+      if (initialMissionId) {
+        const m = await fetchMissionById(initialMissionId);
+        if (m) {
+          setMissions([m]);
+          setMissionNotFound(false);
+        } else {
+          setMissionNotFound(true);
+        }
+        return;
+      }
+      const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
         const primary = all.find((m) => !isMissionClosed(m)) ?? null;
@@ -105,7 +179,33 @@ export function MissionOrbitTracker() {
         }
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live agent position: subscribe to agents table and refresh current_lat/lng
+  // whenever any agent row changes. Re-runs when the assigned agent changes.
+  const agentIdForMission = mission?.selected_agent_id ?? null;
+  useEffect(() => {
+    if (!agentIdForMission) {
+      setLiveAgentPoint(null);
+      return;
+    }
+    // Load initial live position.
+    void getAgentById(agentIdForMission).then((a) => {
+      if (!a) return;
+      const lat = a.currentLat ?? a.lat;
+      const lng = a.currentLng ?? a.lng;
+      if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+    });
+    // Subscribe to any change in agents table, then refresh this agent's row.
+    return subscribeToTableChanges("agents", async () => {
+      const a = await getAgentById(agentIdForMission);
+      if (!a) return;
+      const lat = a.currentLat ?? a.lat;
+      const lng = a.currentLng ?? a.lng;
+      if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+    });
+  }, [agentIdForMission]);
 
   useEffect(() => {
     if (mission?.last_updated_at) {
@@ -150,6 +250,23 @@ export function MissionOrbitTracker() {
       setShowSaveSessionPrompt(true);
     }
   }, [mission?.status]);
+
+  // Track when mission reaches a terminal state so we can clean up on unmount.
+  useEffect(() => {
+    if (mission && isMissionClosed(mission)) {
+      missionClosedRef.current = true;
+    }
+  }, [mission?.status]);
+
+  // When the user navigates away from a closed mission, clear the stored ID so it
+  // never acts as a ghost reference for future visits to /orbita.
+  useEffect(() => {
+    return () => {
+      if (missionClosedRef.current) {
+        sessionStorage.removeItem("orbi_active_mission_id");
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -202,10 +319,10 @@ export function MissionOrbitTracker() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-              Tus misiones activas
+              Tus pedidos activos
             </p>
             <h2 className="mt-1 text-2xl font-black text-orbi-text">
-              {activeMissions.length} misiones en órbita
+              {activeMissions.length} pedidos en curso
             </h2>
           </div>
           {/* Fix 5: always visible "Volver al inicio" */}
@@ -247,6 +364,7 @@ export function MissionOrbitTracker() {
             <MissionDetailBody
               mission={mission}
               lastUpdated={lastUpdated}
+              liveAgentPoint={liveAgentPoint}
               waitingMessage={waitingMessage}
               rating={rating}
               ratingComment={ratingComment}
@@ -260,7 +378,7 @@ export function MissionOrbitTracker() {
               onLaterInvite={() => setHideAccountInvite(true)}
               onRegister={handleRegisterCustomer}
               showSaveSessionPrompt={showSaveSessionPrompt}
-              onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+              onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
               onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
             />
           </div>
@@ -286,7 +404,7 @@ export function MissionOrbitTracker() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-              Misión cumplida
+              Pedido completado
             </p>
             <h2 className="mt-1 text-2xl font-black text-orbi-text">
               {lastClosedMission.service_type}
@@ -302,6 +420,7 @@ export function MissionOrbitTracker() {
         <MissionDetailBody
           mission={lastClosedMission}
           lastUpdated={lastUpdated}
+          liveAgentPoint={null}
           waitingMessage={waitingMessage}
           rating={rating}
           ratingComment={ratingComment}
@@ -315,7 +434,7 @@ export function MissionOrbitTracker() {
           onLaterInvite={() => setHideAccountInvite(true)}
           onRegister={handleRegisterCustomer}
           showSaveSessionPrompt={showSaveSessionPrompt}
-          onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+          onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
           onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
         />
         <div className="pt-1">
@@ -330,21 +449,63 @@ export function MissionOrbitTracker() {
     );
   }
 
+  // Single-mission mode: mission row not found in the DB — never fall back to listing all missions.
+  if (initialMissionId && missionNotFound) {
+    return (
+      <section className="rounded-md border border-white/10 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted">
+          <Radar aria-hidden="true" className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-black text-orbi-text">Esta misión ya no existe o terminó</h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
+          Es posible que el pedido haya sido cancelado o que el enlace haya expirado.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+        >
+          Volver al inicio
+        </Link>
+      </section>
+    );
+  }
+
+  // Single-mission mode: permission check once the mission loaded.
+  if (initialMissionId && mission && !hasPermission(mission)) {
+    return (
+      <section className="rounded-md border border-red-500/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-red-500/20 bg-red-500/10 text-red-400">
+          <ShieldCheck aria-hidden="true" className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-black text-orbi-text">Sin acceso</h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
+          Esta misión no pertenece a tu cuenta.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+        >
+          Ir al inicio
+        </Link>
+      </section>
+    );
+  }
+
   if (!mission) {
     return (
       <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-10">
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
           <Radar aria-hidden="true" className="h-7 w-7" />
         </div>
-        <h2 className="text-2xl font-black text-orbi-text">No hay misión activa en órbita</h2>
+        <h2 className="text-2xl font-black text-orbi-text">No tienes pedidos activos</h2>
         <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
-          Cuando una misión sea enviada y aceptada, podrás seguir aquí su avance operativo.
+          Cuando hagas un pedido, podrás ver aquí su avance en tiempo real.
         </p>
         <Link
           href="/pedir"
           className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
         >
-          Crear nueva misión
+          Hacer un pedido
         </Link>
       </section>
     );
@@ -354,6 +515,7 @@ export function MissionOrbitTracker() {
     <MissionDetailBody
       mission={mission}
       lastUpdated={lastUpdated}
+      liveAgentPoint={liveAgentPoint}
       waitingMessage={waitingMessage}
       rating={rating}
       ratingComment={ratingComment}
@@ -367,7 +529,7 @@ export function MissionOrbitTracker() {
       onLaterInvite={() => setHideAccountInvite(true)}
       onRegister={handleRegisterCustomer}
       showSaveSessionPrompt={showSaveSessionPrompt}
-      onSaveSession={(name, phone, email, password) => { saveLocalCustomerAccount(name, phone, email, password); saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); void syncRegisteredCustomerToSupabase(name, phone, email); }}
+      onSaveSession={(name, phone, email) => { saveCustomerSession(name, phone, email); setShowSaveSessionPrompt(false); }}
       onDismissSaveSession={() => setShowSaveSessionPrompt(false)}
     />
   );
@@ -424,6 +586,7 @@ function MissionSummaryCard({
 type MissionDetailBodyProps = {
   mission: ActiveMission;
   lastUpdated: Date;
+  liveAgentPoint: MissionPoint | null;
   waitingMessage: string;
   rating: number;
   ratingComment: string;
@@ -444,6 +607,7 @@ type MissionDetailBodyProps = {
 function MissionDetailBody({
   mission,
   lastUpdated,
+  liveAgentPoint,
   waitingMessage,
   rating,
   ratingComment,
@@ -463,17 +627,17 @@ function MissionDetailBody({
   if (mission.status === "esperando_negocio") {
     return (
       <section className="space-y-5">
-        <MissionSummary mission={mission} title="Pedido enviado" />
+        <MissionSummary mission={mission} title="Tu pedido" />
         <article className="rounded-md border border-amber-400/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-8">
           <div className="flex flex-col items-center gap-3 text-center sm:gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-full border border-amber-400/25 bg-amber-400/10 shadow-[0_0_28px_rgba(251,191,36,0.15)]">
               <Clock3 aria-hidden="true" className="h-8 w-8 animate-pulse text-amber-300" />
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Pendiente de confirmación</p>
-              <h2 className="mt-2 text-2xl font-black text-orbi-text">Esperando al negocio</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Pedido recibido</p>
+              <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya recibimos tu pedido</h2>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
-                Tu pedido fue recibido. El negocio debe confirmarlo antes de que un agente Orbi lo tome.
+                El negocio está revisando tu pedido. En cuanto lo confirme, empezamos.
               </p>
             </div>
           </div>
@@ -485,7 +649,7 @@ function MissionDetailBody({
   if (mission.status === "preparando") {
     return (
       <section className="space-y-5">
-        <MissionSummary mission={mission} title="Pedido confirmado" />
+        <MissionSummary mission={mission} title="Tu pedido" />
         <article className="rounded-md border border-emerald-400/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-8">
           <div className="flex flex-col items-center gap-3 text-center sm:gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 shadow-[0_0_28px_rgba(52,211,153,0.15)]">
@@ -493,14 +657,14 @@ function MissionDetailBody({
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">En preparación</p>
-              <h2 className="mt-2 text-2xl font-black text-orbi-text">Preparando tu pedido</h2>
+              <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya comenzaron a preparar tu pedido</h2>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
-                El negocio ya confirmó tu orden y la está preparando. El agente saldrá a recogerla cuando esté lista.
+                El agente saldrá a recogerlo en cuanto esté listo.
               </p>
             </div>
             {mission.selected_agent_name ? (
               <div className="mt-2 rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Agente reservado</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Quien viene por ti</p>
                 <p className="mt-1 font-black text-orbi-text">{mission.selected_agent_name}</p>
               </div>
             ) : null}
@@ -513,7 +677,7 @@ function MissionDetailBody({
   if (mission.status === "por_tomar" && !mission.selected_agent_id) {
     return (
       <section className="space-y-5">
-        <MissionSummary mission={mission} title="Solicitud en espera" />
+        <MissionSummary mission={mission} title="Tu pedido" />
         <WaitingOrbitState
           message={waitingMessage}
           onWait={onWait}
@@ -531,17 +695,17 @@ function MissionDetailBody({
               <Radar aria-hidden="true" className="h-8 w-8 animate-pulse text-orbi-cyan" />
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">Misión en órbita</p>
-              <h2 className="mt-2 text-2xl font-black text-orbi-text">Esperando aceptación del agente</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">Conectando con el agente</p>
+              <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya encontramos quién te ayudará</h2>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
-                Estamos notificando al agente. Te avisaremos cuando acepte tu misión.
+                El agente está confirmando que puede atenderte. Avisamos cuando empiece.
               </p>
             </div>
           </div>
           <div className="mt-6 grid gap-3 border-t border-white/[0.07] pt-5 text-sm sm:grid-cols-2">
             {mission.selected_agent_name ? (
               <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Agente asignado</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Quien viene por ti</p>
                 <p className="mt-1 font-black text-orbi-text">{mission.selected_agent_name}</p>
               </div>
             ) : null}
@@ -552,18 +716,13 @@ function MissionDetailBody({
               </div>
             ) : null}
             <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Servicio</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Qué pediste</p>
               <p className="mt-1 font-black text-orbi-text">{mission.service_type}</p>
             </div>
             <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">Destino</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-orbi-muted">A dónde va</p>
               <p className="mt-1 font-black text-orbi-text">{mission.destination_text}</p>
             </div>
-          </div>
-          <div className="mt-5 flex flex-wrap justify-center gap-3">
-            <Link href="/pedir" className="inline-flex min-h-11 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10">
-              Volver al inicio
-            </Link>
           </div>
         </article>
       </section>
@@ -574,25 +733,39 @@ function MissionDetailBody({
     return (
       <MissionClosedState
         tone="cancelled"
-        title="Misión cancelada"
-        body="Esta misión fue cancelada y quedó archivada en historial. Puedes volver al inicio o crear una nueva misión."
+        title="Este pedido fue cancelado"
+        body="Si necesitas algo más, puedes hacer un nuevo pedido cuando quieras."
         primaryHref="/pedir"
-        primaryLabel="Pedir otra misión"
+        primaryLabel="Hacer un pedido"
       />
     );
   }
 
   if (mission.status === "cumplida") {
+    const isAdmin = typeof window !== "undefined" &&
+      window.sessionStorage.getItem("orbi_admin_unlocked") === "true";
+
+    if (isAdmin) {
+      return (
+        <section className="space-y-5">
+          <div className="rounded-md border border-orbi-cyan/20 bg-orbi-panel/60 px-4 py-2 text-xs font-semibold text-orbi-cyan">
+            Vista de administrador — solo lectura
+          </div>
+          <MissionSummary mission={mission} title="Misión completada" />
+        </section>
+      );
+    }
+
     const shouldShowRatingPanel = !hasMissionRating(mission);
     const shouldShowAccountInvite = customerIsRegistered === false && !hideAccountInvite;
     return (
       <section className="space-y-5">
         <MissionClosedState
           tone="waiting"
-          title="Misión cumplida"
-          body="Esta misión ya fue completada y quedó cerrada en Red Orbi."
+          title="Todo listo"
+          body="Tu pedido fue completado. Gracias por confiar en ORBI."
           primaryHref="/pedir"
-          primaryLabel="Crear nueva misión"
+          primaryLabel="Hacer otro pedido"
         />
         {shouldShowRatingPanel ? (
           <RatingPanel
@@ -625,20 +798,24 @@ function MissionDetailBody({
   }
 
   // aceptada | en_mision
+  const activeTitle = mission.status === "en_mision"
+    ? "Tu pedido ya va en camino"
+    : "Ya encontramos quién te ayudará";
   return (
     <section className="space-y-5">
-      <MissionSummary mission={mission} title="Misión activa" />
+      <MissionSummary mission={mission} title={activeTitle} />
       <MissionTimeline status={mission.status} />
       <article className="overflow-hidden rounded-md border border-orbi-cyan/15 bg-orbi-panel/80 shadow-[0_18px_55px_rgba(0,0,0,0.32),0_0_28px_rgba(31,139,255,0.1)]">
         <div className="border-b border-white/10 p-4">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-orbi-cyan">Ubicación en vivo</p>
-          <h2 className="mt-1 text-xl font-black text-orbi-text">Ver la misión en órbita</h2>
+          <h2 className="mt-1 text-xl font-black text-orbi-text">Tu pedido en tiempo real</h2>
         </div>
         <div className="h-[58vh] min-h-[330px] w-full">
           <MissionOrbitMap
             origin={getMissionPoint(mission.origin_lat, mission.origin_lng)}
             destination={getMissionPoint(mission.destination_lat, mission.destination_lng)}
-            agent={getMissionPoint(mission.selected_agent_lat, mission.selected_agent_lng)}
+            agent={liveAgentPoint ?? getMissionPoint(mission.selected_agent_lat, mission.selected_agent_lng)}
+            routeGeometry={mission.route_geometry ?? null}
           />
         </div>
       </article>
@@ -669,7 +846,7 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
           </p>
           <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service_type}</h2>
           <p className="mt-2 text-sm leading-6 text-orbi-muted">
-            {mission.detail || "Misión activa"} en seguimiento por Red Orbi.
+            {mission.detail || mission.service_type} — lo estamos cuidando.
           </p>
         </div>
         <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
@@ -678,19 +855,35 @@ function MissionSummary({ mission, title }: { mission: ActiveMission; title: str
       </div>
 
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <MissionTile icon={PackageCheck} label="Servicio" value={mission.service_type} />
-        <MissionTile icon={UserRound} label="Agente asignado" value={mission.selected_agent_name || "Pendiente de asignación"} />
-        <MissionTile icon={UserRound} label="Usuario" value={mission.requester_name} />
-        <MissionTile icon={Radar} label="Estado de misión" value={getOrbitVisualStatusLabel(mission)} />
-        <MissionTile icon={Route} label="Origen" value={mission.origin_text} />
-        <MissionTile icon={Route} label="Destino" value={mission.destination_text} />
-        <MissionTile icon={Clock3} label="Órbita estimada" value={mission.estimated_orbit} />
-        <MissionTile icon={ShieldCheck} label="Método de pago" value={mission.payment_method} />
-        <MissionTile icon={ShieldCheck} label="Estado de pago" value={mission.payment_status} />
+        <MissionTile icon={PackageCheck} label="Qué pediste" value={mission.service_type} />
+        <MissionTile icon={UserRound} label="Quien viene por ti" value={mission.selected_agent_name || "Buscando agente"} />
+        <MissionTile icon={UserRound} label="Para quién" value={mission.requester_name} />
+        <MissionTile icon={Radar} label="Cómo va" value={getOrbitVisualStatusLabel(mission)} />
+        <MissionTile icon={Route} label="Sale de" value={mission.origin_text} />
+        <MissionTile icon={Route} label="Va a" value={mission.destination_text} />
+        <MissionTile icon={Clock3} label="Tiempo estimado" value={mission.estimated_orbit} />
+        <MissionTile icon={ShieldCheck} label="Cómo pagas" value={mission.payment_method} />
+        <MissionTile icon={ShieldCheck} label="Cuándo pagas" value={mission.payment_status} />
       </div>
+      {(mission.total_amount ?? 0) > 0 ? (
+        <div className="mt-3">
+          <CostBreakdown
+            subtotal={mission.subtotal_productos ?? null}
+            serviceFee={mission.service_fee ?? null}
+            total={mission.total_amount ?? 0}
+          />
+        </div>
+      ) : null}
     </article>
   );
 }
+
+const customerTimelineLabels: Record<string, string> = {
+  por_tomar: "Agente listo",
+  aceptada: "Confirmado",
+  en_mision: "En camino",
+  cumplida: "Listo",
+};
 
 function MissionTimeline({ status }: { status: MissionStatus }) {
   const currentIndex = missionProgressStatuses.indexOf(status);
@@ -699,11 +892,11 @@ function MissionTimeline({ status }: { status: MissionStatus }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.04] p-4">
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-        Progreso de misión
+        Cómo va tu pedido
       </p>
       {isCancelled ? (
         <div className="mt-3 rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-bold text-red-100">
-          Misión cancelada
+          Este pedido fue cancelado
         </div>
       ) : (
         <div className="mt-3 grid gap-2 sm:grid-cols-4">
@@ -716,7 +909,7 @@ function MissionTimeline({ status }: { status: MissionStatus }) {
                   : "border-white/10 bg-white/[0.03] text-orbi-muted"
               }`}
             >
-              {getMissionStatusLabel(state)}
+              {customerTimelineLabels[state] ?? state}
             </div>
           ))}
         </div>
@@ -800,9 +993,9 @@ function WaitingOrbitState({
       <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
         <Radar aria-hidden="true" className="h-7 w-7" />
       </div>
-      <h2 className="text-2xl font-black text-orbi-text">Solicitud en espera</h2>
+      <h2 className="text-2xl font-black text-orbi-text">Buscando a alguien para ti</h2>
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-orbi-muted">
-        No hay agentes compatibles disponibles en este momento. Tu solicitud aún no ha sido asignada.
+        Estamos buscando el agente más cercano. Tu pedido sigue activo — esto puede tomar unos minutos.
       </p>
       {message ? (
         <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
@@ -815,13 +1008,13 @@ function WaitingOrbitState({
           onClick={onWait}
           className="inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
         >
-          Esperar disponibilidad
+          Seguir esperando
         </button>
         <Link
           href="/pedir"
           className="inline-flex min-h-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
         >
-          Modificar solicitud
+          Cambiar mi pedido
         </Link>
       </div>
     </section>
@@ -1173,27 +1366,15 @@ function SaveSessionCard({
 }
 
 function getOrbitVisualStatusLabel(mission: ActiveMission) {
-  if (mission.status === "por_tomar" && !mission.selected_agent_id) {
-    return "Pendiente de asignación";
-  }
-
-  if (mission.status === "por_tomar" || mission.status === "aceptada") {
-    return "Asignada";
-  }
-
-  if (mission.status === "en_mision") {
-    return "En curso";
-  }
-
-  if (mission.status === "cumplida") {
-    return "Completada";
-  }
-
-  if (mission.status === "cancelada" || mission.status === "archivada") {
-    return "Cancelada";
-  }
-
-  return getMissionStatusLabel(mission.status);
+  if (mission.status === "esperando_negocio") return "Pedido recibido";
+  if (mission.status === "preparando") return "Preparando";
+  if (mission.status === "por_tomar" && !mission.selected_agent_id) return "Buscando agente";
+  if (mission.status === "por_tomar") return "Agente confirmado";
+  if (mission.status === "aceptada") return "Agente confirmado";
+  if (mission.status === "en_mision") return "En camino";
+  if (mission.status === "cumplida") return "Completado";
+  if (mission.status === "cancelada" || mission.status === "archivada") return "Cancelado";
+  return mission.status;
 }
 
 function hasMissionRating(mission: ActiveMission) {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ActiveMission, fetchMissionsForEconomy } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { adminFetch } from "@/lib/admin-fetch";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -57,6 +58,14 @@ export function AdminNetworkEconomy() {
   );
   const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [timeFilter, setTimeFilter] = useState<EconomyFilter>("Este mes");
+  const [ledger, setLedger] = useState<{
+    facturacionCliente: number;
+    gananciaOrbi: number;
+    pagosAgentes: number;
+    pagosNegocios: number;
+    takeRate: number | null;
+    numMovimientos: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!isUnlocked) return;
@@ -68,6 +77,25 @@ export function AdminNetworkEconomy() {
     const unsub = subscribeToTableChanges("missions", () => void refresh());
     return unsub;
   }, [isUnlocked]);
+
+  // Fetch ledger summary — se actualiza cuando cambia el filtro de tiempo
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const fetchLedger = async () => {
+      const start = getFilterStart(timeFilter);
+      const url = start
+        ? `/api/ledger/summary?from=${encodeURIComponent(start.toISOString())}`
+        : "/api/ledger/summary";
+      try {
+        const res = await adminFetch(url);
+        if (res.ok) setLedger(await res.json() as typeof ledger);
+      } catch {
+        // Ledger no disponible — mantiene null (muestra "—")
+      }
+    };
+    void fetchLedger();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, timeFilter]);
 
   const filtered = useMemo(() => {
     const start = getFilterStart(timeFilter);
@@ -158,15 +186,71 @@ export function AdminNetworkEconomy() {
         />
       </div>
 
-      <div className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-3">
-        <p className="text-xs text-orbi-muted">
-          <span className="font-bold text-orbi-cyan">Ganancia Orbi · </span>
-          Pendiente de datos —{" "}
-          <code className="font-mono text-white/60">precio_servicio</code> y{" "}
-          <code className="font-mono text-white/60">costo_agente</code> no están
-          en <code className="font-mono text-white/60">public.missions</code>{" "}
-          todavía.
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+          Estado financiero de la red
         </p>
+        <p className="mt-0.5 text-[10px] text-orbi-muted/60">
+          Datos del ledger — misiones con entrega confirmada en el período
+        </p>
+      </div>
+
+      {/*
+        MÉTRICAS DE INFRAESTRUCTURA — se activan al integrar pagos digitales.
+        El ledger ya las soporta (estado='pending'). Ver /api/ledger/summary para
+        el query exacto de cada métrica y los pasos para activarlas.
+        Métricas pendientes: fondosEnCustodia · pendientesDeLiquidar · retirosPendientes
+      */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <EcoCard
+          label="Facturación clientes"
+          value={
+            ledger
+              ? `$${ledger.facturacionCliente.toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+              : "—"
+          }
+          sub="MISSION_PAYMENT · GMV del período"
+        />
+        <EcoCard
+          label="Ganancia ORBI"
+          value={
+            ledger
+              ? `$${ledger.gananciaOrbi.toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+              : "—"
+          }
+          sub="MISSION_COMMISSION · 30% del service fee"
+          accent={(ledger?.gananciaOrbi ?? 0) > 0}
+        />
+        <EcoCard
+          label="Pagos a agentes"
+          value={
+            ledger
+              ? `$${ledger.pagosAgentes.toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+              : "—"
+          }
+          sub="MISSION_EARNING · 70% del service fee"
+        />
+        <EcoCard
+          label="Pagos a negocios"
+          value={
+            ledger
+              ? `$${ledger.pagosNegocios.toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+              : "—"
+          }
+          sub="MISSION_EARNING · subtotal de productos"
+        />
+        <EcoCard
+          label="Margen de plataforma"
+          value={
+            ledger
+              ? ledger.takeRate !== null
+                ? `${ledger.takeRate.toFixed(1)}%`
+                : "—"
+              : "—"
+          }
+          sub="gananciaOrbi / facturacionCliente · Take Rate"
+          accent={(ledger?.takeRate ?? 0) >= 10}
+        />
       </div>
     </section>
   );
