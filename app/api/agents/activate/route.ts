@@ -47,6 +47,9 @@ export async function POST(req: NextRequest) {
   if (!email) {
     return NextResponse.json({ error: "El agente no tiene correo registrado." }, { status: 422 });
   }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: `Correo inválido en la ficha del agente: "${email}". Corrígelo antes de activar.` }, { status: 422 });
+  }
 
   // Idempotent: already activated
   if (agentRow.auth_user_id) {

@@ -625,15 +625,20 @@ export async function fetchActiveMissions(): Promise<ActiveMission[]> {
 }
 
 /**
- * Returns the real count of active missions using a server-side COUNT.
- * Avoids Supabase's default 1000-row page limit that distorts the KPI number.
- * Use this for admin counters; use fetchActiveMissions() for list display.
+ * Returns the operational count of active missions for the admin KPI.
+ * Filters out E2E/test data and missions older than 48 hours (stale test state).
+ * Uses COUNT(*) HEAD to avoid the 1000-row PostgREST default page limit.
  */
 export async function fetchActiveMissionsCount(): Promise<number> {
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { count, error } = await supabase
     .from("missions")
     .select("*", { count: "exact", head: true })
-    .not("status", "in", "(cumplida,cancelada,archivada)");
+    .not("status", "in", "(cumplida,cancelada,archivada)")
+    .gte("created_at", cutoff)
+    .not("requester_name", "ilike", "%test%")
+    .not("requester_name", "ilike", "%e2e%")
+    .not("requester_name", "ilike", "%prueba%");
   if (error) {
     console.error("[missions] fetchActiveMissionsCount error:", error);
     return 0;

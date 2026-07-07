@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
   if (!email) {
     return NextResponse.json({ error: "El negocio no tiene correo registrado." }, { status: 422 });
   }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: `Correo inválido en la ficha del negocio: "${email}". Corrígelo antes de activar.` }, { status: 422 });
+  }
 
   if (bizRow.auth_user_id) {
     return NextResponse.json({ alreadyActivated: true, email, businessId });
