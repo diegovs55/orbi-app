@@ -23,7 +23,13 @@ export function getAdmin(): SupabaseClient | null {
   if (_admin) return _admin;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
+  if (!url || !key) {
+    console.error(
+      "[supabase-admin] getAdmin() failed — missing env vars:",
+      { NEXT_PUBLIC_SUPABASE_URL: !!url, SUPABASE_SERVICE_ROLE_KEY: !!key }
+    );
+    return null;
+  }
   _admin = createClient(url, key, { auth: { persistSession: false } });
   return _admin;
 }
