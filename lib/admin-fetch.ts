@@ -2,11 +2,14 @@
  * adminFetch — wrapper de fetch que adjunta el JWT del admin en el header Authorization.
  * Solo para uso en componentes del panel admin (client-side).
  *
- * Si la sesión no existe o expiró, intenta refrescarla una vez.
- * Si el refresco también falla, limpia la clave admin de sessionStorage para
- * forzar el re-login — el panel mostrará el formulario de acceso automáticamente.
+ * Usa el cliente Supabase Admin aislado (lib/supabase-admin-client.ts),
+ * que guarda la sesión en sessionStorage bajo "sb-orbi-admin".
+ * Nunca toca la sesión pública de agentes/negocios/clientes.
+ *
+ * Si la sesión Admin expiró o no existe, limpia la bandera de acceso
+ * y devuelve 401 para forzar re-login — sin intentar refresh con otra identidad.
  */
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -17,16 +20,9 @@ function clearAdminSession() {
 }
 
 export async function adminFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  let { data } = await supabase.auth.getSession();
-  let token = data.session?.access_token;
+  const { data } = await supabaseAdmin.auth.getSession();
+  const token = data.session?.access_token;
 
-  // Session missing or expired — attempt a single silent refresh.
-  if (!token) {
-    const { data: refreshed } = await supabase.auth.refreshSession();
-    token = refreshed.session?.access_token;
-  }
-
-  // Refresh also failed — session is truly gone. Force re-login.
   if (!token) {
     clearAdminSession();
     return new Response(

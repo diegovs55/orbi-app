@@ -25,6 +25,8 @@ import {
 import { getAgentById } from "@/lib/agents";
 import { subscribeToTableChanges } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
+import { getAgentSession } from "@/lib/agentSession";
+import { getBusinessSession } from "@/lib/businessSession";
 
 const MissionOrbitMap = dynamic(
   () => import("@/components/MissionOrbitMap").then((mod) => mod.MissionOrbitMap),
@@ -102,9 +104,37 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
     });
   }
 
+  // Checks whether the current viewer (customer / agent / business / admin) can see this mission.
+  function hasPermission(m: ActiveMission): boolean {
+    // Admin
+    if (typeof window !== "undefined" &&
+        window.sessionStorage.getItem("orbi_admin_unlocked") === "true") return true;
+    // Agent
+    const agentSession = getAgentSession();
+    if (agentSession?.id && m.selected_agent_id === agentSession.id) return true;
+    // Business
+    const bizSession = getBusinessSession();
+    if (bizSession?.supabaseBusinessId && m.business_id === bizSession.supabaseBusinessId) return true;
+    // Customer — by stored mission ID or by phone
+    const storedId = sessionStorage.getItem("orbi_active_mission_id");
+    if (storedId && m.id === storedId) return true;
+    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
+    if (customerPhone) {
+      const mp = (m.requester_phone ?? "").replace(/\D/g, "");
+      if (mp.endsWith(customerPhone) || customerPhone.endsWith(mp)) return true;
+    }
+    return false;
+  }
+
   // Carga inicial + re-fetch al cambiar selectedId (multi-misión)
   useEffect(() => {
     void (async () => {
+      if (initialMissionId) {
+        // Single-mission mode: load exactly one mission by ID.
+        const m = await fetchMissionById(initialMissionId);
+        if (m) setMissions([m]);
+        return;
+      }
       const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
@@ -120,6 +150,11 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   // Suscripción estable — no se recrea por cambios de selectedId
   useEffect(() => {
     return subscribeToTableChanges("missions", async () => {
+      if (initialMissionId) {
+        const m = await fetchMissionById(initialMissionId);
+        if (m) setMissions([m]);
+        return;
+      }
       const all = filterToUserMissions(await fetchActiveMissions());
       setMissions(all);
       if (!selectedIdRef.current) {
@@ -378,6 +413,27 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
             + Nueva misión
           </Link>
         </div>
+      </section>
+    );
+  }
+
+  // Single-mission mode: permission check once the mission loaded.
+  if (initialMissionId && mission && !hasPermission(mission)) {
+    return (
+      <section className="rounded-md border border-red-500/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-red-500/20 bg-red-500/10 text-red-400">
+          <ShieldCheck aria-hidden="true" className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-black text-orbi-text">Sin acceso</h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
+          Esta misión no pertenece a tu cuenta.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+        >
+          Ir al inicio
+        </Link>
       </section>
     );
   }

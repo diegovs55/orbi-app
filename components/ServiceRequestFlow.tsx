@@ -1154,7 +1154,7 @@ export function ServiceRequestFlow() {
       setShowRegisterPrompt(true);
     } else {
       await new Promise<void>((resolve) => setTimeout(resolve, 1750));
-      router.push("/orbita");
+      router.push(`/orbita/${mission.id}`);
     }
     } catch (err) {
       setSubmitError(
@@ -2877,7 +2877,7 @@ function PendingMissionCard({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <Link
-          href="/orbita"
+          href={`/orbita/${missionId}`}
           className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
         >
           Ver detalle

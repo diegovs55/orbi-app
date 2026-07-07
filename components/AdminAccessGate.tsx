@@ -2,19 +2,17 @@
 
 import { FormEvent, ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { LockKeyhole, LogOut } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { signIn, signOut } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
 /**
  * Verifica el rol del usuario contra /api/admin/verify.
- * El servidor compara el email del JWT contra ADMIN_EMAILS (var de entorno server-only).
- * Un agente o negocio autenticado con JWT válido pero email no autorizado recibe false.
+ * Usa el cliente Admin aislado — nunca toca la sesión pública.
  */
 async function verifyAdminRole(): Promise<boolean> {
   try {
-    const { data } = await supabase.auth.getSession();
+    const { data } = await supabaseAdmin.auth.getSession();
     const token = data.session?.access_token;
     if (!token) return false;
 
@@ -23,7 +21,7 @@ async function verifyAdminRole(): Promise<boolean> {
       cache: "no-store",
     });
     if (!res.ok) return false;
-    const body = await res.json() as { isAdmin?: boolean };
+    const body = (await res.json()) as { isAdmin?: boolean };
     return body.isAdmin === true;
   } catch {
     return false;
@@ -36,20 +34,26 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // On mount: restore an admin session that existed before a page refresh.
-  // If the key is already set (navigation within the SPA), trust it and skip
-  // the network round-trip — clearing it on a failed verify is what caused
-  // the session to vanish on every navigation.
   useEffect(() => {
     let active = true;
 
     async function tryRestoreSession() {
-      // Key already present — no action needed.
-      if (window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "true") return;
+      // sessionStorage sobrevive navegación SPA pero muere al cerrar el tab.
+      // Si no hay key, verificamos si hay sesión Admin activa en el cliente aislado.
+      if (window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "true") {
+        // Key presente: verificamos que el JWT Admin siga siendo válido.
+        const isStillAdmin = await verifyAdminRole();
+        if (!active) return;
+        if (!isStillAdmin) {
+          // JWT Admin expiró o fue borrado — forzar re-login.
+          window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+          window.dispatchEvent(new Event("orbi-admin-session-change"));
+        }
+        return;
+      }
 
-      // Key absent (e.g. after a full page refresh, sessionStorage was wiped).
-      // Check if the user still has a valid Supabase session and re-unlock.
-      const { data: sessionData } = await supabase.auth.getSession();
+      // Key ausente (primer load o tab nuevo): buscar sesión preexistente.
+      const { data: sessionData } = await supabaseAdmin.auth.getSession();
       if (!active) return;
       if (!sessionData.session) return;
 
@@ -65,8 +69,10 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
       void tryRestoreSession();
     }
 
-    // Clear the admin key immediately on a real Supabase sign-out.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    // Limpiar la key cuando el cliente Admin hace sign-out.
+    const {
+      data: { subscription },
+    } = supabaseAdmin.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
         window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
         window.dispatchEvent(new Event("orbi-admin-session-change"));
@@ -84,16 +90,19 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
     setError("");
 
     try {
-      await signIn(email.trim(), password);
+      const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) throw new Error(signInError.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible iniciar sesión.");
       return;
     }
 
-    // Verify role immediately after login — rejects non-admin credentials
     const isAdmin = await verifyAdminRole();
     if (!isAdmin) {
-      await signOut().catch(() => undefined);
+      await supabaseAdmin.auth.signOut().catch(() => undefined);
       setError("Credenciales válidas pero sin permisos de administrador.");
       return;
     }
@@ -107,7 +116,7 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
   async function handleLogout() {
     setError("");
     try {
-      await signOut();
+      await supabaseAdmin.auth.signOut();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible cerrar sesión.");
     }

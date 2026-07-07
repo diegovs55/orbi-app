@@ -613,7 +613,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
                     ) : null}
                     {isMissionActive(m) ? (
                       <Link
-                        href={`/orbita?missionId=${m.id}`}
+                        href={`/orbita/${m.id}`}
                         className="inline-flex min-h-11 items-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
                       >
                         <Navigation aria-hidden="true" className="h-4 w-4" />

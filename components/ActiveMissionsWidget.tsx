@@ -50,7 +50,7 @@ export function ActiveMissionsWidget() {
               </p>
             </div>
             <Link
-              href="/orbita"
+              href={`/orbita/${m.id}`}
               className="shrink-0 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
             >
               Ver
@@ -59,12 +59,9 @@ export function ActiveMissionsWidget() {
         ))}
       </div>
       {missions.length > 1 ? (
-        <Link
-          href="/orbita"
-          className="mt-3 block text-center text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
-        >
-          Ver todas en órbita →
-        </Link>
+        <p className="mt-3 text-center text-xs text-orbi-muted">
+          Tienes {missions.length} pedidos activos — selecciona uno para ver su detalle.
+        </p>
       ) : null}
     </div>
   );

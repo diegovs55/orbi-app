@@ -613,37 +613,20 @@ export async function fetchMissionsForEconomy(): Promise<ActiveMission[]> {
 
 /** Fetch active missions directly from Supabase (no localStorage). */
 export async function fetchActiveMissions(): Promise<ActiveMission[]> {
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("missions")
     .select("*")
-    .not("status", "in", "(cumplida,cancelada,archivada)");
-  if (error) {
-    console.error("[missions] fetchActiveMissions error:", error);
-    return [];
-  }
-  return (data ?? []).map(normalizeMission) as ActiveMission[];
-}
-
-/**
- * Returns the operational count of active missions for the admin KPI.
- * Filters out E2E/test data and missions older than 48 hours (stale test state).
- * Uses COUNT(*) HEAD to avoid the 1000-row PostgREST default page limit.
- */
-export async function fetchActiveMissionsCount(): Promise<number> {
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const { count, error } = await supabase
-    .from("missions")
-    .select("*", { count: "exact", head: true })
     .not("status", "in", "(cumplida,cancelada,archivada)")
     .gte("created_at", cutoff)
     .not("requester_name", "ilike", "%test%")
     .not("requester_name", "ilike", "%e2e%")
     .not("requester_name", "ilike", "%prueba%");
   if (error) {
-    console.error("[missions] fetchActiveMissionsCount error:", error);
-    return 0;
+    console.error("[missions] fetchActiveMissions error:", error);
+    return [];
   }
-  return count ?? 0;
+  return (data ?? []).map(normalizeMission) as ActiveMission[];
 }
 
 /** Business accepts order → esperando_negocio → preparando (starts preparation). */

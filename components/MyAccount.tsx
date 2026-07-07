@@ -280,7 +280,7 @@ function SessionView({
                   <p className="text-xs text-orbi-muted">{getMissionStatusLabel(m.status)}</p>
                 </div>
                 <Link
-                  href="/orbita"
+                  href={`/orbita/${m.id}`}
                   className="text-xs font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
                 >
                   Ver en órbita
