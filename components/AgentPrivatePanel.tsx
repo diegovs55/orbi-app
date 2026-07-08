@@ -146,6 +146,14 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   // Cleanup GPS watcher on unmount.
   useEffect(() => () => { stopGpsWatch(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // If agent reloads while already in orbit, restart the GPS watcher automatically.
+  useEffect(() => {
+    if (agent?.isOnOrbit && gpsWatchIdRef.current === null) {
+      startGpsWatch(agentId, agent.serviceType, agent.availability ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent?.isOnOrbit, agentId]);
+
   // Missions: Supabase is the source of truth. Fetch on mount and on realtime push.
   useEffect(() => {
     const refresh = async () => setMissions(await fetchActiveMissions());
