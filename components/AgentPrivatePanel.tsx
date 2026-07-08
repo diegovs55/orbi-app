@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isGpsWatching, seedLastGpsWrite, startGpsWatch, stopGpsWatch } from "@/lib/agent-gps";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -89,10 +90,6 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   const [orbitMsg, setOrbitMsg] = useState("");
   const [isEnteringOrbit, setIsEnteringOrbit] = useState(false);
 
-  // ── GPS watcher refs ─────────────────────────────────────────────────────
-  const gpsWatchIdRef = useRef<number | null>(null);
-  const lastGpsWriteRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
-
   // ── Missions ─────────────────────────────────────────────────────────────
   const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [missionMessage, setMissionMessage] = useState("");
@@ -143,13 +140,12 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   // Mount: load once from Supabase. No realtime subscription — eliminated.
   useEffect(() => { void loadAgent(); }, [loadAgent]);
 
-  // Cleanup GPS watcher on unmount.
-  useEffect(() => () => { stopGpsWatch(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
-
   // If agent reloads while already in orbit, restart the GPS watcher automatically.
+  // Uses isGpsWatching() from the module singleton — not a local ref — so it
+  // survives page navigation and never opens a duplicate watcher.
   useEffect(() => {
-    if (agent?.isOnOrbit && gpsWatchIdRef.current === null) {
-      startGpsWatch(agentId, agent.serviceType, agent.availability ?? "");
+    if (agent?.isOnOrbit && !isGpsWatching()) {
+      startGpsWatch(agentId, agent.serviceType, agent.availability ?? "", Number(agent.radiusKm ?? 20));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.isOnOrbit, agentId]);
@@ -199,61 +195,6 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   useEffect(() => () => stopRepeatingAlert(AGENT_ALERT_KEY), []);
 
   // ── GPS continuous tracking helpers ──────────────────────────────────────
-  const MIN_DISTANCE_M = 15;
-  const MIN_INTERVAL_MS = 20_000;
-
-  function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const R = 6_371_000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  function stopGpsWatch() {
-    if (gpsWatchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
-      gpsWatchIdRef.current = null;
-    }
-    lastGpsWriteRef.current = null;
-  }
-
-  function startGpsWatch(agentIdVal: string, serviceType: string, availability: string) {
-    if (!navigator.geolocation) return;
-    stopGpsWatch();
-
-    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        const now = Date.now();
-        const last = lastGpsWriteRef.current;
-
-        const movedEnough =
-          !last || haversineMeters(last.lat, last.lng, lat, lng) >= MIN_DISTANCE_M;
-        const enoughTime = !last || now - last.ts >= MIN_INTERVAL_MS;
-
-        if (!movedEnough && !enoughTime) return;
-
-        lastGpsWriteRef.current = { lat, lng, ts: now };
-
-        void updateAgentOrbit(agentIdVal, {
-          isOnOrbit: true,
-          lat,
-          lng,
-          radiusKm: Number(radiusKm),
-          serviceType: serviceType as never,
-          availability,
-        }).then((fresh) => {
-          if (fresh) setAgent(fresh);
-        });
-      },
-      () => { /* silently ignore watch errors — orbit status unchanged */ },
-      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 }
-    );
-  }
-
   // ── Enter orbit ──────────────────────────────────────────────────────────
   async function handleEnterOrbit() {
     if (!agent) return;
@@ -272,8 +213,8 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
       });
       setAgent(fresh);
       populateForm(fresh);
-      lastGpsWriteRef.current = { lat: pos.latitude, lng: pos.longitude, ts: Date.now() };
-      startGpsWatch(agentId, agent.serviceType, agent.availability ?? "");
+      seedLastGpsWrite(pos.latitude, pos.longitude);
+      startGpsWatch(agentId, agent.serviceType, agent.availability ?? "", Number(radiusKm));
       setOrbitMsg(`En órbita. GPS: ${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo obtener la ubicación GPS.";

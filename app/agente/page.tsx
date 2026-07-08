@@ -9,6 +9,7 @@ import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
 import { getAgentByAuthUserId } from "@/lib/agents";
 import { supabaseAgent as supabase } from "@/lib/supabase-agent-client";
+import { stopGpsWatch } from "@/lib/agent-gps";
 
 export default function AgentePage() {
   const router = useRouter();
@@ -52,6 +53,7 @@ export default function AgentePage() {
   }, [router]);
 
   async function handleLogout() {
+    stopGpsWatch();
     clearAgentSession();
     await supabase.auth.signOut();
     router.push("/agentes");
