@@ -2,7 +2,7 @@
 
 import L from "leaflet";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type MissionPoint = {
   lat: number;
@@ -73,6 +73,7 @@ export function MissionOrbitMap({ origin, destination, agent, routeGeometry }: M
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       {hasBounds ? <MissionMapBounds bounds={boundsForFit} /> : null}
+      <AgentFollower agent={agent} />
       {polylinePositions ? (
         <Polyline
           pathOptions={{ color: "#36d7ff", opacity: 0.72, weight: 4 }}
@@ -88,12 +89,28 @@ export function MissionOrbitMap({ origin, destination, agent, routeGeometry }: M
 
 function MissionMapBounds({ bounds }: { bounds: [number, number][] }) {
   const map = useMap();
+  const fittedRef = useRef(false);
 
   useEffect(() => {
-    if (bounds.length >= 2) {
+    if (!fittedRef.current && bounds.length >= 2) {
       map.fitBounds(bounds, { padding: [28, 28] });
+      fittedRef.current = true;
     }
   }, [bounds, map]);
+
+  return null;
+}
+
+function AgentFollower({ agent }: { agent: MissionPoint | null }) {
+  const map = useMap();
+  const firstRef = useRef(true);
+
+  useEffect(() => {
+    if (firstRef.current) { firstRef.current = false; return; }
+    if (agent) {
+      map.flyTo([agent.lat, agent.lng], map.getZoom(), { animate: true, duration: 0.8 });
+    }
+  }, [agent, map]);
 
   return null;
 }
