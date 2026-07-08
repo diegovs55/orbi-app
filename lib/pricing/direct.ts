@@ -1,18 +1,24 @@
 import { DIRECT, PRICING_RULE, POR_SERVICIO, type MissionPriceResult } from "./config";
 
-/**
- * Calcula el precio de una misión directa (Mandado, Mensajería, etc.).
- * Misma lógica que la anterior `estimateMissionCost()` en ServiceRequestFlow.
- */
+// Subconjunto de DIRECT que el motor usa en cada cálculo.
+// Permite inyectar valores desde motor_params sin cambiar la fórmula.
+export interface DirectParams {
+  tarifaBase:     number;
+  costoPorKm:     number;
+  comisionAgente: number;
+}
+
 export function calcularMisionDirecta(
   distanceKm: number | null,
-  serviceType?: string
+  serviceType?: string,
+  params?: DirectParams,
 ): MissionPriceResult {
+  const p = params ?? DIRECT;
   const safeDistance = distanceKm ?? 3;
   const multiplicador = serviceType != null ? (POR_SERVICIO[serviceType]?.multiplicador ?? 1.0) : 1.0;
 
-  const servicioOrbi = Math.round((DIRECT.tarifaBase + safeDistance * DIRECT.costoPorKm) * multiplicador);
-  const costoAgente = Math.round(servicioOrbi * DIRECT.comisionAgente);
+  const servicioOrbi = Math.round((p.tarifaBase + safeDistance * p.costoPorKm) * multiplicador);
+  const costoAgente = Math.round(servicioOrbi * p.comisionAgente);
   const gananciaOrbi = servicioOrbi - costoAgente;
 
   return {
@@ -27,12 +33,8 @@ export function calcularMisionDirecta(
   };
 }
 
-/**
- * Alias de compatibilidad con la forma que ServiceRequestFlow consumía antes:
- * { price, agentCost, orbiProfit }
- */
-export function estimateMissionCost(distance: number | null) {
-  const result = calcularMisionDirecta(distance);
+export function estimateMissionCost(distance: number | null, params?: DirectParams) {
+  const result = calcularMisionDirecta(distance, undefined, params);
   return {
     price: result.servicioOrbi,
     agentCost: result.costoAgente,

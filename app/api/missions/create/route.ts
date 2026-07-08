@@ -40,7 +40,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { calcularMisionCatalogo, estimateMissionCost, PRICING_RULE } from "@/lib/pricing";
+import { calcularMisionCatalogo, estimateMissionCost, PRICING_RULE, DIRECT } from "@/lib/pricing";
+import type { DirectParams } from "@/lib/pricing/direct";
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
 
@@ -206,6 +207,7 @@ export async function POST(req: NextRequest) {
   let totalAmount: number = 0;
   let costoAgente: number = 0;
   let gananciaOrbi: number = 0;
+  let motorParamsVersionForRow: number | null = null;
 
   // Ítems enriquecidos desde el catálogo (sustituyen completamente los del cliente)
   type AuthoritativeItem = {
@@ -356,11 +358,65 @@ export async function POST(req: NextRequest) {
       agentToOriginKm = haversineKm(agentLat, agentLng, oLat, oLng);
     }
 
-    const directResult = estimateMissionCost(agentToOriginKm);
+    // Leer parámetros desde motor_params con validación. Fallback a DIRECT si algo falla.
+    const fallbackParams: DirectParams = {
+      tarifaBase:     DIRECT.tarifaBase,
+      costoPorKm:     DIRECT.costoPorKm,
+      comisionAgente: DIRECT.comisionAgente,
+    };
+    let motorParams: DirectParams = { ...fallbackParams };
+    let motorParamsVersion: number | null = null;
+    let paramsSource: "db" | "fallback" = "fallback";
+
+    try {
+      const [paramsRes, histRes] = await Promise.all([
+        admin.from("motor_params").select("key, value").eq("scope", "zumpahuacan"),
+        admin.from("motor_params_history").select("id").eq("scope", "zumpahuacan")
+          .order("id", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+
+      if (paramsRes.error || !paramsRes.data?.length) {
+        console.warn("[missions/create] motor_params no disponible, usando fallback:", paramsRes.error?.message);
+      } else {
+        const map = new Map(paramsRes.data.map((r) => [r.key as string, Number(r.value)]));
+
+        // Validar cada parámetro obligatorio: debe existir, ser finito y positivo.
+        const raw = {
+          tarifaBase:     map.get("tarifa_base"),
+          costoPorKm:     map.get("costo_por_km"),
+          comisionAgente: map.get("comision_agente"),
+        };
+        const invalid = Object.entries(raw)
+          .filter(([, v]) => v == null || !Number.isFinite(v) || v <= 0)
+          .map(([k]) => k);
+
+        if (invalid.length > 0) {
+          console.warn(
+            "[missions/create] Parámetros inválidos en motor_params, usando fallback para:",
+            invalid,
+            raw,
+          );
+          // fallbackParams ya está asignado — no se sobreescribe motorParams
+        } else {
+          motorParams    = raw as DirectParams;
+          motorParamsVersion = (histRes.data as { id: number } | null)?.id ?? null;
+          paramsSource   = "db";
+        }
+      }
+    } catch (err) {
+      console.warn("[missions/create] Error leyendo motor_params, usando fallback:", err);
+    }
+
+    if (paramsSource === "fallback") {
+      console.warn("[missions/create] Precios calculados con DIRECT fallback (config.ts). Verificar motor_params en Supabase.");
+    }
+
+    const directResult = estimateMissionCost(agentToOriginKm, motorParams);
     serviceFee   = directResult.price;
     totalAmount  = directResult.price;
     costoAgente  = directResult.agentCost;
     gananciaOrbi = directResult.orbiProfit;
+    motorParamsVersionForRow = motorParamsVersion;
   }
 
   // ── Construir fila para Supabase ─────────────────────────────────────────
@@ -414,6 +470,7 @@ export async function POST(req: NextRequest) {
     costo_agente:        costoAgente,
     ganancia_orbi:       gananciaOrbi,
     pricing_rule:        PRICING_RULE,
+    motor_params_version: motorParamsVersionForRow,
 
     // Metadata de ruta (display — no afectan precios)
     distance_km:         typeof clientDistanceKm === "number" ? clientDistanceKm : null,
