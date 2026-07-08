@@ -10,6 +10,7 @@ import { AdminAgentsPanel } from "@/components/AdminAgentsPanel";
 import { AdminBusinessesPanel } from "@/components/AdminBusinessesPanel";
 import { AdminCustomers } from "@/components/AdminCustomers";
 import { AdminPendingRequests } from "@/components/AdminPendingRequests";
+import { AdminMotorParams } from "@/components/AdminMotorParams";
 
 export default function AdminPage() {
   return (
@@ -41,6 +42,7 @@ export default function AdminPage() {
         <AdminAgentsPanel />
         <AdminBusinessesPanel />
         <AdminCustomers />
+        <AdminMotorParams />
       </AdminAccessGate>
     </PageShell>
   );
