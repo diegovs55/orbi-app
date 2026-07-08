@@ -23,7 +23,7 @@ import {
   missionProgressStatuses,
 } from "@/lib/missions";
 import { getAgentById } from "@/lib/agents";
-import { subscribeToTableChanges } from "@/lib/supabase";
+import { subscribeToTableChanges, supabase } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { getAgentSession } from "@/lib/agentSession";
 import { getBusinessSession } from "@/lib/businessSession";
@@ -197,14 +197,29 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       const lng = a.currentLng ?? a.lng;
       if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
     });
-    // Subscribe to any change in agents table, then refresh this agent's row.
-    return subscribeToTableChanges("agents", async () => {
-      const a = await getAgentById(agentIdForMission);
-      if (!a) return;
-      const lat = a.currentLat ?? a.lat;
-      const lng = a.currentLng ?? a.lng;
-      if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
-    });
+    // Suscripción directa al canal de Realtime filtrando por este agente.
+    // Lee current_lat/current_lng del payload del evento — sin SELECT adicional
+    // que podría devolver lat/lng estático por RLS o sesión del cliente de usuario.
+    if (!supabase) return;
+    const channel = supabase
+      .channel(`agent-position-${agentIdForMission}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "agents",
+          filter: `id=eq.${agentIdForMission}`,
+        },
+        (payload) => {
+          const row = payload.new as { current_lat?: number | null; current_lng?: number | null };
+          const lat = typeof row.current_lat === "number" ? row.current_lat : null;
+          const lng = typeof row.current_lng === "number" ? row.current_lng : null;
+          if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+        },
+      )
+      .subscribe();
+    return () => { void supabase?.removeChannel(channel); };
   }, [agentIdForMission]);
 
   useEffect(() => {
