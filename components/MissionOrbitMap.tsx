@@ -23,6 +23,28 @@ const markerIcons = {
   agent:       buildIcon("agent"),
 };
 
+/**
+ * Returns the route slice starting from the point nearest to the agent.
+ * Keeps at least 2 points so the polyline never disappears entirely.
+ * Pure math — no API calls, no side effects.
+ */
+function sliceRouteFromAgent(
+  route: [number, number][],
+  agent: MissionPoint,
+): [number, number][] {
+  let closestIndex = 0;
+  let minDist = Infinity;
+  for (let i = 0; i < route.length; i++) {
+    const dLat = route[i][0] - agent.lat;
+    const dLng = route[i][1] - agent.lng;
+    const dist = dLat * dLat + dLng * dLng; // squared — no sqrt needed for comparison
+    if (dist < minDist) { minDist = dist; closestIndex = i; }
+  }
+  // Always keep at least 2 points so the line remains visible near the destination.
+  const start = Math.min(closestIndex, route.length - 2);
+  return route.slice(start);
+}
+
 export function MissionOrbitMap({ origin, destination, agent, routeGeometry }: MissionOrbitMapProps) {
   const center = origin ?? destination ?? agent;
 
@@ -46,8 +68,12 @@ export function MissionOrbitMap({ origin, destination, agent, routeGeometry }: M
   const hasBounds = uniquePoints.length >= 2;
 
   // Use real driving route geometry when available; fall back to straight-line between 3 points.
+  // When the agent has a known position and a real route exists, slice the route
+  // from the nearest point to the agent so the consumed segment disappears visually.
   const polylinePositions: [number, number][] | null = (() => {
-    if (routeGeometry && routeGeometry.length >= 2) return routeGeometry;
+    if (routeGeometry && routeGeometry.length >= 2) {
+      return agent ? sliceRouteFromAgent(routeGeometry, agent) : routeGeometry;
+    }
     if (origin && destination) {
       return [
         [origin.lat, origin.lng],
