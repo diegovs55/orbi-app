@@ -236,7 +236,7 @@ export function AdminMotorParams() {
                   {h.old_value ?? "—"} → {h.new_value}
                 </p>
                 {h.reason && (
-                  <p className="mt-0.5 italic text-orbi-muted">"{h.reason}"</p>
+                  <p className="mt-0.5 italic text-orbi-muted">&quot;{h.reason}&quot;</p>
                 )}
               </div>
             ))}
