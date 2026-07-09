@@ -79,8 +79,8 @@ export default function NegociosPage() {
   return (
     <PageShell
       eyebrow="Negocios afiliados"
-      title="Categorías listas para validar demanda."
-      description="Catálogo activo de negocios afiliados en vivo desde public.businesses."
+      title="Los negocios que confían en Orbi."
+      description="Negocios locales con catálogo y entrega disponible."
     >
       <BusinessAccessPanel onLogin={() => void syncSession()} />
       <AffiliatedBusinesses />

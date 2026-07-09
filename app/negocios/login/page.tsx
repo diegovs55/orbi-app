@@ -82,30 +82,13 @@ export default function NegociosLoginPage() {
             <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-5xl">
               Bienvenido a tu panel de negocio.
             </h1>
-            <p className="max-w-lg text-base leading-7 text-orbi-muted sm:text-lg">
-              Inicia sesión para administrar tu catálogo, productos y disponibilidad en la Red Orbi.
-            </p>
-            <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-glow sm:p-8">
-              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
-                ¿Aún no tienes cuenta?
-              </p>
-              <p className="text-sm leading-6 text-orbi-muted">
-                Solicita tu alta desde esta misma página o contacta al equipo Orbi para activar tu acceso.
-              </p>
-            </div>
           </section>
 
           <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">
             <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
-                Login de negocio
-              </p>
               <h2 className="text-2xl font-black tracking-tight text-white">
                 Ingresa con tu correo y contraseña
               </h2>
-              <p className="text-sm leading-6 text-orbi-muted">
-                Tus credenciales te permitirán gestionar tu negocio en tiempo real.
-              </p>
             </div>
 
             <form onSubmit={handleLogin} className="mt-8 space-y-6">

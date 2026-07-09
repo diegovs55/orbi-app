@@ -224,27 +224,11 @@ export default function ResetPasswordClient() {
                 </p>
               )}
 
-              {tokenDetails ? (
-                <div className="mt-6 rounded-2xl border border-orbi-cyan/20 bg-black/60 p-4 text-xs text-orbi-muted">
-                  <p className="font-semibold uppercase tracking-[0.3em] text-orbi-cyan">Tokens detectados</p>
-                  <p className="mt-3">Fuente: {tokenDetails.source}</p>
-                  <p>type: {tokenDetails.type || "n/a"}</p>
-                  <p>access_token: {truncateToken(tokenDetails.accessToken)}</p>
-                  <p>refresh_token: {truncateToken(tokenDetails.refreshToken)}</p>
-                  <p>token_type: {tokenDetails.tokenType || "n/a"}</p>
-                  <p>expires_in: {tokenDetails.expiresIn || "n/a"}</p>
-                  <p>provider_token: {truncateToken(tokenDetails.providerToken)}</p>
-                  {tokenDetails.errorDescription ? <p className="mt-2 text-red-300">error_description: {tokenDetails.errorDescription}</p> : null}
-                </div>
-              ) : null}
             </div>
           </section>
 
           <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">
             <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
-                Cambio de contraseña
-              </p>
               <h2 className="text-2xl font-black tracking-tight text-white">
                 Nueva contraseña
               </h2>

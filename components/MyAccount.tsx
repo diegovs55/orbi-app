@@ -103,9 +103,6 @@ export function MyAccount() {
   if (view === "choice") {
     return (
       <div className="mt-8 space-y-4">
-        <p className="text-sm text-orbi-muted">
-          Inicia sesión para ver tu historial de misiones o crea una cuenta nueva.
-        </p>
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
@@ -156,6 +153,7 @@ function SessionView({
 }) {
   const phone = cleanPhone(session.phone);
 
+  const [userId, setUserId] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveMission[]>([]);
   const [stats, setStats] = useState<CustomerMissionStats | null>(null);
   const [missions, setMissions] = useState<ActiveMission[]>([]);
@@ -166,6 +164,13 @@ function SessionView({
   const [loadingHist, setLoadingHist] = useState(true);
   const [histRefreshKey, setHistRefreshKey] = useState(0);
 
+  // Resolve auth user ID once on mount — used as the authoritative filter for mission history.
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.id) setUserId(user.id);
+    });
+  }, []);
+
   // Load active missions filtered by this customer's phone
   const refreshActive = useCallback(async () => {
     const all = await fetchActiveMissions();
@@ -174,9 +179,9 @@ function SessionView({
 
   // Silent stats refresh (no loading spinner — called from Realtime callback)
   const refreshStats = useCallback(async () => {
-    const s = await fetchMissionStatsByPhone(phone);
+    const s = await fetchMissionStatsByPhone(phone, userId);
     setStats(s);
-  }, [phone]);
+  }, [phone, userId]);
 
   // Suscripción estable: refresca misiones activas, KPIs e historial en cada evento
   useEffect(() => {
@@ -191,23 +196,23 @@ function SessionView({
   // Load KPI stats once on mount (with loading spinner)
   useEffect(() => {
     setLoadingStats(true);
-    fetchMissionStatsByPhone(phone).then((s) => {
+    fetchMissionStatsByPhone(phone, userId).then((s) => {
       setStats(s);
       setLoadingStats(false);
     });
-  }, [phone]);
+  }, [phone, userId]);
 
   // Load history page — también reacciona a histRefreshKey para refrescar tras cambios de Realtime
   const loadPage = useCallback(
     async (p: number) => {
       setLoadingHist(true);
-      const result = await fetchMissionHistoryByPhonePaged(phone, p);
+      const result = await fetchMissionHistoryByPhonePaged(phone, p, userId);
       setMissions(result.missions);
       setHasMore(result.hasMore);
       setTotal(result.total);
       setLoadingHist(false);
     },
-    [phone]
+    [phone, userId]
   );
 
   useEffect(() => { void loadPage(page); }, [loadPage, page, histRefreshKey]);

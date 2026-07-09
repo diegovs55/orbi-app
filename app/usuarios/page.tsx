@@ -6,7 +6,7 @@ export default function UsuariosPage() {
     <PageShell
       eyebrow="Red Orbi"
       title="Mi cuenta."
-      description="Tu historial de misiones y configuración personal."
+      description=""
     >
       <MyAccount />
     </PageShell>

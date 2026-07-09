@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
-import { ActiveMission, associateMissionsToUserByPhone } from "@/lib/missions";
+import { ActiveMission, associateMissionsToUserByPhone, backfillMissionUserIdByPhone } from "@/lib/missions";
 
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
 
@@ -102,6 +102,15 @@ export async function loginCustomerWithSupabase(
   }
 
   const customer = await getCustomerByAuthUserId(data.user.id);
+  const resolvedPhone = customer?.phone
+    ?? normalizePhone((data.user.user_metadata as { phone?: string } | undefined)?.phone ?? "");
+
+  // Backfill: link any existing phone-only missions to this auth user, then update localStorage.
+  if (resolvedPhone) {
+    void backfillMissionUserIdByPhone(resolvedPhone, data.user.id);
+    associateMissionsToUserByPhone(resolvedPhone, data.user.id);
+  }
+
   if (customer) {
     return { name: customer.name, phone: customer.phone, email: customer.email };
   }
@@ -110,7 +119,7 @@ export async function loginCustomerWithSupabase(
   const meta = data.user.user_metadata as { name?: string; phone?: string } | undefined;
   return {
     name: meta?.name ?? email,
-    phone: meta?.phone ? normalizePhone(meta.phone) : "",
+    phone: resolvedPhone,
     email,
   };
 }

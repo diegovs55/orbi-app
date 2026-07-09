@@ -6,7 +6,7 @@ export default function PedirPage() {
     <PageShell
       eyebrow="Pedir algo"
       title="¿Qué necesitas hoy?"
-      description="Define la necesidad, completa la ficha operativa y elige un agente disponible para resolverla."
+      description=""
     >
       <ServiceRequestFlow />
     </PageShell>

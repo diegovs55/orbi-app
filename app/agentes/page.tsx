@@ -20,7 +20,7 @@ export default function AgentesPage() {
     <PageShell
       eyebrow="Agentes Orbi"
       title="Red de apoyo local visible y confiable."
-      description="Consulta agentes, repartidores y prestadores registrados para coordinar mandados, entregas, traslados y recolecciones."
+      description="Las personas reales detrás de cada pedido."
     >
       {mounted ? (
         <div className="flex justify-end">

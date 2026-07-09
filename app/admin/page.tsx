@@ -17,7 +17,7 @@ export default function AdminPage() {
     <PageShell
       eyebrow="Panel Admin"
       title="Centro operativo de Red Orbi."
-      description="Control de misiones, agentes, pagos, negocios y señales de crecimiento de la red local."
+      description=""
     >
       <AdminAccessGate>
         <AdminLiveOperations />

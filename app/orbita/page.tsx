@@ -7,7 +7,7 @@ export default function OrbitaPage() {
     <PageShell
       eyebrow="Seguimiento Orbi"
       title="Misión en órbita"
-      description="Sigue en tiempo real el avance de tu entrega, traslado o mandado."
+      description="Tu pedido, en todo momento."
     >
       <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-10">
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">

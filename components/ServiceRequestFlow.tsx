@@ -229,6 +229,7 @@ export function ServiceRequestFlow() {
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
   const [customerSession, setCustomerSession] = useState<{ name: string; phone: string; email?: string } | null>(null);
   const [sessionSource, setSessionSource] = useState<"auth" | "local" | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
     getInitialConfirmedDraftSections(null)
@@ -436,6 +437,7 @@ export function ServiceRequestFlow() {
     // Phase 2 — upgrade to Supabase Auth if available (~200 ms async)
     void supabase.auth.getUser().then(({ data: { user } }) => {
       if (cancelled || !user) return;
+      setAuthUserId(user.id);
       const meta = user.user_metadata as { name?: string; phone?: string } | undefined;
       const name = meta?.name?.trim() ?? "";
       const phone = meta?.phone?.trim() ?? "";
@@ -1072,6 +1074,7 @@ export function ServiceRequestFlow() {
 
     try {
     const mission = await createMission({
+      user_id: authUserId ?? undefined,
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,
@@ -1191,6 +1194,7 @@ export function ServiceRequestFlow() {
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
     const mission = await createMission({
+      user_id: authUserId ?? undefined,
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,
@@ -1293,8 +1297,7 @@ export function ServiceRequestFlow() {
       {!selectedService ? (
         <>
           <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
-            <h1 className="text-4xl font-black text-orbi-text">¿Qué necesitas?</h1>
-            <div className="mt-5 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
+            <div className="flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
               <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
               <input
                 value={searchQuery}
@@ -1322,7 +1325,7 @@ export function ServiceRequestFlow() {
 
           <section className="space-y-3">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
-              Categorías
+              O elige por dónde empezar
             </p>
             <div className="flex flex-wrap gap-2">
               {services.map((service) => {
@@ -1381,7 +1384,7 @@ export function ServiceRequestFlow() {
           className="space-y-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-6"
         >
           {activeDraftSection === "pedido" ? (
-            <FormSection title="Tu pedido">
+            <FormSection title="">
               <SelectedService service={selectedService} onReset={resetFlow} />
               {isCatalogMission ? (
                 <LocalCart
@@ -1722,11 +1725,14 @@ export function ServiceRequestFlow() {
             Tu pedido
           </p>
           <h2 className="mt-2 text-2xl font-black text-orbi-text">¿Lo pedimos así?</h2>
-          <div className="mt-5 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
+          <div className="mt-4">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">Agente</p>
+            <p className="mt-1 text-2xl font-black text-orbi-text">{selectedAgent.name}</p>
+          </div>
+          <div className="mt-4 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Servicio" value={selectedService.label} />
             {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-            <SummaryItem label="Agente" value={selectedAgent.name} />
             <SummaryItem
               label="Tiempo estimado"
               value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
@@ -1766,10 +1772,22 @@ export function ServiceRequestFlow() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {isSending ? (
-              <div className="sm:col-span-2 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-6 text-center">
-                <div className="mx-auto mb-3 h-12 w-12 animate-pulse rounded-full bg-orbi-cyan/30" />
-                <p className="text-lg font-black text-orbi-text">Ya lo tenemos…</p>
-                <p className="mt-2 text-sm text-orbi-muted">Estamos conectando tu solicitud con el agente seleccionado.</p>
+              <div className="sm:col-span-2 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-8 text-center">
+                <div
+                  className="mx-auto mb-5 h-16 w-16 rounded-md overflow-hidden border border-white/10 bg-orbi-black/40"
+                  style={{ animation: "orbiArrive 1.8s ease-out forwards" }}
+                >
+                  <img src="/orbi-logo.png" alt="ORBI" className="h-full w-full object-contain" />
+                </div>
+                <p className="text-xl font-black text-orbi-text" style={{ animation: "orbiArrive 1.8s ease-out 0.5s both" }}>Ya lo tenemos.</p>
+                <style>{`
+                  @keyframes orbiArrive {
+                    0%   { opacity: 0; transform: scale(0.96); }
+                    40%  { opacity: 1; transform: scale(1.03); }
+                    70%  { transform: scale(1.0); }
+                    100% { opacity: 1; transform: scale(1.0); }
+                  }
+                `}</style>
               </div>
             ) : null}
             {submitError ? (
@@ -1852,7 +1870,7 @@ function StepHeader({
     { id: "destino" as const, label: "Destino", done: hasDestination },
     { id: "solicitante" as const, label: "Solicitante", done: hasRequester },
     { id: "agente" as const, label: "Agente", done: Boolean(selectedAgent) },
-    { id: "confirmacion" as const, label: "Poner en órbita", done: isOrbitStepReady }
+    { id: "confirmacion" as const, label: "Confirmar", done: isOrbitStepReady }
   ];
 
   return (
@@ -1891,7 +1909,7 @@ function StepHeader({
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{title}</h3>
+      {title ? <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{title}</h3> : null}
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>
   );
@@ -1990,7 +2008,7 @@ function OrderSummaryCard({
 
   return (
     <CompactStepCard
-      eyebrow="Tu pedido"
+      eyebrow=""
       title={getServiceTitle(service.label)}
       body={summary}
       meta={cartItems.length ? `Subtotal $${subtotal}` : `Origen: ${shortenText(details.origin, 64)}`}
@@ -2095,7 +2113,7 @@ function CompactStepCard({
     <section className="rounded-md border border-white/10 bg-white/[0.03] p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{eyebrow}</p>
+          {eyebrow ? <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{eyebrow}</p> : null}
           <h3 className="mt-1 font-black text-orbi-text">{title}</h3>
           <p className="mt-1 text-sm leading-6 text-orbi-muted">{body}</p>
           {meta ? <p className="mt-1 text-xs font-bold text-orbi-cyan">{meta}</p> : null}
@@ -2957,15 +2975,12 @@ function OrbitExperienceStage({
       {/* Capa de compromiso — Bloque A */}
       <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-5">
         <p className="text-xl font-black text-orbi-text">
-          Ya puedes dejar esto en nuestras manos.
-        </p>
-        <p className="mt-1 text-sm font-mono font-semibold tracking-widest text-orbi-cyan">
-          #{folio}
+          Ya lo tenemos.
         </p>
         <p className="mt-4 text-sm text-orbi-muted">{searching}</p>
         <p className="text-sm text-orbi-muted">{horizon}</p>
-        <p className="mt-3 text-xs text-orbi-muted/70">
-          Si en 10 minutos no encontramos a nadie, te avisamos aquí.
+        <p className="mt-4 text-xs text-orbi-muted/40 font-mono tracking-wider">
+          #{folio}
         </p>
       </div>
 

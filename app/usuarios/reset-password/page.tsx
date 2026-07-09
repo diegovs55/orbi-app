@@ -138,12 +138,9 @@ export default function UsuariosResetPasswordPage() {
 
           <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
-                Cambio de contraseña
-              </p>
-              <h2 className="text-2xl font-black tracking-tight text-white">
-                {status === "success" ? "Contraseña actualizada" : "Nueva contraseña"}
-              </h2>
+              {status === "success" ? (
+                <h2 className="text-2xl font-black tracking-tight text-white">Contraseña actualizada</h2>
+              ) : null}
             </div>
 
             {status === "success" ? (

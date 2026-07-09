@@ -87,15 +87,6 @@ export default function RecuperarContrasenaPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orbi-cyan">
-                    Recuperar contraseña
-                  </p>
-                  <h2 className="text-2xl font-black tracking-tight text-white">
-                    Correo electrónico
-                  </h2>
-                </div>
-
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <label className="block text-sm font-semibold text-orbi-text">
                     Correo registrado

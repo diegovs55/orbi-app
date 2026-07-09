@@ -447,14 +447,23 @@ export type CustomerMissionStats = {
 const HISTORY_BY_PHONE_PAGE = 10;
 
 /** KPIs — counts only cumplida + cancelada. Archivadas excluded from totals. */
-export async function fetchMissionStatsByPhone(phone: string): Promise<CustomerMissionStats> {
-  const normalized = phone.replace(/\D/g, "");
-  const { data, error } = await supabase
+export async function fetchMissionStatsByPhone(
+  phone: string,
+  userId?: string | null
+): Promise<CustomerMissionStats> {
+  let query = supabase
     .from("missions")
     .select("status,created_at")
-    .in("status", ["cumplida", "cancelada"])
-    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
-    .order("created_at", { ascending: false });
+    .in("status", ["cumplida", "cancelada"]);
+
+  if (userId) {
+    query = query.eq("user_id", userId);
+  } else {
+    const normalized = phone.replace(/\D/g, "");
+    query = query.or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
   if (error || !data) return { total: 0, cumplidas: 0, canceladas: 0, lastDate: null };
   const rows = data as { status: string; created_at: string }[];
   return {
@@ -465,21 +474,34 @@ export async function fetchMissionStatsByPhone(phone: string): Promise<CustomerM
   };
 }
 
-/** Paginated mission history — cumplida + cancelada + archivada — ordered by created_at DESC. */
+/** Paginated mission history — cumplida + cancelada + archivada — ordered by created_at DESC.
+ *  When userId is provided, filters exclusively by user_id (authoritative).
+ *  Falls back to phone match only for unauthenticated / legacy-guest sessions.
+ */
 export async function fetchMissionHistoryByPhonePaged(
   phone: string,
-  page: number
+  page: number,
+  userId?: string | null
 ): Promise<{ missions: ActiveMission[]; hasMore: boolean; total: number }> {
-  const normalized = phone.replace(/\D/g, "");
   const from = page * HISTORY_BY_PHONE_PAGE;
   const to = from + HISTORY_BY_PHONE_PAGE - 1;
-  const { data, error, count } = await supabase
+
+  let query = supabase
     .from("missions")
     .select("id,status,service_type,destination_text,total_amount,created_at,updated_at", { count: "exact" })
-    .in("status", ["cumplida", "cancelada", "archivada"])
-    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
+    .in("status", ["cumplida", "cancelada", "archivada"]);
+
+  if (userId) {
+    query = query.eq("user_id", userId);
+  } else {
+    const normalized = phone.replace(/\D/g, "");
+    query = query.or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`);
+  }
+
+  const { data, error, count } = await query
     .order("created_at", { ascending: false })
     .range(from, to);
+
   if (error) {
     console.error("[missions] fetchMissionHistoryByPhonePaged error:", error);
     return { missions: [], hasMore: false, total: 0 };
@@ -490,6 +512,22 @@ export async function fetchMissionHistoryByPhonePaged(
     hasMore: to + 1 < total,
     total,
   };
+}
+
+/**
+ * Backfill server-side: sets user_id on missions that have a matching requester_phone
+ * but no user_id yet. Called once on first login/register to migrate existing missions.
+ */
+export async function backfillMissionUserIdByPhone(phone: string, userId: string): Promise<void> {
+  const normalized = phone.replace(/\D/g, "");
+  const { error } = await supabase
+    .from("missions")
+    .update({ user_id: userId })
+    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
+    .is("user_id", null);
+  if (error) {
+    console.error("[missions] backfillMissionUserIdByPhone error:", error);
+  }
 }
 
 /** Fetch a single mission by id directly from Supabase. */

@@ -134,9 +134,6 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
           <LockKeyhole aria-hidden="true" className="h-6 w-6" />
         </div>
         <h2 className="text-xl font-black text-orbi-text">Acceso operativo</h2>
-        <p className="mt-2 text-sm leading-6 text-orbi-muted">
-          Ingresa tu correo y contraseña para acceder a estadísticas, misiones y gestión de catálogo.
-        </p>
         <label className="mt-5 block text-sm font-semibold text-orbi-text">
           Correo electrónico
           <input

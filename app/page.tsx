@@ -19,7 +19,7 @@ export default function HomePage() {
         </div>
 
         <div className="relative max-w-3xl">
-          <div className="mb-7 flex h-36 w-36 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-orbi-black/40 shadow-glow sm:h-44 sm:w-44">
+          <div className="mb-7 h-36 w-36 sm:h-44 sm:w-44">
             <Image
               src="/orbi-logo.png"
               alt="Orbi"
@@ -35,12 +35,8 @@ export default function HomePage() {
           <h1 className="text-5xl font-black leading-none tracking-normal text-orbi-text sm:text-7xl">
             Lo que necesitas, en órbita.
           </h1>
-          <p className="mt-5 text-lg font-semibold text-orbi-cyan sm:text-xl">
-            Conectamos · Movemos · Entregamos
-          </p>
           <p className="mt-5 max-w-xl text-base leading-7 text-orbi-muted sm:text-lg">
-            Solo dime qué necesitas. Red Orbi coordina la ruta local para mover personas,
-            productos o pendientes con claridad y seguimiento.
+            Estamos aquí. Solo cuéntanos qué necesitas.
           </p>
         </div>
 
@@ -50,7 +46,11 @@ export default function HomePage() {
           </OrbiButton>
         </div>
 
-        <div className="mt-6 flex max-w-2xl flex-wrap gap-x-3 gap-y-2 text-sm font-semibold text-orbi-muted">
+        <p className="mt-5 text-base font-semibold text-orbi-muted sm:text-lg">
+          Conectamos · Movemos · Entregamos
+        </p>
+
+        <div className="mt-4 flex max-w-2xl flex-wrap gap-x-3 gap-y-2 text-sm font-semibold text-orbi-muted">
           {["Traslados", "Entregas", "Compras", "Mandados", "Trámites"].map((item, index) => (
             <span key={item} className="inline-flex items-center gap-3">
               <span>{item}</span>

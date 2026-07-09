@@ -66,13 +66,12 @@ export default function AgentePage() {
       <PageShell
         eyebrow="Portal Agente"
         title="Acceso de agente."
-        description="Inicia sesión para ver y gestionar misiones asignadas."
+        description=""
       >
         <div className="mt-8 flex max-w-sm flex-col gap-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.07] p-6">
           <span className="flex h-10 w-10 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
             <LockKeyhole aria-hidden="true" className="h-5 w-5" />
           </span>
-          <p className="text-sm text-orbi-muted">Debes iniciar sesión como agente para acceder a este panel.</p>
           <Link
             href="/agente/login"
             className="inline-flex min-h-11 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white transition hover:bg-[#0f7af0]"
