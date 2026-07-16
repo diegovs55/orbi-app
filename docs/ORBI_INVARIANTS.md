@@ -557,3 +557,17 @@ const lat: number = details.originLat;
 3. Un desarrollador o IA que detecte que una regla fue violada en producción debe: (a) revertir el cambio, (b) documentar el incidente, (c) verificar que la invariante sigue siendo aplicable, (d) proponer refuerzo del test correspondiente en ORBI_QA.md.
 
 **Este documento no se actualiza como parte de ningún sprint de feature. Solo se actualiza cuando una invariante existente resulta incorrecta o cuando una nueva regla emerge de un incidente real.**
+
+---
+
+## Invariantes de prueba
+
+Estas reglas no gobiernan el código de producción sino el entorno de prueba. Su violación produce falsos positivos que llevan a diagnósticos incorrectos.
+
+### INV-TEST-001: Cliente y agente no comparten instancia de Safari con watchPosition activo
+
+**Regla:** Las pruebas del flujo del cliente (GPS, pedidos consecutivos) deben ejecutarse en un dispositivo o pestaña que no tenga una sesión de agente en órbita activa.
+
+**Por qué:** `lib/agent-gps.ts` mantiene un `watchPosition` module-level que sobrevive a la navegación. Compartir la instancia con un agente en órbita produce TIMEOUT (código 3) en el segundo `getCurrentPosition` del cliente — un falso positivo que no existe en producción.
+
+**Evidencia:** Incidente confirmado el 2026-07-15. Ver `ORBI_QA.md → INV-TEST-001` para el detalle completo.

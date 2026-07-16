@@ -705,6 +705,18 @@ curl "localhost:3000/api/geocoding/reverse?lat=200&lng=0"
 - DevTools > Application > localStorage: verificar draft en cada paso
 - Supabase Dashboard > Table Editor: verificar datos después de crear misión
 
+### INV-TEST-001: Cliente y agente no deben compartir la misma instancia de Safari con watchPosition activo
+
+**Regla:** Al probar el flujo del cliente (GPS, pedidos consecutivos), el dispositivo y la pestaña de Safari usados no deben tener una sesión de agente activa en órbita (`watchPosition` en ejecución).
+
+**Por qué:** `lib/agent-gps.ts` mantiene un `watchPosition` con `enableHighAccuracy: true` como singleton module-level que sobrevive a la navegación entre páginas. Si el cliente y el agente comparten la misma instancia de Safari, ambos compiten por el mismo proveedor de geolocalización del browser. Esto produce un `GeolocationPositionError` código 3 (TIMEOUT) en el segundo `getCurrentPosition` del cliente — un falso positivo que no ocurre en producción, donde cada actor opera desde un dispositivo independiente.
+
+**Evidencia:** Reproducido el 2026-07-15 durante auditoría de GPS. El timeout del segundo pedido desapareció al aislar las sesiones en dispositivos separados.
+
+**Cómo verificar que el entorno está aislado:** antes de probar el flujo del cliente, confirmar que `navigator.geolocation` no tiene un watcher activo. En la consola del browser: `typeof watchId` no debe devolver un número válido, o simplemente usar un dispositivo distinto al del agente.
+
+**Consecuencia de violar esta invariante:** timeouts GPS falsos en el segundo pedido consecutivo del cliente, que llevan a hipótesis incorrectas sobre el código de producción.
+
 ### Reportar un fallo
 
 Si un test falla:
