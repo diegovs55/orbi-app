@@ -1,11 +1,22 @@
 /**
  * POST /api/missions/cancel-customer
  *
- * Permite que un cliente (guest o registrado) cancele su propia misión activa.
+ * Permite que un cliente (guest o registrado) cancele su propia misión.
  * Usa SERVICE_ROLE_KEY para el UPDATE — el anon client nunca escribe en missions.
  *
+ * Constitución del ciclo de vida — puntos de no retorno por tipo de misión:
+ *
+ *   Misiones de catálogo (business_id presente):
+ *     Punto de no retorno = negocio confirma → preparando.
+ *     Cancelable solo en: esperando_negocio.
+ *
+ *   Misiones directas (sin negocio, flujo de espera sin agente):
+ *     Punto de no retorno = agente acepta → aceptada.
+ *     Cancelable en: por_tomar (nadie ha aceptado aún).
+ *     Decisión aprobada: 2026-07-15.
+ *
  * Guards:
- *   - Solo cancela si el status actual está en [por_tomar, aceptada, en_mision].
+ *   - Solo cancela si el status actual está en CANCELLABLE_STATUSES.
  *   - Requiere mission_id en el body.
  *   - No requiere JWT: clientes son anónimos en el MVP.
  */
@@ -14,7 +25,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
 
 
-const CANCELLABLE_STATUSES = ["por_tomar", "aceptada", "en_mision"] as const;
+const CANCELLABLE_STATUSES = ["esperando_negocio", "por_tomar"] as const;
 
 export async function POST(req: NextRequest) {
   const admin = getAdmin();

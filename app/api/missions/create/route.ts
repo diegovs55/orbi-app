@@ -178,6 +178,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "service_type es requerido." }, { status: 400 });
   }
 
+
   // El servidor deriva mission_type de los datos, no confía en el cliente.
   const clientItems = Array.isArray(items)
     ? (items as Array<{ product_id?: unknown; quantity?: unknown }>)
@@ -488,6 +489,22 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
+    // PK conflict: a concurrent request already inserted this mission.
+    // Fetch and return the existing row so all concurrent callers get the same result.
+    if (error.code === "23505") {
+      const { data: existing, error: fetchErr } = await admin
+        .from("missions")
+        .select()
+        .eq("id", id as string)
+        .single();
+      if (fetchErr || !existing) {
+        return NextResponse.json(
+          { error: "Conflicto de idempotencia: misión existente no encontrada." },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ mission: existing });
+    }
     console.error("[missions/create] INSERT error:", error);
     await logEvent({
       event_type:   "api.create.error_500",

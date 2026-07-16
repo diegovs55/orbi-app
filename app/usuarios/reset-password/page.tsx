@@ -107,7 +107,11 @@ export default function UsuariosResetPasswordPage() {
     }
 
     setStatus("success");
-    setTimeout(() => router.push("/usuarios"), 1500);
+    const returnTo =
+      typeof window !== "undefined"
+        ? (new URLSearchParams(window.location.search).get("returnTo") ?? "/usuarios")
+        : "/usuarios";
+    setTimeout(() => router.push(returnTo), 1500);
   }
 
   return (

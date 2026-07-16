@@ -1080,6 +1080,50 @@ serviceCoverage               → para validar si ORBI puede ejecutar la misión
 
 Hoy no existe validación de cobertura geográfica autoritativa en el backend (solo validación por distancia de pricing en misiones de catálogo). Esto es deuda técnica registrada.
 
+### 9.5 Contexto operativo de la misión — Principio permanente
+
+**Enunciado:**
+ORBI nunca busca lugares de forma aislada. Siempre busca lugares dentro del contexto operativo de la misión que el usuario está resolviendo.
+
+El `SearchCenter` es una *consecuencia* del contexto operativo, no el concepto central.
+
+**Prioridad oficial del contexto (invariante — no modificar sin revisión explícita):**
+
+| Prioridad | Fuente | Condición |
+|-----------|--------|-----------|
+| 1 | Origen confirmado de la misión | `originCoordinatePair !== null` |
+| 2 | GPS actual del usuario | Solo si no existe origen con coordenadas |
+| 3 | Centro configurado de la Red ORBI | `NEXT_PUBLIC_NETWORK_LAT` / `NEXT_PUBLIC_NETWORK_LNG` |
+| 4 | Sin contexto geográfico | `null` — nunca `{ lat: 0, lng: 0 }` (INV-019) |
+
+**Nunca usar coordenadas hardcodeadas** (INV-020).
+
+**Alcance del principio:** No aplica solo a geocodificación. Este mismo contexto operativo guía:
+- Búsqueda y autocomplete de lugares (PR-05.2)
+- Cálculo de rutas y ETA
+- Selección y radio operativo de agentes
+- Cálculo de precios
+- Recomendaciones contextuales
+
+**Implementación actual (`resolveSearchCenter`):**
+
+```typescript
+// Nivel de módulo — sin hooks. Prioridad definida en §9.5.
+function resolveSearchCenter(
+  originCoordinatePair: { lat: number; lng: number } | null
+): { lat: number; lng: number } | null {
+  if (originCoordinatePair) return originCoordinatePair;               // P1
+  // P2 (GPS live) — requiere estado async; implementar en PR-05.4
+  const netLat = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LAT ?? "");
+  const netLng = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LNG ?? "");
+  if (Number.isFinite(netLat) && Number.isFinite(netLng))
+    return { lat: netLat, lng: netLng };                               // P3
+  return null;                                                          // P4
+}
+```
+
+**Deuda pendiente:** P2 (GPS live sin origen) requiere almacenar la última posición GPS del usuario como estado de módulo. Registrado como parte de PR-05.4.
+
 ---
 
 ## 11. Componentes Importantes

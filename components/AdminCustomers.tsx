@@ -155,10 +155,14 @@ export function AdminCustomers() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customerId: c.id }),
       });
-      const data = (await res.json()) as { email?: string; tempPassword?: string; error?: string; alreadyActivated?: boolean };
+      const data = (await res.json()) as { email?: string; tempPassword?: string; error?: string; alreadyActivated?: boolean; selfRegistered?: boolean };
       if (!res.ok) throw new Error(data.error ?? "Error al activar");
       if (data.alreadyActivated) {
         setActivateErrors((p) => ({ ...p, [c.id]: "El cliente ya tiene acceso activo en Supabase Auth." }));
+      } else if (data.selfRegistered && data.email) {
+        // User self-registered — auth linked, no temp password needed.
+        setActivateErrors((p) => ({ ...p, [c.id]: `✓ Auth vinculado. El cliente usa su propia contraseña (${data.email}).` }));
+        void refreshPage({ page, search: searchDebounced, isRegistered: isRegisteredFilter, status: statusFilter });
       } else if (data.tempPassword && data.email) {
         setCredResults((p) => ({ ...p, [c.id]: { email: data.email!, tempPassword: data.tempPassword! } }));
         void refreshPage({ page, search: searchDebounced, isRegistered: isRegisteredFilter, status: statusFilter });

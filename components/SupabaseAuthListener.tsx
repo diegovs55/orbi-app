@@ -17,7 +17,14 @@ export function SupabaseAuthListener() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") {
-        router.push("/usuarios/reset-password");
+        const returnTo =
+          typeof window !== "undefined"
+            ? (new URLSearchParams(window.location.search).get("returnTo") ?? "")
+            : "";
+        const target =
+          "/usuarios/reset-password" +
+          (returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : "");
+        router.push(target);
       }
     });
     return () => subscription.unsubscribe();

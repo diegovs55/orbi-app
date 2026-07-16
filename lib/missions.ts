@@ -103,6 +103,18 @@ export type ActiveMission = {
   rated_agent_id?: string;
   rated_requester?: string;
   rated_at?: string;
+  // Campos geográficos enriquecidos (Etapa 1 — columnas ya en DB, ORBI_GEO_CONTRACT.md).
+  // Todos opcionales: misiones antiguas no los tendrán; las nuevas los recibirán del draft v2.
+  origin_place_name?: string | null;
+  origin_provider_id?: string | null;
+  origin_provider?: string | null;
+  origin_confirmed?: boolean | null;
+  origin_reference?: string | null;
+  destination_place_name?: string | null;
+  destination_provider_id?: string | null;
+  destination_provider?: string | null;
+  destination_confirmed?: boolean | null;
+  destination_reference?: string | null;
   mission_type?: "directa" | "compra_negocio";
   estimated_orbit: string;
   status: MissionStatus;
@@ -115,6 +127,7 @@ export type ActiveMission = {
 };
 
 type CreateMissionInput = Omit<ActiveMission, "id" | "last_updated_at" | "updated_at" | "status" | "mission_status"> & {
+  id?: string;             // idempotency key — same draft → same mission, never duplicated
   status?: MissionStatus;
   mission_status?: MissionStatus | string;
 };
@@ -138,34 +151,24 @@ export function isMissionClosed(mission: ActiveMission | null) {
   return mission?.status === "cumplida" || mission?.status === "cancelada" || mission?.status === "archivada";
 }
 
+/**
+ * Puntos de no retorno por tipo de misión (actualizado 2026-07-15):
+ *   - Catálogo (business_id presente): punto de no retorno = negocio confirma → preparando.
+ *     Cancelable en: esperando_negocio.
+ *   - Directa (sin business_id): punto de no retorno = agente acepta → aceptada.
+ *     Cancelable en: por_tomar (nadie ha aceptado aún).
+ */
+export function isCancellableByCustomer(mission: ActiveMission | null): boolean {
+  if (!mission) return false;
+  if (mission.status === "esperando_negocio") return true;
+  if (mission.status === "por_tomar" && !mission.business_id) return true;
+  return false;
+}
+
 export function getMissionStatusLabel(status: MissionStatus) {
   return missionStatusLabels[status];
 }
 
-// ── Identidad temporal del cliente ───────────────────────────────────────────
-
-const GUEST_ID_KEY = "orbi_guest_id";
-
-/**
- * Devuelve la identidad temporal del cliente invitado para esta sesión.
- * Si no existe, genera un UUID nuevo y lo persiste en localStorage.
- *
- * El guest_id no es un identificador del dispositivo — es un identificador
- * provisional del cliente que actúa como puente hacia user_id (Supabase Auth)
- * o hacia un customer_id definitivo cuando el cliente cree una cuenta.
- *
- * Mecanismo de almacenamiento: localStorage en el MVP.
- * Cuando se implemente el módulo de auth completo, este UUID puede migrarse
- * al perfil del cliente sin cambiar el schema del ledger.
- */
-export function getOrCreateGuestId(): string {
-  if (typeof window === "undefined") return crypto.randomUUID();
-  const existing = window.localStorage.getItem(GUEST_ID_KEY);
-  if (existing) return existing;
-  const newId = crypto.randomUUID();
-  window.localStorage.setItem(GUEST_ID_KEY, newId);
-  return newId;
-}
 
 export function canTransitionMission(currentStatus: MissionStatus, nextStatus: MissionStatus) {
   return (
@@ -229,7 +232,13 @@ export function updateActiveMissionById(
       ? normalizeMissionStatus(update.status ?? update.mission_status)
       : existing.status;
 
-  if (nextStatus !== existing.status && !canTransitionMission(existing.status, nextStatus)) {
+  // Terminal states (cumplida, cancelada, archivada) arriving from Supabase realtime
+  // are always honoured regardless of the current local status. The client may have
+  // missed intermediate transitions (e.g. localStorage says por_tomar but Supabase
+  // already reached cumplida). This is authoritative reconciliation — not a path
+  // available from the UI for arbitrary local state jumps.
+  const isTerminal = isMissionClosed({ status: nextStatus } as ActiveMission);
+  if (!isTerminal && nextStatus !== existing.status && !canTransitionMission(existing.status, nextStatus)) {
     return existing;
   }
 
@@ -275,6 +284,212 @@ export function removeActiveMission(id: string): void {
   window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
 }
 
+/**
+ * Removes a mission from BOTH orbi_active_missions (new) and orbi_active_mission
+ * (legacy). Use this for authoritative cleanup — e.g. when Supabase confirms a
+ * mission is terminal or no longer exists, so it cannot resurface on next mount.
+ */
+export function removeActiveMissionFull(id: string): void {
+  if (typeof window === "undefined") return;
+  const next = getActiveMissions().filter((m) => m.id !== id);
+  window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(next));
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
+    if (raw) {
+      const m = JSON.parse(raw) as { id?: string };
+      if (m.id === id) window.localStorage.removeItem(ACTIVE_MISSION_KEY);
+    }
+  } catch { /* corrupt legacy key — ignore */ }
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+}
+
+/**
+ * Replaces the full local entry for a mission with the authoritative Supabase row.
+ * Used during mount reconciliation to ensure ALL fields (status, agent, amounts, etc.)
+ * match Supabase — not just the status field. If the authoritative mission is terminal,
+ * it is removed from the active array entirely.
+ */
+export function replaceActiveMissionFull(mission: ActiveMission): void {
+  if (typeof window === "undefined") return;
+  const current = getActiveMissions();
+  const index = current.findIndex((m) => m.id === mission.id);
+  if (index === -1) return; // not tracked locally — nothing to replace
+  if (isMissionClosed(mission)) {
+    window.localStorage.setItem(
+      ACTIVE_MISSIONS_KEY,
+      JSON.stringify(current.filter((m) => m.id !== mission.id))
+    );
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
+      if (raw) {
+        const m = JSON.parse(raw) as { id?: string };
+        if (m.id === mission.id) window.localStorage.removeItem(ACTIVE_MISSION_KEY);
+      }
+    } catch { /* ignore */ }
+  } else {
+    const next = [...current];
+    next[index] = mission;
+    window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(next));
+  }
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+}
+
+/** Three-way result for mount reconciliation — distinguishes network failure from "not found". */
+export type MissionReconciliationResult =
+  | { type: "found"; mission: ActiveMission }
+  | { type: "not_found" }
+  | { type: "network_error" };
+
+/** Result of the full array reconciliation. */
+export type ReconcileResult =
+  | { type: "ok"; mission: ActiveMission | null }
+  | { type: "network_error" };
+
+/**
+ * Checks whether a mission belongs to the current session.
+ * Authenticated users are matched by user_id; guests by phone (any phone field).
+ */
+function missionBelongsToSession(
+  mission: ActiveMission,
+  session: { phone: string; userId?: string } | null
+): boolean {
+  if (!session) return false;
+  if (session.userId) return mission.user_id === session.userId;
+  const p = session.phone;
+  return (
+    mission.requester_phone === p ||
+    mission.customer_phone === p ||
+    mission.guest_phone === p
+  );
+}
+
+/**
+ * Reconciles the entire orbi_active_missions array against Supabase.
+ * Transactional from the UI perspective:
+ *   - Reads all local IDs (array + legacy key)
+ *   - Verifies each against Supabase in parallel
+ *   - Builds the reconciled array entirely in memory
+ *   - Writes localStorage exactly once
+ *   - Dispatches MISSION_CHANGE_EVENT exactly once
+ *
+ * Returns { type: "network_error" } if any Supabase call fails.
+ * Returns { type: "ok", mission } with the single mission the UI should show
+ * (null if none remain after reconciliation).
+ */
+export async function reconcileActiveMissions(
+  session: { phone: string; userId?: string } | null
+): Promise<ReconcileResult> {
+  if (typeof window === "undefined") return { type: "ok", mission: null };
+
+  // Collect unique IDs from array + legacy key.
+  const localMissions = getActiveMissions();
+  const idSet = new Set<string>(localMissions.map((m) => m.id));
+  try {
+    const legacyRaw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw) as { id?: string };
+      if (parsed.id) idSet.add(parsed.id);
+    }
+  } catch { /* corrupt legacy — ignore */ }
+
+  if (idSet.size === 0) {
+    // Nothing to verify — ensure legacy key is clean and return.
+    window.localStorage.removeItem(ACTIVE_MISSION_KEY);
+    return { type: "ok", mission: null };
+  }
+
+  // Verify all IDs in parallel.
+  const ids = Array.from(idSet);
+  const results = await Promise.all(ids.map((id) => fetchMissionForReconciliation(id)));
+
+  // If any call failed, abort without touching localStorage.
+  if (results.some((r) => r.type === "network_error")) {
+    return { type: "network_error" };
+  }
+
+  // Build the reconciled array in memory.
+  const reconciledArray: ActiveMission[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const result = results[i];
+    if (result.type === "not_found") {
+      console.log(`[reconcile] not_found — removing local entry`);
+      continue;
+    }
+    if (result.type !== "found") continue;
+    const { mission } = result;
+    if (isMissionClosed(mission)) {
+      console.log(`[reconcile] terminal (${mission.status}) — removing local entry`);
+      continue;
+    }
+    if (!missionBelongsToSession(mission, session)) {
+      console.log(`[reconcile] wrong_owner — removing from localStorage (Supabase untouched)`);
+      continue;
+    }
+    reconciledArray.push(mission);
+  }
+
+  // Select the single mission to show, applying documented priority.
+  let selected: ActiveMission | null = null;
+  if (reconciledArray.length > 1) {
+    console.warn(`[reconcile] WARN: ${reconciledArray.length} misiones activas para la misma sesión. Mostrando la de mayor prioridad.`);
+    const priority: Record<string, number> = {
+      en_mision: 0,
+      aceptada: 1,
+      por_tomar: 2,
+      preparando: 3,
+      esperando_negocio: 4,
+    };
+    reconciledArray.sort((a, b) => {
+      const pa = priority[a.status] ?? 5;
+      const pb = priority[b.status] ?? 5;
+      if (pa !== pb) return pa - pb;
+      // Tie-break: most recent created_at first
+      return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+    });
+    selected = reconciledArray[0];
+  } else if (reconciledArray.length === 1) {
+    selected = reconciledArray[0];
+  }
+
+  // Persist exactly once — no individual add/remove calls that dispatch events.
+  window.localStorage.setItem(ACTIVE_MISSIONS_KEY, JSON.stringify(reconciledArray));
+  if (selected) {
+    window.localStorage.setItem(ACTIVE_MISSION_KEY, JSON.stringify(selected));
+  } else {
+    window.localStorage.removeItem(ACTIVE_MISSION_KEY);
+  }
+
+  // Single event dispatch at the end.
+  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
+
+  return { type: "ok", mission: selected };
+}
+
+/**
+ * Fetches a mission by id from Supabase specifically for mount reconciliation.
+ * Returns "not_found" only when Supabase confirms the row doesn't exist.
+ * Returns "network_error" for any connectivity or DB error — callers must
+ * NOT delete local state on network_error.
+ */
+export async function fetchMissionForReconciliation(id: string): Promise<MissionReconciliationResult> {
+  try {
+    const { data, error } = await supabase
+      .from("missions")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) {
+      console.error("[missions] reconciliation error:", error.message);
+      return { type: "network_error" };
+    }
+    if (!data) return { type: "not_found" };
+    return { type: "found", mission: normalizeMission(data) as ActiveMission };
+  } catch (err) {
+    console.error("[missions] reconciliation exception:", err);
+    return { type: "network_error" };
+  }
+}
+
 // Run once on app boot to move a legacy single-mission entry into the array.
 // Intentionally does NOT delete orbi_active_mission (kept as backup).
 export function migrateActiveMission(): void {
@@ -306,10 +521,10 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
   // el servidor los recalculará de forma independiente y guardará los suyos.
   const nextMission: ActiveMission = {
     ...mission,
-    id: crypto.randomUUID(),
+    id: mission.id ?? crypto.randomUUID(),
     // Asignar identidad temporal si el cliente no está autenticado.
     // user_id tiene precedencia cuando existe (cliente con cuenta registrada).
-    guest_id: mission.guest_id ?? (mission.user_id ? undefined : getOrCreateGuestId()),
+    guest_id: undefined,
     status: normalizeMissionStatus(mission.status ?? mission.mission_status),
     mission_status: undefined,
     customer_name: mission.customer_name || mission.requester_name,
@@ -373,6 +588,18 @@ function missionToRow(m: ActiveMission) {
     destination_text: m.destination_text,
     destination_lat: m.destination_lat ?? null,
     destination_lng: m.destination_lng ?? null,
+    // Campos geográficos enriquecidos — ORBI_GEO_CONTRACT.md.
+    // Null para misiones creadas antes del draft v2 (compatibilidad total con v1).
+    origin_place_name:       m.origin_place_name       ?? null,
+    origin_provider_id:      m.origin_provider_id      ?? null,
+    origin_provider:         m.origin_provider         ?? null,
+    origin_confirmed:        m.origin_confirmed        ?? null,
+    origin_reference:        m.origin_reference        ?? null,
+    destination_place_name:  m.destination_place_name  ?? null,
+    destination_provider_id: m.destination_provider_id ?? null,
+    destination_provider:    m.destination_provider    ?? null,
+    destination_confirmed:   m.destination_confirmed   ?? null,
+    destination_reference:   m.destination_reference   ?? null,
     requester_name: m.requester_name,
     requester_phone: m.requester_phone,
     selected_agent_id: m.selected_agent_id || null,
@@ -423,6 +650,32 @@ export async function loadActiveMissionsFromSupabase(): Promise<void> {
 // Supabase-first mission actions — source of truth is Supabase, not localStorage
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns the single active mission for an authenticated user.
+ * This is the authoritative read path for /pedir — no localStorage involved.
+ * Returns null if the user has no active mission or on network error.
+ */
+export async function fetchActiveMission(userId: string): Promise<ActiveMission | null> {
+  try {
+    const { data, error } = await supabase
+      .from("missions")
+      .select("*")
+      .eq("user_id", userId)
+      .not("status", "in", "(cumplida,cancelada,archivada)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error("[missions] fetchActiveMission error:", error.message);
+      return null;
+    }
+    if (!data) return null;
+    return normalizeMission(data) as ActiveMission;
+  } catch {
+    return null;
+  }
+}
+
 /** Fetch completed/cancelled missions for a given phone number from Supabase. */
 export async function fetchMissionHistoryByPhone(phone: string): Promise<ActiveMission[]> {
   const normalized = phone.replace(/\D/g, "");
@@ -447,23 +700,16 @@ export type CustomerMissionStats = {
 const HISTORY_BY_PHONE_PAGE = 10;
 
 /** KPIs — counts only cumplida + cancelada. Archivadas excluded from totals. */
-export async function fetchMissionStatsByPhone(
-  phone: string,
-  userId?: string | null
+export async function fetchMissionStats(
+  userId: string
 ): Promise<CustomerMissionStats> {
-  let query = supabase
+  const { data, error } = await supabase
     .from("missions")
     .select("status,created_at")
-    .in("status", ["cumplida", "cancelada"]);
+    .in("status", ["cumplida", "cancelada"])
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
 
-  if (userId) {
-    query = query.eq("user_id", userId);
-  } else {
-    const normalized = phone.replace(/\D/g, "");
-    query = query.or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`);
-  }
-
-  const { data, error } = await query.order("created_at", { ascending: false });
   if (error || !data) return { total: 0, cumplidas: 0, canceladas: 0, lastDate: null };
   const rows = data as { status: string; created_at: string }[];
   return {
@@ -474,36 +720,24 @@ export async function fetchMissionStatsByPhone(
   };
 }
 
-/** Paginated mission history — cumplida + cancelada + archivada — ordered by created_at DESC.
- *  When userId is provided, filters exclusively by user_id (authoritative).
- *  Falls back to phone match only for unauthenticated / legacy-guest sessions.
- */
-export async function fetchMissionHistoryByPhonePaged(
-  phone: string,
-  page: number,
-  userId?: string | null
+/** Paginated mission history — cumplida + cancelada + archivada — ordered by created_at DESC. */
+export async function fetchMissionHistoryPaged(
+  userId: string,
+  page: number
 ): Promise<{ missions: ActiveMission[]; hasMore: boolean; total: number }> {
   const from = page * HISTORY_BY_PHONE_PAGE;
   const to = from + HISTORY_BY_PHONE_PAGE - 1;
 
-  let query = supabase
+  const { data, error, count } = await supabase
     .from("missions")
     .select("id,status,service_type,destination_text,total_amount,created_at,updated_at", { count: "exact" })
-    .in("status", ["cumplida", "cancelada", "archivada"]);
-
-  if (userId) {
-    query = query.eq("user_id", userId);
-  } else {
-    const normalized = phone.replace(/\D/g, "");
-    query = query.or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`);
-  }
-
-  const { data, error, count } = await query
+    .in("status", ["cumplida", "cancelada", "archivada"])
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .range(from, to);
 
   if (error) {
-    console.error("[missions] fetchMissionHistoryByPhonePaged error:", error);
+    console.error("[missions] fetchMissionHistoryPaged error:", error);
     return { missions: [], hasMore: false, total: 0 };
   }
   const total = count ?? 0;
@@ -514,21 +748,6 @@ export async function fetchMissionHistoryByPhonePaged(
   };
 }
 
-/**
- * Backfill server-side: sets user_id on missions that have a matching requester_phone
- * but no user_id yet. Called once on first login/register to migrate existing missions.
- */
-export async function backfillMissionUserIdByPhone(phone: string, userId: string): Promise<void> {
-  const normalized = phone.replace(/\D/g, "");
-  const { error } = await supabase
-    .from("missions")
-    .update({ user_id: userId })
-    .or(`requester_phone.eq.${normalized},requester_phone.eq.+52${normalized}`)
-    .is("user_id", null);
-  if (error) {
-    console.error("[missions] backfillMissionUserIdByPhone error:", error);
-  }
-}
 
 /** Fetch a single mission by id directly from Supabase. */
 export async function fetchMissionById(id: string): Promise<ActiveMission | null> {
@@ -846,8 +1065,8 @@ export async function completeMissionWithLedger(
   };
 }
 
-/** Customer cancels mission (any active status). Goes through API route — anon client never writes missions. */
-export async function cancelMissionByCustomer(id: string): Promise<void> {
+/** Customer cancels mission. Backend guards esperando_negocio only. Returns ok=true on success. */
+export async function cancelMissionByCustomer(id: string): Promise<{ ok: boolean }> {
   try {
     const res = await fetch("/api/missions/cancel-customer", {
       method: "POST",
@@ -857,9 +1076,12 @@ export async function cancelMissionByCustomer(id: string): Promise<void> {
     if (!res.ok) {
       const body = await res.json().catch(() => ({})) as { error?: string };
       console.error("[missions] cancelMissionByCustomer error:", body.error ?? res.status);
+      return { ok: false };
     }
+    return { ok: true };
   } catch (err) {
     console.error("[missions] cancelMissionByCustomer fetch error:", err);
+    return { ok: false };
   }
 }
 
@@ -914,7 +1136,14 @@ export function getActiveMission(): ActiveMission | null {
     // Fallback: try legacy key (safety net during migration window).
     try {
       const raw = window.localStorage.getItem(ACTIVE_MISSION_KEY);
-      return raw ? (normalizeMission(JSON.parse(raw)) as ActiveMission) : null;
+      if (!raw) return null;
+      const m = normalizeMission(JSON.parse(raw)) as ActiveMission;
+      if (isMissionClosed(m)) {
+        // Stale closed entry in legacy key — clean it up so it never resurfaces.
+        window.localStorage.removeItem(ACTIVE_MISSION_KEY);
+        return null;
+      }
+      return m;
     } catch {
       return null;
     }
@@ -977,30 +1206,6 @@ export function subscribeToMission(callback: () => void) {
   };
 }
 
-export function associateMissionsToUserByPhone(phone: string, userId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const normalizedPhone = normalizePhone(phone);
-  const activeMission = getActiveMission();
-  if (activeMission && normalizePhone(activeMission.requester_phone) === normalizedPhone) {
-    saveActiveMission({
-      ...activeMission,
-      user_id: userId,
-      updated_at: new Date().toISOString()
-    });
-  }
-
-  const history = getMissionHistory();
-  const nextHistory = history.map((mission) =>
-    normalizePhone(mission.requester_phone) === normalizedPhone
-      ? { ...mission, user_id: userId, updated_at: new Date().toISOString() }
-      : mission
-  );
-  window.localStorage.setItem(MISSION_HISTORY_KEY, JSON.stringify(nextHistory));
-  window.dispatchEvent(new Event(MISSION_CHANGE_EVENT));
-}
 
 function saveMissionToHistory(mission: ActiveMission) {
   const history = getMissionHistory();

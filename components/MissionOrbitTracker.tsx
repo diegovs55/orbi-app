@@ -7,9 +7,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { MissionPoint } from "@/components/MissionOrbitMap";
 import {
-  isCustomerRegistered,
   registerCustomerAccount,
-  upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
   saveCustomerSession,
 } from "@/lib/customers";
@@ -40,7 +38,12 @@ const MissionOrbitMap = dynamic(
   }
 );
 
-const fallbackPoint: MissionPoint = { lat: 18.8349, lng: -99.5818 };
+const _netLat = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LAT ?? "");
+const _netLng = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LNG ?? "");
+const fallbackPoint: MissionPoint | null =
+  Number.isFinite(_netLat) && Number.isFinite(_netLng)
+    ? { lat: _netLat, lng: _netLng }
+    : null;
 
 export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: string } = {}) {
   const searchParams = useSearchParams();
@@ -53,7 +56,6 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   const [rating, setRating] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingMessage, setRatingMessage] = useState("");
-  const [waitingMessage, setWaitingMessage] = useState("");
   const [customerIsRegistered, setCustomerIsRegistered] = useState<boolean | null>(null);
   const [hideAccountInvite, setHideAccountInvite] = useState(false);
   const [showSaveSessionPrompt, setShowSaveSessionPrompt] = useState(false);
@@ -94,16 +96,13 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   }, []);
 
   // Filters the full mission list to only missions belonging to this user.
-  // Matches by stored mission ID or by phone number (handles +52 prefix variants).
+  // Matches by user_id (sole identity) or by stored mission ID as fallback.
   function filterToUserMissions(all: ActiveMission[]): ActiveMission[] {
     const storedId = sessionStorage.getItem("orbi_active_mission_id");
-    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
+    const userId = getCurrentCustomerSession()?.userId ?? "";
     return all.filter((m) => {
       if (storedId && m.id === storedId) return true;
-      if (customerPhone) {
-        const mp = (m.requester_phone ?? "").replace(/\D/g, "");
-        return mp.endsWith(customerPhone) || customerPhone.endsWith(mp);
-      }
+      if (userId && m.user_id === userId) return true;
       return false;
     });
   }
@@ -119,14 +118,11 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
     // Business
     const bizSession = getBusinessSession();
     if (bizSession?.supabaseBusinessId && m.business_id === bizSession.supabaseBusinessId) return true;
-    // Customer — by stored mission ID or by phone
+    // Customer — by user_id (sole identity) or stored mission ID as fallback
     const storedId = sessionStorage.getItem("orbi_active_mission_id");
     if (storedId && m.id === storedId) return true;
-    const customerPhone = getCurrentCustomerSession()?.phone?.replace(/\D/g, "") ?? "";
-    if (customerPhone) {
-      const mp = (m.requester_phone ?? "").replace(/\D/g, "");
-      if (mp.endsWith(customerPhone) || customerPhone.endsWith(mp)) return true;
-    }
+    const userId = getCurrentCustomerSession()?.userId ?? "";
+    if (userId && m.user_id === userId) return true;
     return false;
   }
 
@@ -286,22 +282,13 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   useEffect(() => {
     let isActive = true;
 
-    if (!mission?.requester_phone) {
-      return () => {
-        isActive = false;
-      };
-    }
-
-    isCustomerRegistered(mission.requester_phone).then((isRegistered) => {
-      if (isActive) {
-        setCustomerIsRegistered(isRegistered);
-      }
-    });
+    // A mission with user_id was created by a registered user — no lookup needed.
+    setCustomerIsRegistered(!!mission?.user_id);
 
     return () => {
       isActive = false;
     };
-  }, [mission?.requester_phone, mission?.user_id]);
+  }, [mission?.user_id]);
 
   function handleSaveRating() {
     if (!mission || mission.status !== "cumplida") return;
@@ -321,7 +308,6 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
     password: string;
   }) {
     if (!mission) return;
-    await upsertGuestCustomerFromMission(mission);
     await registerCustomerAccount({ name, phone, email, password });
     setCustomerIsRegistered(true);
     setHideAccountInvite(true);
@@ -380,13 +366,11 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
               mission={mission}
               lastUpdated={lastUpdated}
               liveAgentPoint={liveAgentPoint}
-              waitingMessage={waitingMessage}
               rating={rating}
               ratingComment={ratingComment}
               ratingMessage={ratingMessage}
               customerIsRegistered={customerIsRegistered}
               hideAccountInvite={hideAccountInvite}
-              onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
               onRatingChange={setRating}
               onCommentChange={setRatingComment}
               onSaveRating={handleSaveRating}
@@ -436,13 +420,11 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
           mission={lastClosedMission}
           lastUpdated={lastUpdated}
           liveAgentPoint={null}
-          waitingMessage={waitingMessage}
           rating={rating}
           ratingComment={ratingComment}
           ratingMessage={ratingMessage}
           customerIsRegistered={customerIsRegistered}
           hideAccountInvite={hideAccountInvite}
-          onWait={() => undefined}
           onRatingChange={setRating}
           onCommentChange={setRatingComment}
           onSaveRating={handleSaveRating}
@@ -488,20 +470,28 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   // Single-mission mode: permission check once the mission loaded.
   if (initialMissionId && mission && !hasPermission(mission)) {
     return (
-      <section className="rounded-md border border-red-500/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center sm:p-10">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-red-500/20 bg-red-500/10 text-red-400">
+      <section className="rounded-md border border-white/10 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center sm:p-10">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted">
           <ShieldCheck aria-hidden="true" className="h-7 w-7" />
         </div>
         <h2 className="text-2xl font-black text-orbi-text">Sin acceso</h2>
         <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-orbi-muted">
           Esta misión no pertenece a tu cuenta.
         </p>
-        <Link
-          href="/"
-          className="mt-6 inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-        >
-          Ir al inicio
-        </Link>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/orbita"
+            className="inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+          >
+            Ver mis pedidos
+          </Link>
+          <Link
+            href="/"
+            className="inline-flex min-h-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+          >
+            Ir al inicio
+          </Link>
+        </div>
       </section>
     );
   }
@@ -531,13 +521,11 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       mission={mission}
       lastUpdated={lastUpdated}
       liveAgentPoint={liveAgentPoint}
-      waitingMessage={waitingMessage}
       rating={rating}
       ratingComment={ratingComment}
       ratingMessage={ratingMessage}
       customerIsRegistered={customerIsRegistered}
       hideAccountInvite={hideAccountInvite}
-      onWait={() => setWaitingMessage("Seguimos esperando disponibilidad compatible para esta solicitud.")}
       onRatingChange={setRating}
       onCommentChange={setRatingComment}
       onSaveRating={handleSaveRating}
@@ -602,13 +590,11 @@ type MissionDetailBodyProps = {
   mission: ActiveMission;
   lastUpdated: Date;
   liveAgentPoint: MissionPoint | null;
-  waitingMessage: string;
   rating: number;
   ratingComment: string;
   ratingMessage: string;
   customerIsRegistered: boolean | null;
   hideAccountInvite: boolean;
-  onWait: () => void;
   onRatingChange: (r: number) => void;
   onCommentChange: (c: string) => void;
   onSaveRating: () => void;
@@ -623,13 +609,11 @@ function MissionDetailBody({
   mission,
   lastUpdated,
   liveAgentPoint,
-  waitingMessage,
   rating,
   ratingComment,
   ratingMessage,
   customerIsRegistered,
   hideAccountInvite,
-  onWait,
   onRatingChange,
   onCommentChange,
   onSaveRating,
@@ -693,10 +677,7 @@ function MissionDetailBody({
     return (
       <section className="space-y-5">
         <MissionSummary mission={mission} title="Tu pedido" />
-        <WaitingOrbitState
-          message={waitingMessage}
-          onWait={onWait}
-        />
+        <WaitingOrbitState />
       </section>
     );
   }
@@ -782,7 +763,8 @@ function MissionDetailBody({
           primaryHref="/pedir"
           primaryLabel="Hacer otro pedido"
         />
-        {shouldShowRatingPanel ? (
+        {/* Rating panel hidden until rating column exists in DB — ORBI-P-10 */}
+        {false && shouldShowRatingPanel ? (
           <RatingPanel
             comment={ratingComment}
             message={ratingMessage}
@@ -910,7 +892,7 @@ function MissionTimeline({ status }: { status: MissionStatus }) {
         Cómo va tu pedido
       </p>
       {isCancelled ? (
-        <div className="mt-3 rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-bold text-red-100">
+        <div className="mt-3 rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] p-3 text-sm font-bold text-yellow-100">
           Este pedido fue cancelado
         </div>
       ) : (
@@ -996,13 +978,7 @@ function RatingPanel({
   );
 }
 
-function WaitingOrbitState({
-  message,
-  onWait,
-}: {
-  message: string;
-  onWait: () => void;
-}) {
+function WaitingOrbitState() {
   return (
     <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-8">
       <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
@@ -1012,19 +988,7 @@ function WaitingOrbitState({
       <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-orbi-muted">
         Estamos buscando el agente más cercano. Tu pedido sigue activo — esto puede tomar unos minutos.
       </p>
-      {message ? (
-        <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
-          {message}
-        </p>
-      ) : null}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={onWait}
-          className="inline-flex min-h-12 items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-        >
-          Seguir esperando
-        </button>
+      <div className="mt-6">
         <Link
           href="/pedir"
           className="inline-flex min-h-12 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
@@ -1179,12 +1143,12 @@ function MissionClosedState({
   return (
     <section className={`rounded-md border p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-10 ${
       tone === "cancelled"
-        ? "border-red-300/20 bg-red-400/10"
+        ? "border-white/10 bg-white/[0.04]"
         : "border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82"
     }`}>
       <div className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border ${
         tone === "cancelled"
-          ? "border-red-300/20 bg-red-400/10 text-red-100"
+          ? "border-white/10 bg-white/[0.04] text-orbi-muted"
           : "border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan"
       }`}>
         <Radar aria-hidden="true" className="h-7 w-7" />
@@ -1356,7 +1320,7 @@ function SaveSessionCard({
           />
         </div>
         {error ? (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+          <p className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2 text-xs font-semibold text-yellow-100">
             {error}
           </p>
         ) : null}

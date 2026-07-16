@@ -35,7 +35,6 @@ import { CostBreakdown } from "@/components/CostBreakdown";
 import { estimateMissionCost, calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
-  upsertGuestCustomerFromMission,
   getCurrentCustomerSession,
   loginCustomerWithSupabase,
   registerCustomerAccount,
@@ -45,14 +44,24 @@ import {
   ActiveMission,
   cancelMissionByCustomer,
   createMission,
-  getActiveMission,
+  fetchActiveMission,
   getMissionStatusLabel,
+  isCancellableByCustomer,
   isMissionActive,
-  subscribeToMission,
-  updateActiveMission
+  isMissionClosed,
+  updateActiveMission,
+  updateActiveMissionById,
 } from "@/lib/missions";
 import { fetchRoute } from "@/lib/routing";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import {
+  clearDraft,
+  isDraftMeaningful,
+  loadDraft,
+  saveDraft,
+  type DraftCartItem,
+  type OrderDraft,
+} from "@/lib/order-draft";
 import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
 
 const LocationPickerMap = dynamic(
@@ -174,19 +183,40 @@ type MapPoint = {
   lng: number;
 };
 
-type GeocodeState = Record<
-  LocationTarget,
-  {
-    isLoading: boolean;
-    message: string;
-    tone: "success" | "warning" | "";
-  }
->;
 
-const initialGeocodeState: GeocodeState = {
-  origin: { isLoading: false, message: "", tone: "" },
-  destination: { isLoading: false, message: "", tone: "" }
+type SearchSuggestion = {
+  displayName: string;
+  lat: number;
+  lon: number;
+  providerId: string;
 };
+
+// Ubicación propuesta por ORBI (GPS o mapa) que espera confirmación del usuario (ORBI-UX-01).
+type DestPendingConfirm = { text: string; lat: number; lng: number };
+
+/** Derives the WaitingRequestCard message from the mission's actual status.
+ *  Copy follows the exact Client → Negocio → Agente sequence.
+ *  No agent is mentioned before one is assigned (aceptada/en_mision).
+ *  Cancel overrides this with its own message via waitingRequestMessage prop. */
+function missionWaitingMessage(mission: ActiveMission | null): string {
+  if (!mission) return "";
+  const negocio = mission.business_name?.trim() || "El negocio";
+  const agente  = mission.selected_agent_name?.trim() || "El agente";
+  switch (mission.status) {
+    case "esperando_negocio":
+      return `Tu misión ya está en órbita. Ahora ${negocio} revisará tu pedido.`;
+    case "preparando":
+      return `${negocio} confirmó tu pedido. Lo están preparando.`;
+    case "por_tomar":
+      return "Buscando un agente disponible.";
+    case "aceptada":
+      return `${agente} aceptó tu misión. Ya va en camino.`;
+    case "en_mision":
+      return `${agente} está en camino con tu pedido.`;
+    default:
+      return "";
+  }
+}
 
 const activeAgentStatus: OrbiAgent["status"] = AGENT_STATUS.ONLINE;
 const zumpahuacanCenter: MapPoint = { lat: 18.8349, lng: -99.5818 };
@@ -213,7 +243,6 @@ export function ServiceRequestFlow() {
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [agentError, setAgentError] = useState("");
   const [locationError, setLocationError] = useState("");
-  const [geocodeState, setGeocodeState] = useState<GeocodeState>(initialGeocodeState);
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
@@ -223,24 +252,47 @@ export function ServiceRequestFlow() {
   // Initialized as null to avoid SSR/client hydration mismatch (localStorage
   // is unavailable on the server). The useEffect below loads the real value.
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(null);
+  // True while the reconciliation effect is running — blocks form and mission card.
+  const [isReconcilingMission, setIsReconcilingMission] = useState(true);
+  const isReconcilingMissionRef = useRef(true);
+  const [networkReconcileError, setNetworkReconcileError] = useState(false);
   const [expandedDraftSection, setExpandedDraftSection] = useState<DraftSection | null>(null);
   const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
   const [showWaitingCancelConfirm, setShowWaitingCancelConfirm] = useState(false);
   const [waitingRequestMessage, setWaitingRequestMessage] = useState("");
   const [customerSession, setCustomerSession] = useState<{ name: string; phone: string; email?: string } | null>(null);
-  const [sessionSource, setSessionSource] = useState<"auth" | "local" | null>(null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
-  const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
+  const [showAuthGate, setShowAuthGate] = useState(false);
   const [confirmedDraftSections, setConfirmedDraftSections] = useState<ConfirmedDraftSections>(() =>
     getInitialConfirmedDraftSections(null)
   );
 
   const router = useRouter();
   const [isSending, setIsSending] = useState(false);
+  // Ref guard: immune to React stale-closure race when two clicks arrive in the
+  // same event-loop tick before a re-render flushes the isSending state update.
+  const isSendingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [orbitExperienceActive, setOrbitExperienceActive] = useState(false);
   const [sentMission, setSentMission] = useState<ActiveMission | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [showDraftChoice, setShowDraftChoice] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When true, the auto-save timer must not write to localStorage — the draft
+  // has been intentionally consumed (mission sent) or discarded by the user.
+  const draftSuppressedRef = useRef(false);
+  const pendingDraftAgentId = useRef<string | null>(null);
+
+  // PR-05 — LocationPicker para origen (ORBI-UX-01)
+  const [originPendingConfirm, setOriginPendingConfirm] = useState<DestPendingConfirm | null>(null);
+  const [originGpsLoading, setOriginGpsLoading] = useState(false);
+  const [originGpsError, setOriginGpsError] = useState("");
+
+  // PR-05 — LocationPicker para destino (ORBI-UX-01)
+  const [destPendingConfirm, setDestPendingConfirm] = useState<DestPendingConfirm | null>(null);
+  const [destGpsLoading, setDestGpsLoading] = useState(false);
+  const [destGpsError, setDestGpsError] = useState("");
 
   const isOrbitPending = activeMission?.status === "por_tomar" && activeMission.selected_agent_id;
   const isOrbitExperienceActive = orbitExperienceActive;
@@ -289,13 +341,6 @@ export function ServiceRequestFlow() {
     }
 
     if (step === "confirmacion") {
-      if (!selectedAgent) {
-        setSelectedStep("agente");
-        setIsRequestReady(true);
-        setExpandedDraftSection(null);
-        return;
-      }
-
       if (!orderIsConfirmed) {
         setSelectedStep("pedido");
         return;
@@ -335,7 +380,7 @@ export function ServiceRequestFlow() {
       return;
     }
     if (selectedStep === "confirmacion") {
-      goToStep("agente");
+      goToStep("solicitante");
       return;
     }
   }
@@ -387,6 +432,16 @@ export function ServiceRequestFlow() {
     };
   }, []);
 
+  // Restore agent from draft once the agents list is available.
+  useEffect(() => {
+    if (!pendingDraftAgentId.current || agents.length === 0) return;
+    const match = agents.find((a) => a.id === pendingDraftAgentId.current);
+    if (match) {
+      setSelectedAgent(match);
+      pendingDraftAgentId.current = null;
+    }
+  }, [agents]);
+
   useEffect(() => {
     let isActive = true;
     const unsubscribe = subscribeToAgents(async () => {
@@ -413,21 +468,109 @@ export function ServiceRequestFlow() {
     };
   }, []);
 
+  // Mission reconciliation on mount: Supabase is the source of truth.
+  // We do NOT render any mission card until we have verified the local entry against
+  // Supabase. This prevents stale localStorage state (e.g. por_tomar in localStorage,
+  // cumplida in Supabase) from showing a ghost mission on /pedir.
+  //
+  // Three-way result:
+  //   found + active   → replace local with authoritative full row → show mission
+  //   found + terminal → remove from localStorage → show clean /pedir
+  //   not_found        → id no longer exists in DB → remove local entry → clean /pedir
+  //   network_error    → can't verify → keep local state, show mission conservatively
+  //                      (do NOT delete a mission just because the network failed)
+  //
+  // On mount: ask Supabase for the authenticated user's active mission.
+  // localStorage is not consulted for missions — Supabase is the only source of truth.
   useEffect(() => {
-    return subscribeToMission(() => setActiveMission(getActiveMission()));
+    async function loadActiveMission() {
+      // isReconcilingMission starts true — nothing renders until this resolves.
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        // Not authenticated: no active mission possible.
+        const draft = loadDraft();
+        if (draft && isDraftMeaningful(draft)) {
+          setDraftId(draft.draftId);
+          setShowDraftChoice(true);
+        }
+        isReconcilingMissionRef.current = false;
+        setIsReconcilingMission(false);
+        return;
+      }
+
+      const mission = await fetchActiveMission(user.id);
+
+      if (mission) {
+        // Active mission found — clear any orphan draft and show tracking.
+        const orphan = loadDraft();
+        if (orphan) clearDraft();
+        setActiveMission(mission);
+      } else {
+        // No active mission — offer draft if one exists.
+        const draft = loadDraft();
+        if (draft && isDraftMeaningful(draft)) {
+          setDraftId(draft.draftId);
+          setShowDraftChoice(true);
+        }
+      }
+
+      isReconcilingMissionRef.current = false;
+      setIsReconcilingMission(false);
+    }
+
+    void loadActiveMission();
   }, []);
+
+  // Mission realtime subscription: Supabase channel only — no localStorage listeners.
+  // React state (activeMission) is the in-memory representation; Supabase is the authority.
+  useEffect(() => {
+    const channelName = `customer-mission-${Math.random().toString(36).slice(2)}`;
+    const ch = supabase.channel(channelName);
+    ch.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "missions" },
+      (payload) => {
+        if (isReconcilingMissionRef.current) return;
+        const updated = (payload.new ?? {}) as Partial<ActiveMission> & { id?: string };
+        if (!updated.id) return;
+        // Only apply if this update targets the mission we're currently tracking.
+        setActiveMission((current) => {
+          if (!current || current.id !== updated.id) return current;
+          return { ...current, ...updated } as ActiveMission;
+        });
+      }
+    );
+    void ch.subscribe();
+
+    return () => { void ch.unsubscribe(); };
+  }, []);
+
+  // Waiting-request acceptance: navigate to /orbita when the mission becomes "aceptada".
+  // Covers the case where no agent was available at creation time and the user stayed on
+  // /pedir watching the WaitingRequestCard. The direct-agent flow (handleSendMissionToAgent)
+  // manages its own navigation via setOrbitExperienceActive + router.push after 1750ms,
+  // so orbitExperienceActive guards against double-navigation.
+  useEffect(() => {
+    if (isReconcilingMission) return;
+    if (!activeMission || activeMission.status !== "aceptada") return;
+    if (orbitExperienceActive) return;
+    router.push(`/orbita/${activeMission.id}`);
+  }, [activeMission?.status, activeMission?.id, isReconcilingMission, orbitExperienceActive, router]);
 
   // Autofill solicitante — Auth is source of truth, localStorage is fallback.
   // Runs once on mount (SSR-safe). Two-phase: localStorage fills immediately,
-  // then Supabase Auth upgrades the source if the customer is authenticated.
+  // then Supabase Auth upgrades if the customer is already authenticated.
   useEffect(() => {
     let cancelled = false;
 
-    // Phase 1 — immediate sync fill from localStorage
+    // Phase 1 — immediate fill from localStorage
     const localSession = getCurrentCustomerSession();
     if (localSession) {
       setCustomerSession(localSession);
-      setSessionSource("local");
+      if (localSession.userId) {
+        setAuthUserId(localSession.userId);
+      }
       setDetails((prev) => {
         if (prev.requesterName || prev.requesterPhone) return prev;
         return { ...prev, requesterName: localSession.name, requesterPhone: localSession.phone };
@@ -441,9 +584,8 @@ export function ServiceRequestFlow() {
       const meta = user.user_metadata as { name?: string; phone?: string } | undefined;
       const name = meta?.name?.trim() ?? "";
       const phone = meta?.phone?.trim() ?? "";
-      if (!name && !phone) return; // authenticated but no metadata — keep localStorage
+      if (!name && !phone) return;
       setCustomerSession({ name, phone });
-      setSessionSource("auth");
       setDetails((prev) => ({
         ...prev,
         requesterName: name || prev.requesterName,
@@ -452,8 +594,82 @@ export function ServiceRequestFlow() {
     });
 
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Eager draftId — generated the moment the user picks a service, without
+  // waiting for the 800 ms auto-save debounce. Reuses any UUID already in
+  // localStorage so reload/remount/two-tabs all share the same idempotency key.
+  useEffect(() => {
+    if (draftSuppressedRef.current) return; // draft was sent — do not recreate with stale form data
+    if (!selectedService || draftId) return;
+    const existing = loadDraft();
+    const id = existing?.draftId ?? crypto.randomUUID();
+    saveDraft(
+      {
+        selectedService: { label: selectedService.label, compatibleType: selectedService.compatibleType },
+        selectedStep,
+        details,
+        cartItems: cartItems.map((ci) => ({
+          product: ci.product as Record<string, unknown>,
+          quantity: ci.quantity,
+        })),
+        selectedAgent: selectedAgent
+          ? { id: selectedAgent.id, name: selectedAgent.name }
+          : null,
+        paymentStatus,
+        paymentMethod,
+        confirmedDraftSections,
+      },
+      id,
+    );
+    setDraftId(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedService, draftId]);
+
+  // Draft auto-save — debounced 800 ms whenever meaningful state changes.
+  useEffect(() => {
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      if (draftSuppressedRef.current) return; // draft was sent or discarded — never recreate
+      if (!selectedService) return; // not meaningful yet
+      const saved = saveDraft(
+        {
+          selectedService: selectedService
+            ? { label: selectedService.label, compatibleType: selectedService.compatibleType }
+            : null,
+          selectedStep,
+          details,
+          cartItems: cartItems.map((ci) => ({
+            product: ci.product as Record<string, unknown>,
+            quantity: ci.quantity,
+          })),
+          selectedAgent: selectedAgent
+            ? {
+                id: selectedAgent.id,
+                name: selectedAgent.name,
+                zone: selectedAgent.zone,
+                vehicle: selectedAgent.vehicle,
+                trustLevel: selectedAgent.trustLevel,
+                lat: selectedAgent.lat,
+                lng: selectedAgent.lng,
+                status: selectedAgent.status,
+                serviceType: selectedAgent.serviceType,
+                isOnOrbit: selectedAgent.isOnOrbit,
+              }
+            : null,
+          paymentStatus,
+          paymentMethod,
+          confirmedDraftSections,
+        },
+        draftId ?? undefined,
+      );
+      setDraftId(saved.draftId);
+    }, 800);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedService, selectedStep, details, cartItems, selectedAgent, paymentStatus, paymentMethod, confirmedDraftSections]);
 
   useEffect(() => {
     let isActive = true;
@@ -640,6 +856,12 @@ export function ServiceRequestFlow() {
     setExpandedDraftSection(null);
     setIsCartDetailExpanded(false);
     setConfirmedDraftSections(getInitialConfirmedDraftSections(null));
+    setOriginGpsLoading(false);
+    setOriginGpsError("");
+    setOriginPendingConfirm(null);
+    setDestGpsLoading(false);
+    setDestGpsError("");
+    setDestPendingConfirm(null);
   }
 
   function handleDetailsSubmit(event: FormEvent<HTMLFormElement>) {
@@ -650,7 +872,7 @@ export function ServiceRequestFlow() {
     }
 
     setIsRequestReady(true);
-    setSelectedStep("agente");
+    goToStep("confirmacion");
   }
 
   function updateDetails(field: keyof RequestDetails, value: string) {
@@ -777,7 +999,8 @@ export function ServiceRequestFlow() {
       ...currentSections,
       [target === "origin" ? "pedido" : "destino"]: false
     }));
-    updateGeocodeState(target, { isLoading: false, message: "", tone: "" });
+    if (target === "origin") setOriginPendingConfirm(null);
+    if (target === "destination") setDestPendingConfirm(null);
   }
 
   function updateCoordinateDetails(
@@ -805,52 +1028,121 @@ export function ServiceRequestFlow() {
     }));
   }
 
-  function handleUseCurrentLocation(target: LocationTarget) {
-    setLocationError("");
+  // PR-05.4 — GPS para origen. ORBI obtiene la ubicación; el usuario confirma con "¿Es aquí?" (ORBI-UX-01).
+  function handleOriginGps() {
+    setOriginGpsError("");
+    setOriginPendingConfirm(null);
+    setOriginGpsLoading(true);
 
     if (!navigator.geolocation) {
-      setLocationError("Tu navegador no permite obtener ubicación.");
+      setOriginGpsError("GPS no disponible. Escribe la dirección o usa el mapa.");
+      setOriginGpsLoading(false);
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const point = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
-        updateCoordinateDetails(target, position.coords);
-        updateGeocodeState(target, {
-          isLoading: false,
-          message: `Ubicación encontrada: ${formatCoordinates(
-            position.coords.latitude,
-            position.coords.longitude
-          )}`,
-          tone: "success"
-        });
-
+        const point = { lat: position.coords.latitude, lng: position.coords.longitude };
+        _lastKnownCustomerPos = point;
         try {
-          const address = await reverseGeocodePoint(point);
-          setDetails((currentDetails) => ({
-            ...currentDetails,
-            ...(target === "origin"
-              ? { origin: address || "Ubicación actual" }
-              : { destination: address || "Ubicación actual" })
-          }));
+          const text = await reverseGeocodePoint(point);
+          setOriginPendingConfirm({ text: text || "Ubicación actual", lat: point.lat, lng: point.lng });
         } catch {
-          setDetails((currentDetails) => ({
-            ...currentDetails,
-            ...(target === "origin"
-              ? { origin: "Ubicación actual" }
-              : { destination: "Ubicación actual" })
-          }));
+          setOriginPendingConfirm({ text: "Ubicación actual", lat: point.lat, lng: point.lng });
+        } finally {
+          setOriginGpsLoading(false);
         }
       },
-      () => {
-        setLocationError("No pudimos obtener tu ubicación. Puedes escribir una referencia manual.");
+      (err) => {
+        const msg = err.code === 1
+          ? "Activa el GPS en Configuración → Safari → Ubicación para usar esta función."
+          : err.code === 3
+          ? "Tardó demasiado en ubicarte. Prueba de nuevo o usa el mapa."
+          : "No pudimos ubicarte ahora. Prueba de nuevo o usa el mapa.";
+        setOriginGpsError(msg);
+        setOriginGpsLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
+  }
+
+  function handleOriginConfirmPending() {
+    if (!originPendingConfirm) return;
+    updateCoordinateDetails("origin", { latitude: originPendingConfirm.lat, longitude: originPendingConfirm.lng });
+    setDetails((d) => ({ ...d, origin: originPendingConfirm.text }));
+    setOriginPendingConfirm(null);
+  }
+
+  function handleOriginRejectPending() {
+    setOriginPendingConfirm(null);
+  }
+
+  // PR-05 — GPS para destino. ORBI obtiene la ubicación; el usuario confirma con "¿Es aquí?" (ORBI-UX-01).
+  function handleDestGps() {
+    setDestGpsError("");
+    setDestPendingConfirm(null);
+    setDestGpsLoading(true);
+
+    if (!navigator.geolocation) {
+      setDestGpsError("No pudimos ubicarte. Escribe la dirección o usa el mapa.");
+      setDestGpsLoading(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const point = { lat: position.coords.latitude, lng: position.coords.longitude };
+        _lastKnownCustomerPos = point;
+        try {
+          const text = await reverseGeocodePoint(point);
+          setDestPendingConfirm({ text: text || "Ubicación actual", lat: point.lat, lng: point.lng });
+        } catch {
+          setDestPendingConfirm({ text: "Ubicación actual", lat: point.lat, lng: point.lng });
+        } finally {
+          setDestGpsLoading(false);
+        }
+      },
+      (err) => {
+        const msg = err.code === 1
+          ? "Activa el GPS en Configuración → Safari → Ubicación para usar esta función."
+          : err.code === 3
+          ? "Tardó demasiado en ubicarte. Prueba de nuevo o usa el mapa."
+          : "No pudimos ubicarte ahora. Prueba de nuevo o usa el mapa.";
+        setDestGpsError(msg);
+        setDestGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  }
+
+  // ORBI-UX-01 — usuario confirma la propuesta del sistema.
+  function handleDestConfirmPending() {
+    if (!destPendingConfirm) return;
+    setDetails((d) => ({
+      ...d,
+      destination: destPendingConfirm.text,
+      destinationLat: destPendingConfirm.lat,
+      destinationLng: destPendingConfirm.lng,
+    }));
+    setConfirmedDraftSections((s) => ({ ...s, destino: true }));
+    setDestPendingConfirm(null);
+  }
+
+  function handleDestRejectPending() {
+    setDestPendingConfirm(null);
+  }
+
+  // ORBI-UX-01 — usuario eligió de la lista; se confirma sin paso adicional.
+  function handleDestSelectSuggestion(displayName: string, lat: number, lon: number) {
+    setDetails((d) => ({
+      ...d,
+      destination: displayName,
+      destinationLat: lat,
+      destinationLng: lon,
+    }));
+    setConfirmedDraftSections((s) => ({ ...s, destino: true }));
+    setDestPendingConfirm(null);
+    setDestGpsError("");
   }
 
   function handleOpenMap(target: LocationTarget) {
@@ -883,117 +1175,42 @@ export function ServiceRequestFlow() {
     setIsReverseGeocoding(true);
 
     try {
-      updateCoordinateDetails(mapTarget, {
-        latitude: mapPoint.lat,
-        longitude: mapPoint.lng
-      });
-
       const address = await reverseGeocodePoint(mapPoint);
-      setDetails((currentDetails) => ({
-        ...currentDetails,
-        ...(mapTarget === "origin"
-          ? { origin: address || "Punto marcado en mapa" }
-          : { destination: address || "Punto marcado en mapa" })
-      }));
-      updateGeocodeState(mapTarget, {
-        isLoading: false,
-        message: `Ubicación encontrada: ${formatCoordinates(mapPoint.lat, mapPoint.lng)}`,
-        tone: "success"
-      });
+
+      if (mapTarget === "destination") {
+        // ORBI-UX-01: el mapa propuso el punto; el usuario confirma con "¿Es aquí?".
+        setDestPendingConfirm({
+          text: address || "Punto marcado en mapa",
+          lat: mapPoint.lat,
+          lng: mapPoint.lng,
+        });
+      } else {
+        // PR-05.4 / ORBI-UX-01: mismo flujo de confirmación para origen.
+        setOriginPendingConfirm({
+          text: address || "Punto marcado en mapa",
+          lat: mapPoint.lat,
+          lng: mapPoint.lng,
+        });
+      }
       setMapTarget(null);
     } catch {
-      updateCoordinateDetails(mapTarget, {
-        latitude: mapPoint.lat,
-        longitude: mapPoint.lng
-      });
-      setDetails((currentDetails) => ({
-        ...currentDetails,
-        ...(mapTarget === "origin"
-          ? { origin: "Punto marcado en mapa" }
-          : { destination: "Punto marcado en mapa" })
-      }));
-      updateGeocodeState(mapTarget, {
-        isLoading: false,
-        message: `Ubicación encontrada: ${formatCoordinates(mapPoint.lat, mapPoint.lng)}`,
-        tone: "success"
-      });
+      if (mapTarget === "destination") {
+        setDestPendingConfirm({
+          text: "Punto marcado en mapa",
+          lat: mapPoint.lat,
+          lng: mapPoint.lng,
+        });
+      } else {
+        setOriginPendingConfirm({
+          text: "Punto marcado en mapa",
+          lat: mapPoint.lat,
+          lng: mapPoint.lng,
+        });
+      }
       setMapTarget(null);
     } finally {
       setIsReverseGeocoding(false);
     }
-  }
-
-  async function handleGeocodeLocation(target: LocationTarget) {
-    const rawQuery = target === "origin" ? details.origin : details.destination;
-    const query = buildLocalGeocodeQuery(rawQuery);
-
-    if (!rawQuery.trim()) {
-      updateGeocodeState(target, {
-        message: "Escribe una dirección o referencia para buscar ubicación.",
-        tone: "warning"
-      });
-      return;
-    }
-
-    updateGeocodeState(target, { isLoading: true, message: "", tone: "" });
-
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`
-      );
-
-      if (!response.ok) {
-        throw new Error("No fue posible consultar la referencia.");
-      }
-
-      const results = (await response.json()) as Array<{ lat: string; lon: string }>;
-      const firstResult = results[0];
-
-      if (!firstResult) {
-        clearCoordinateDetails(target);
-        updateGeocodeState(target, {
-          isLoading: false,
-          message:
-            "No pudimos georreferenciar esta referencia. Usa tu ubicación actual o escribe más detalles.",
-          tone: "warning"
-        });
-        return;
-      }
-
-      const latitude = Number(firstResult.lat);
-      const longitude = Number(firstResult.lon);
-
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        throw new Error("La referencia no devolvió coordenadas válidas.");
-      }
-
-      updateCoordinateDetails(target, { latitude, longitude });
-      updateGeocodeState(target, {
-        isLoading: false,
-        message: `Ubicación encontrada: ${formatCoordinates(latitude, longitude)}`,
-        tone: "success"
-      });
-    } catch {
-      updateGeocodeState(target, {
-        isLoading: false,
-        message:
-          "No pudimos georreferenciar esta referencia. Usa tu ubicación actual o escribe más detalles.",
-        tone: "warning"
-      });
-    }
-  }
-
-  function updateGeocodeState(
-    target: LocationTarget,
-    nextState: Partial<GeocodeState[LocationTarget]>
-  ) {
-    setGeocodeState((currentState) => ({
-      ...currentState,
-      [target]: {
-        ...currentState[target],
-        ...nextState
-      }
-    }));
   }
 
   function sendWhatsApp() {
@@ -1048,12 +1265,22 @@ export function ServiceRequestFlow() {
     window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
   }
 
-  async function handleSendMissionToAgent() {
-    if (!selectedService || !selectedAgent || isSending) {
+  async function handleSendMissionToAgent(overrideUserId?: string, requester?: { name: string; phone: string }) {
+    if (!selectedService || !selectedAgent || isSendingRef.current) {
       return;
     }
 
-    // Lock immediately — before any await — so rapid double-clicks are blocked.
+    const userId = overrideUserId ?? authUserId;
+
+    // Auth gate: show login/register inline before creating the mission.
+    if (!userId) {
+      setShowAuthGate(true);
+      return;
+    }
+
+    // Lock immediately — ref is checked above and must be set before any await
+    // so that a second click arriving in the same event-loop tick is blocked.
+    isSendingRef.current = true;
     setIsSending(true);
     setSubmitError(null);
 
@@ -1062,6 +1289,8 @@ export function ServiceRequestFlow() {
     const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
 
     if (isCatalogMission && currentServiceFee === null) {
+      isSendingRef.current = false;
+      setIsSending(false);
       setLocationError(logisticsStatusMessage);
       return;
     }
@@ -1071,10 +1300,14 @@ export function ServiceRequestFlow() {
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
+    // Use requester override when available (from auth gate, where state may be stale).
+    const requesterName = requester?.name || details.requesterName;
+    const requesterPhone = requester?.phone || details.requesterPhone;
 
     try {
     const mission = await createMission({
-      user_id: authUserId ?? undefined,
+      id: draftId ?? undefined,
+      user_id: userId,
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,
@@ -1082,12 +1315,12 @@ export function ServiceRequestFlow() {
       destination_text: details.destination,
       destination_lat: details.destinationLat,
       destination_lng: details.destinationLng,
-      requester_name: details.requesterName,
-      requester_phone: details.requesterPhone,
-      customer_name: details.requesterName,
-      customer_phone: details.requesterPhone,
-      guest_name: details.requesterName,
-      guest_phone: details.requesterPhone,
+      requester_name: requesterName,
+      requester_phone: requesterPhone,
+      customer_name: requesterName,
+      customer_phone: requesterPhone,
+      guest_name: requesterName,
+      guest_phone: requesterPhone,
       detail: ticketDetail,
       business_id: cartBusiness?.businessId,
       product_id: cartItems[0]?.product.id,
@@ -1134,34 +1367,25 @@ export function ServiceRequestFlow() {
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
     });
 
-
+    draftSuppressedRef.current = true;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    clearDraft();
+    setDraftId(null);
     setActiveMission(mission);
     setSentMission(mission);
     // Persist missionId so /orbita always shows THIS customer's mission.
     sessionStorage.setItem("orbi_active_mission_id", mission.id);
-    try {
-      await upsertGuestCustomerFromMission(mission);
-    } catch (err) {
-      console.error("[pedir] upsert cliente falló:", err);
-    }
     setRequestStatusMessage(
       isCatalogMission
         ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
         : "Ya lo tenemos. Buscando quién te ayude."
     );
     setOrbitExperienceActive(true);
-
-    // Authenticated users never see the register prompt.
-    // Anonymous users without any session get the register invite.
-    const needsRegistration = sessionSource !== "auth" && !getCurrentCustomerSession();
-    if (needsRegistration) {
-      setShowRegisterPrompt(true);
-    } else {
-      await new Promise<void>((resolve) => setTimeout(resolve, 1750));
-      router.push(`/orbita/${mission.id}`);
-    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1750));
+    router.push("/usuarios");
     } catch (err) {
-      // Re-enable the button so the user can retry after a failure.
+      // Re-enable the button so the user can retry after a confirmed failure.
+      isSendingRef.current = false;
       setIsSending(false);
       setSubmitError(
         err instanceof Error
@@ -1171,8 +1395,15 @@ export function ServiceRequestFlow() {
     }
   }
 
-  async function handleCreateWaitingRequest() {
-    if (!selectedService) {
+  async function handleCreateWaitingRequest(overrideUserId?: string, requester?: { name: string; phone: string }) {
+    if (!selectedService || isSendingRef.current) {
+      return;
+    }
+
+    const userId = overrideUserId ?? authUserId;
+
+    if (!userId) {
+      setShowAuthGate(true);
       return;
     }
 
@@ -1181,10 +1412,16 @@ export function ServiceRequestFlow() {
       return;
     }
 
+    isSendingRef.current = true;
+    setIsSending(true);
+    setSubmitError(null);
+
     const cost = estimateMissionCost(null);
     const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
 
     if (isCatalogMission && currentServiceFee === null) {
+      isSendingRef.current = false;
+      setIsSending(false);
       setLocationError(logisticsStatusMessage);
       return;
     }
@@ -1193,8 +1430,12 @@ export function ServiceRequestFlow() {
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
+    const requesterName = requester?.name || details.requesterName;
+    const requesterPhone = requester?.phone || details.requesterPhone;
+    try {
     const mission = await createMission({
-      user_id: authUserId ?? undefined,
+      id: draftId ?? undefined,
+      user_id: userId,
       service_type: selectedService.label,
       origin_text: details.origin,
       origin_lat: details.originLat,
@@ -1202,12 +1443,12 @@ export function ServiceRequestFlow() {
       destination_text: details.destination,
       destination_lat: details.destinationLat,
       destination_lng: details.destinationLng,
-      requester_name: details.requesterName,
-      requester_phone: details.requesterPhone,
-      customer_name: details.requesterName,
-      customer_phone: details.requesterPhone,
-      guest_name: details.requesterName,
-      guest_phone: details.requesterPhone,
+      requester_name: requesterName,
+      requester_phone: requesterPhone,
+      customer_name: requesterName,
+      customer_phone: requesterPhone,
+      guest_name: requesterName,
+      guest_phone: requesterPhone,
       detail: ticketDetail,
       business_id: cartBusiness?.businessId,
       product_id: cartItems[0]?.product.id,
@@ -1249,18 +1490,91 @@ export function ServiceRequestFlow() {
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
     });
 
+    draftSuppressedRef.current = true;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    clearDraft();
+    setDraftId(null);
     setActiveMission(mission);
-    try {
-      await upsertGuestCustomerFromMission(mission);
-    } catch (err) {
-      console.error("[pedir] upsert cliente falló:", err);
-    }
-    setWaitingRequestMessage(
-      isCatalogMission
-        ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
-        : "Ya lo tenemos. Buscando quién te ayude."
-    );
+    setWaitingRequestMessage(""); // message derives from mission.status in render
     setShowWaitingCancelConfirm(false);
+    // Keep isSending true until the animation has completed one natural cycle:
+    // text delay (0.5s) + text reaching full opacity (40% of 1.8s = 0.72s) ≈ 1200ms.
+    // The backend call and this timer run concurrently via Promise.all above,
+    // so no extra wait is added when the backend is slow.
+    await new Promise<void>((resolve) => setTimeout(resolve, 1200));
+    isSendingRef.current = false;
+    setIsSending(false);
+    router.push("/usuarios");
+    } catch (err) {
+      // On error: re-enable so the user can retry. draftId is NOT cleared here,
+      // so the retry uses the same idempotency key and the server deduplicates.
+      isSendingRef.current = false;
+      setIsSending(false);
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
+      );
+    }
+    // No finally: on success isSendingRef stays true. The button remains disabled
+    // until React re-renders with activeMission set, at which point the activeMission
+    // guard handles any subsequent interaction.
+  }
+
+  function handleContinueDraft() {
+    // If a mission is already tracked in React state for this draft (e.g. clearDraft
+    // failed due to a network drop), show tracking — never re-open the wizard.
+    if (activeMission && !isMissionClosed(activeMission)) {
+      clearDraft();
+      setDraftId(null);
+      setShowDraftChoice(false);
+      return;
+    }
+
+    const draft = loadDraft();
+    if (!draft) {
+      setShowDraftChoice(false);
+      return;
+    }
+    // Restore all state from the saved draft.
+    if (draft.selectedService) {
+      const match = services.find((s) => s.label === draft.selectedService!.label) ?? null;
+      setSelectedService(match);
+    }
+    setSelectedStep(draft.selectedStep as WizardStep);
+    setDetails((prev) => ({ ...prev, ...draft.details }));
+    setPaymentStatus(draft.paymentStatus as PaymentStatus);
+    setPaymentMethod(draft.paymentMethod as PaymentMethod);
+    setConfirmedDraftSections(draft.confirmedDraftSections as ConfirmedDraftSections);
+    if (draft.cartItems.length > 0) {
+      setCartItems(draft.cartItems as typeof cartItems);
+    }
+    if (draft.selectedAgent) {
+      pendingDraftAgentId.current = draft.selectedAgent.id;
+    }
+    setDraftId(draft.draftId);
+    setShowDraftChoice(false);
+  }
+
+  function handleStartNewOrder() {
+    clearDraft();
+    setDraftId(null);
+    setShowDraftChoice(false);
+  }
+
+  // Called by AuthGatePanel after successful login or registration.
+  // Stores the userId and closes the gate. The user must press "Poner en órbita"
+  // explicitly — we never auto-create a mission on auth success.
+  function handleAuthGateSuccess(userId: string, name: string, phone: string, email: string) {
+    setAuthUserId(userId);
+    setShowAuthGate(false);
+    saveCustomerSession(name, phone, email, userId);
+    setCustomerSession({ name, phone, email });
+    setDetails((prev) => ({
+      ...prev,
+      requesterName: name || prev.requesterName,
+      requesterPhone: phone || prev.requesterPhone,
+    }));
   }
 
   function handleModifyWaitingRequest() {
@@ -1272,13 +1586,44 @@ export function ServiceRequestFlow() {
     setShowWaitingCancelConfirm(false);
   }
 
-  function handleCancelWaitingRequest() {
+  async function handleCancelWaitingRequest() {
+    const mission = activeMission;
+    if (!mission?.id) return;
+    setShowWaitingCancelConfirm(false);
+    // Backend first — si retorna 409 el estado en Supabase no es cancelable.
+    const { ok } = await cancelMissionByCustomer(mission.id);
+    if (!ok) return;
+    // Backend confirmó — ahora sincronizamos localStorage.
     const nextMission = updateActiveMission({ status: "cancelada" });
     setActiveMission(nextMission);
     setWaitingRequestMessage("Cancelado. No hubo ningún cargo.");
-    setShowWaitingCancelConfirm(false);
-    // Persist cancel to Supabase. Fire-and-forget — local state already updated.
-    if (nextMission?.id) void cancelMissionByCustomer(nextMission.id);
+  }
+
+  if (showDraftChoice) {
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-6 px-4 text-center">
+        <p className="text-lg font-semibold text-orbi-text">
+          Tienes un pedido pendiente.
+        </p>
+        <p className="max-w-sm text-sm text-orbi-muted">
+          ¿Deseas continuar donde lo dejaste o empezar uno nuevo?
+        </p>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button
+            className="w-full rounded-xl bg-orbi-cyan px-6 py-3 text-sm font-semibold text-orbi-black transition hover:brightness-110"
+            onClick={handleContinueDraft}
+          >
+            Continuar pedido
+          </button>
+          <button
+            className="w-full rounded-xl border border-white/15 px-6 py-3 text-sm font-semibold text-orbi-muted transition hover:border-white/30 hover:text-orbi-text"
+            onClick={handleStartNewOrder}
+          >
+            Empezar uno nuevo
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1294,7 +1639,42 @@ export function ServiceRequestFlow() {
         onStepClick={goToStep}
       />
 
-      {!selectedService ? (
+      {networkReconcileError ? (
+        <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-6">
+          <p className="text-sm font-semibold text-orbi-text">No pudimos verificar tu misión.</p>
+          <p className="mt-1 text-xs text-orbi-muted">Revisa tu conexión e intenta nuevamente.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setNetworkReconcileError(false);
+              setIsReconcilingMission(true);
+              isReconcilingMissionRef.current = true;
+              void supabase.auth.getUser().then(async ({ data: { user } }) => {
+                const mission = user ? await fetchActiveMission(user.id) : null;
+                if (mission) {
+                  const orphan = loadDraft();
+                  if (orphan) clearDraft();
+                  setActiveMission(mission);
+                } else {
+                  const draft = loadDraft();
+                  if (draft && isDraftMeaningful(draft)) { setDraftId(draft.draftId); setShowDraftChoice(true); }
+                }
+                isReconcilingMissionRef.current = false;
+                setIsReconcilingMission(false);
+              });
+            }}
+            className="mt-4 rounded-md border border-orbi-cyan/30 bg-orbi-cyan/10 px-4 py-2 text-xs font-semibold text-orbi-cyan transition hover:bg-orbi-cyan/20"
+          >
+            Reintentar
+          </button>
+        </section>
+      ) : isReconcilingMission ? (
+        <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-6">
+          <p className="text-xs text-orbi-muted">Estamos verificando tu misión…</p>
+        </section>
+      ) : null}
+
+      {!networkReconcileError && !isReconcilingMission && !selectedService ? (
         <>
           <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
             <div className="flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
@@ -1407,17 +1787,24 @@ export function ServiceRequestFlow() {
                       required
                     />
                   </label>
-                  <LocationField
-                    label="Punto de origen"
+                  <OriginPickerField
                     value={details.origin}
-                    placeholder="Dirección o referencia de salida"
                     lat={details.originLat}
                     lng={details.originLng}
-                    buttonLabel="Usar mi ubicación"
-                    geocodeState={geocodeState.origin}
+                    searchCenter={resolveSearchCenter(null)}
+                    isConfirmed={Boolean(details.originLat !== null && details.originLng !== null)}
+                    pendingConfirm={originPendingConfirm}
+                    gpsLoading={originGpsLoading}
+                    gpsError={originGpsError}
                     onChange={(value) => updateLocationText("origin", value)}
-                    onUseLocation={() => handleUseCurrentLocation("origin")}
+                    onSelectSuggestion={(displayName, lat, lon) => {
+                      updateLocationText("origin", displayName);
+                      updateCoordinateDetails("origin", { latitude: lat, longitude: lon });
+                    }}
+                    onGpsRequest={handleOriginGps}
                     onOpenMap={() => handleOpenMap("origin")}
+                    onConfirmPending={handleOriginConfirmPending}
+                    onRejectPending={handleOriginRejectPending}
                   />
                 </>
               )}
@@ -1470,18 +1857,23 @@ export function ServiceRequestFlow() {
 
           {orderIsConfirmed ? (
             activeDraftSection === "destino" ? (
-              <FormSection title="Destino">
-                <LocationField
-                  label="Punto de destino"
+              <FormSection title={getDestinationSectionTitle(selectedService?.label)}>
+                <DestinationPickerField
                   value={details.destination}
-                  placeholder="Dirección o referencia de llegada"
                   lat={details.destinationLat}
                   lng={details.destinationLng}
-                  buttonLabel="Usar ubicación actual como destino"
-                  geocodeState={geocodeState.destination}
+                  serviceLabel={selectedService?.label}
+                  searchCenter={resolveSearchCenter(originCoordinatePair)}
+                  isConfirmed={destinationIsConfirmed}
+                  pendingConfirm={destPendingConfirm}
+                  gpsLoading={destGpsLoading}
+                  gpsError={destGpsError}
                   onChange={(value) => updateLocationText("destination", value)}
-                  onUseLocation={() => handleUseCurrentLocation("destination")}
+                  onSelectSuggestion={handleDestSelectSuggestion}
+                  onGpsRequest={handleDestGps}
                   onOpenMap={() => handleOpenMap("destination")}
+                  onConfirmPending={handleDestConfirmPending}
+                  onRejectPending={handleDestRejectPending}
                 />
                 <ScheduleField
                   mode={details.scheduleMode}
@@ -1534,13 +1926,9 @@ export function ServiceRequestFlow() {
           {orderIsConfirmed && destinationIsConfirmed ? (
             activeDraftSection === "solicitante" ? (
               <FormSection title="Datos del solicitante">
-                {customerSession && sessionSource === "auth" ? (
+                {customerSession && authUserId ? (
                   <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
                     Usando tu cuenta ORBI.
-                  </p>
-                ) : customerSession && sessionSource === "local" ? (
-                  <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
-                    Recordamos tu última visita.
                   </p>
                 ) : null}
                 <RequestInput
@@ -1563,7 +1951,7 @@ export function ServiceRequestFlow() {
                       solicitante: true
                     }));
                     setExpandedDraftSection(null);
-                    goToStep("agente");
+                    goToStep("confirmacion");
                   }}
                 />
               </FormSection>
@@ -1597,7 +1985,7 @@ export function ServiceRequestFlow() {
                 type="submit"
                 className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
               >
-                Ver agentes compatibles
+                Continuar
               </button>
             </FormSection>
           ) : null}
@@ -1620,7 +2008,7 @@ export function ServiceRequestFlow() {
         </form>
       ) : null}
 
-      {selectedService && isRequestReady && !selectedAgent ? (
+      {!isReconcilingMission && !networkReconcileError && selectedService && isAgentStage && !isOrbitExperienceActive ? (
         <section className="space-y-4">
           <SelectedService
             service={selectedService}
@@ -1669,74 +2057,113 @@ export function ServiceRequestFlow() {
                     agent={agent}
                     originLat={details.originLat}
                     originLng={details.originLng}
-                    onSelect={() => setSelectedAgent(agent)}
+                    onSelect={() => { setSelectedAgent(agent); goToStep("confirmacion"); }}
                   />
                 ))}
               </div>
             </>
           ) : (
             <>
-              {activeMission?.status === "cancelada" ? (
+              {activeMission?.status === "cumplida" || activeMission?.status === "archivada" ? (
+                <StateCard
+                  title="Misión cumplida"
+                  body="Tu pedido fue entregado. Puedes iniciar uno nuevo cuando quieras."
+                  actionLabel="Nuevo pedido"
+                  onAction={handleModifyWaitingRequest}
+                />
+              ) : activeMission?.status === "cancelada" ? (
                 <StateCard
                   title="Pedido cancelado"
                   body="Cancelado. No había ningún cargo pendiente."
-                  actionLabel="Cambiar algo"
+                  actionLabel="Nuevo pedido"
                   onAction={handleModifyWaitingRequest}
                 />
               ) : (
-                <WaitingRequestCard
-                  message={waitingRequestMessage}
-                  showCancelConfirm={showWaitingCancelConfirm}
-                  onWait={handleCreateWaitingRequest}
-                  onModify={handleModifyWaitingRequest}
-                  onCancel={() => setShowWaitingCancelConfirm(true)}
-                  onConfirmCancel={handleCancelWaitingRequest}
-                  onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
-                />
+                <>
+                  <WaitingRequestCard
+                    message={waitingRequestMessage || missionWaitingMessage(activeMission)}
+                    canCancel={isCancellableByCustomer(activeMission)}
+                    showCancelConfirm={showWaitingCancelConfirm}
+                    onWait={handleCreateWaitingRequest}
+                    onModify={handleModifyWaitingRequest}
+                    onCancel={() => setShowWaitingCancelConfirm(true)}
+                    onConfirmCancel={handleCancelWaitingRequest}
+                    onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
+                  />
+                  {showAuthGate ? (
+                    <div className="mt-3">
+                      <AuthGatePanel
+                        prefillName={details.requesterName}
+                        prefillPhone={details.requesterPhone}
+                        onAuthSuccess={handleAuthGateSuccess}
+                        onDismiss={() => setShowAuthGate(false)}
+                      />
+                    </div>
+                  ) : null}
+                </>
               )}
             </>
           )}
         </section>
       ) : null}
 
-      {!isOrbitExperienceActive && activeMission?.status === "por_tomar" && activeMission.selected_agent_id ? (
-        <PendingMissionCard mission={activeMission} onCancel={handleCancelWaitingRequest} />
+      {!isReconcilingMission && !networkReconcileError && !isOrbitExperienceActive && activeMission?.status === "por_tomar" && activeMission.selected_agent_id ? (
+        <PendingMissionCard mission={activeMission} />
       ) : null}
 
       {isOrbitExperienceActive && sentMission ? (
         <OrbitExperienceStage
           missionId={sentMission.id}
           serviceType={sentMission.service_type}
-          showRegisterPrompt={showRegisterPrompt}
-          requesterName={details.requesterName || sentMission.requester_name}
-          requesterPhone={details.requesterPhone || sentMission.requester_phone}
-          onSaveSession={(name, phone, email) => {
-            saveCustomerSession(name, phone, email);
-            setCustomerSession({ name, phone, email });
-            setShowRegisterPrompt(false);
-          }}
-          onDismissRegister={() => setShowRegisterPrompt(false)}
         />
       ) : null}
 
-      {selectedService && selectedAgent && !isOrbitExperienceActive ? (
+      {!isReconcilingMission && !networkReconcileError && selectedService && isConfirmStage && !isOrbitExperienceActive && ((!activeMission || isMissionClosed(activeMission)) || isSending) ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
             Tu pedido
           </p>
           <h2 className="mt-2 text-2xl font-black text-orbi-text">¿Lo pedimos así?</h2>
-          <div className="mt-4">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">Agente</p>
-            <p className="mt-1 text-2xl font-black text-orbi-text">{selectedAgent.name}</p>
-          </div>
+
+          {/* ORBI-P-13: Bloque de asignación de agente */}
+          {selectedAgent ? (
+            <div className="mt-4">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">Agente seleccionado</p>
+              <p className="mt-1 text-2xl font-black text-orbi-text">{selectedAgent.name}</p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
+                  <Radar aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-orbi-text">ORBI asignará el mejor agente disponible para tu misión</p>
+                  <p className="mt-1 text-xs leading-5 text-orbi-muted">
+                    Seleccionamos según ubicación, disponibilidad y tiempo de respuesta.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => goToStep("agente")}
+                    className="mt-2 text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
+                  >
+                    Prefiero elegir yo →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Servicio" value={selectedService.label} />
             {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-            <SummaryItem
-              label="Tiempo estimado"
-              value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
-            />
+            {selectedAgent ? (
+              <SummaryItem
+                label="Tiempo estimado"
+                value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
+              />
+            ) : null}
             <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem label="Estado de pago" value={paymentStatus} />
           </div>
@@ -1763,10 +2190,23 @@ export function ServiceRequestFlow() {
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
                 {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-                <SummaryItem label="Tiempo estimado" value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))} />
+                {selectedAgent ? (
+                  <SummaryItem label="Tiempo estimado" value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))} />
+                ) : null}
                 <SummaryItem label="Estado de pago" value={paymentStatus} />
                 <SummaryItem label="Método de pago" value={paymentMethod} />
               </div>
+            </div>
+          ) : null}
+
+          {showAuthGate ? (
+            <div className="mt-5">
+              <AuthGatePanel
+                prefillName={details.requesterName}
+                prefillPhone={details.requesterPhone}
+                onAuthSuccess={handleAuthGateSuccess}
+                onDismiss={() => setShowAuthGate(false)}
+              />
             </div>
           ) : null}
 
@@ -1779,7 +2219,7 @@ export function ServiceRequestFlow() {
                 >
                   <img src="/orbi-logo.png" alt="ORBI" className="h-full w-full object-contain" />
                 </div>
-                <p className="text-xl font-black text-orbi-text" style={{ animation: "orbiArrive 1.8s ease-out 0.5s both" }}>Ya lo tenemos.</p>
+                <p className="text-xl font-black text-orbi-text" style={{ animation: "orbiArrive 1.8s ease-out 0.5s both" }}>Estamos poniendo tu misión en órbita…</p>
                 <style>{`
                   @keyframes orbiArrive {
                     0%   { opacity: 0; transform: scale(0.96); }
@@ -1791,35 +2231,38 @@ export function ServiceRequestFlow() {
               </div>
             ) : null}
             {submitError ? (
-              <p className="sm:col-span-2 rounded-md border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-400">
+              <p className="sm:col-span-2 rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-4 py-3 text-sm font-semibold text-yellow-100">
                 {submitError}
               </p>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setSelectedAgent(null)}
-              className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
-            >
-              Cambiar agente
-            </button>
-            <button
-              type="button"
-              disabled={isSending}
-              onClick={handleSendMissionToAgent}
-              className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] ${
-                isSending ? "cursor-not-allowed opacity-70" : ""
-              }`}
-            >
-              <Send aria-hidden="true" className="h-5 w-5" />
-              {isSending ? "Enviando..." : "Poner en órbita"}
-            </button>
-            <button
-              type="button"
-              onClick={sendWhatsApp}
-              className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 sm:col-span-2"
-            >
-              Enviar respaldo por WhatsApp
-            </button>
+            {!isSending && selectedAgent ? (
+              <button
+                type="button"
+                onClick={() => setSelectedAgent(null)}
+                className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+              >
+                Cambiar agente
+              </button>
+            ) : null}
+            {!isSending ? (
+              <button
+                type="button"
+                onClick={() => selectedAgent ? void handleSendMissionToAgent() : void handleCreateWaitingRequest()}
+                className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] ${!selectedAgent ? "sm:col-span-2" : ""}`}
+              >
+                <Send aria-hidden="true" className="h-5 w-5" />
+                Poner en órbita
+              </button>
+            ) : null}
+            {selectedAgent ? (
+              <button
+                type="button"
+                onClick={sendWhatsApp}
+                className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 sm:col-span-2"
+              >
+                Enviar respaldo por WhatsApp
+              </button>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -1864,12 +2307,11 @@ function StepHeader({
   const hasRequester =
     confirmedSections.solicitante &&
     Boolean(details.requesterName.trim() && details.requesterPhone.trim());
-  const isOrbitStepReady = hasOrder && hasDestination && hasRequester && Boolean(selectedAgent);
+  const isOrbitStepReady = hasOrder && hasDestination && hasRequester;
   const steps = [
     { id: "servicio" as const, label: "Solicitud", done: Boolean(selectedService) },
     { id: "destino" as const, label: "Destino", done: hasDestination },
     { id: "solicitante" as const, label: "Solicitante", done: hasRequester },
-    { id: "agente" as const, label: "Agente", done: Boolean(selectedAgent) },
     { id: "confirmacion" as const, label: "Confirmar", done: isOrbitStepReady }
   ];
 
@@ -2505,66 +2947,540 @@ function RequestInput({
   );
 }
 
-function LocationField({
-  label,
+// PR-05.4 — Última posición GPS conocida del cliente (P2 del contexto operativo, §9.5).
+// Módulo singleton: sobrevive re-renders y navegación de página. Se actualiza cada vez que
+// el cliente obtiene GPS (origen o destino). Acceso sincrónico para resolveSearchCenter.
+let _lastKnownCustomerPos: { lat: number; lng: number } | null = null;
+
+// PR-05 — LocationPicker para origen y destino con autocomplete, GPS y mapa.
+// Implementa ORBI-UX-01: sugerencia seleccionada → confirmado directo; GPS/mapa → muestra "¿Es aquí?".
+// Título del FormSection y placeholder del input según el tipo de misión (ORBI-UX-01 — lenguaje
+// situacional, no genérico). Solo texto; sin lógica de negocio.
+
+// Contexto operativo de la misión (§9.5 de ORBI_MASTER.md).
+// P1: origen confirmado → P2: último GPS del cliente → P3: centro de Red ORBI → P4: null.
+function resolveSearchCenter(
+  originCoordinatePair: { lat: number; lng: number } | null
+): { lat: number; lng: number } | null {
+  if (originCoordinatePair) return originCoordinatePair;
+  if (_lastKnownCustomerPos) return _lastKnownCustomerPos;
+  const netLat = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LAT ?? "");
+  const netLng = parseFloat(process.env.NEXT_PUBLIC_NETWORK_LNG ?? "");
+  if (Number.isFinite(netLat) && Number.isFinite(netLng)) return { lat: netLat, lng: netLng };
+  return null;
+}
+function getDestinationSectionTitle(serviceLabel?: string): string {
+  switch (serviceLabel) {
+    case "Compra local": return "Destino de entrega";
+    case "Traslado":     return "Destino";
+    case "Pago o trámite": return "Lugar del trámite";
+    default:             return "Destino";
+  }
+}
+
+function getDestinationPlaceholder(serviceLabel?: string): string {
+  switch (serviceLabel) {
+    case "Compra local":   return "¿Dónde entregamos tu pedido?";
+    case "Traslado":       return "¿A dónde vas?";
+    case "Entrega":        return "¿A dónde enviamos?";
+    case "Mandado":        return "¿A dónde va el mandado?";
+    case "Recolección":    return "¿A dónde entregamos?";
+    case "Pago o trámite": return "¿Dónde es el trámite?";
+    default:               return "¿A dónde va?";
+  }
+}
+
+// PR-05.4 — LocationPicker para origen con autocomplete, GPS y mapa.
+// Mismo patrón ORBI-UX-01 que DestinationPickerField. Origen no tiene variación de placeholder por tipo de misión.
+function OriginPickerField({
   value,
-  placeholder,
-  lat,
-  lng,
-  buttonLabel,
-  geocodeState,
+  searchCenter,
+  isConfirmed,
+  pendingConfirm,
+  gpsLoading,
+  gpsError,
   onChange,
-  onUseLocation,
-  onOpenMap
+  onSelectSuggestion,
+  onGpsRequest,
+  onOpenMap,
+  onConfirmPending,
+  onRejectPending,
 }: {
-  label: string;
   value: string;
-  placeholder: string;
   lat: number | null;
   lng: number | null;
-  buttonLabel: string;
-  geocodeState: GeocodeState[LocationTarget];
+  searchCenter?: { lat: number; lng: number } | null;
+  isConfirmed: boolean;
+  pendingConfirm: DestPendingConfirm | null;
+  gpsLoading: boolean;
+  gpsError: string;
   onChange: (value: string) => void;
-  onUseLocation: () => void;
+  onSelectSuggestion: (displayName: string, lat: number, lon: number) => void;
+  onGpsRequest: () => void;
   onOpenMap: () => void;
+  onConfirmPending: () => void;
+  onRejectPending: () => void;
 }) {
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleChange(newValue: string) {
+    onChange(newValue);
+    setNoResults(false);
+    setSearchUnavailable(false);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    const trimmed = newValue.trim();
+    if (trimmed.length < 2) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      setSearching(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setSearching(true);
+      try {
+        const searchUrl = new URL("/api/geocoding/search", window.location.origin);
+        searchUrl.searchParams.set("q", trimmed);
+        searchUrl.searchParams.set("limit", "5");
+        if (searchCenter) {
+          searchUrl.searchParams.set("lat", String(searchCenter.lat));
+          searchUrl.searchParams.set("lon", String(searchCenter.lng));
+        }
+        const res = await fetch(searchUrl.toString(), { signal: controller.signal });
+        if (!res.ok) { setSearchUnavailable(true); return; }
+        const data = (await res.json()) as { results: SearchSuggestion[]; status?: string };
+        if (data.status === "unavailable") { setSearchUnavailable(true); setSuggestions([]); setShowDropdown(false); }
+        else if (!data.results?.length) { setNoResults(true); setSuggestions([]); setShowDropdown(false); }
+        else { setSuggestions(data.results); setShowDropdown(true); setNoResults(false); }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setSearchUnavailable(true);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
+  function handleSelectSuggestion(s: SearchSuggestion) {
+    onSelectSuggestion(s.displayName, s.lat, s.lon);
+    setSuggestions([]);
+    setShowDropdown(false);
+    setNoResults(false);
+    setSearchUnavailable(false);
+  }
+
+  const inputBorderClass = isConfirmed && !pendingConfirm
+    ? "border-emerald-400/30 bg-emerald-400/[0.04]"
+    : pendingConfirm
+    ? "border-yellow-300/30 bg-yellow-300/[0.04]"
+    : "border-white/10 bg-white/[0.04]";
+
+  const displayValue = pendingConfirm ? pendingConfirm.text : value;
+  const isTextDisabled = gpsLoading || Boolean(pendingConfirm);
+  const isMapDisabled = Boolean(pendingConfirm);
+
   return (
     <div className="space-y-2">
-      <RequestInput label={label} value={value} placeholder={placeholder} onChange={onChange} />
-      <div className="grid gap-2 sm:grid-cols-2">
+      {!isConfirmed && !pendingConfirm && !gpsLoading && (
+        <p className="px-0.5 text-xs text-orbi-muted">
+          Usamos tu ubicación para calcular la ruta y el costo del servicio.
+        </p>
+      )}
+      <div className={`flex items-center gap-2 rounded-md border px-3 py-2 transition ${inputBorderClass}`}>
+        <input
+          type="text"
+          value={displayValue}
+          disabled={isTextDisabled}
+          placeholder="Dirección o referencia de salida"
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
+          onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+          className="min-w-0 flex-1 bg-transparent text-sm text-orbi-text outline-none placeholder:text-orbi-muted/55 disabled:opacity-60"
+          aria-label="Punto de origen"
+          aria-autocomplete="list"
+          aria-expanded={showDropdown}
+        />
+        <button
+          type="button"
+          onClick={onGpsRequest}
+          disabled={isTextDisabled}
+          aria-label="Usar mi ubicación como origen"
+          className="flex-shrink-0 rounded p-1 text-orbi-muted transition hover:text-orbi-cyan disabled:opacity-40"
+        >
+          {gpsLoading
+            ? <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            : <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />}
+        </button>
         <button
           type="button"
           onClick={onOpenMap}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+          disabled={isMapDisabled}
+          aria-label="Elegir origen en mapa"
+          className="flex-shrink-0 rounded p-1 text-orbi-muted transition hover:text-orbi-cyan disabled:opacity-40"
         >
-          <MapPin aria-hidden="true" className="h-4 w-4" />
-          Elegir en mapa
-        </button>
-        <button
-          type="button"
-          onClick={onUseLocation}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-        >
-          <LocateFixed aria-hidden="true" className="h-4 w-4" />
-          {buttonLabel}
+          <MapPin className="h-3.5 w-3.5" />
         </button>
       </div>
-      {geocodeState.message ? (
-        <p
-          className={`rounded-md border px-3 py-2 text-xs font-semibold ${
-            geocodeState.tone === "success"
-              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
-              : "border-yellow-300/15 bg-yellow-300/10 text-yellow-100"
-          }`}
+
+      {gpsLoading && (
+        <div className="flex items-center gap-2 px-1">
+          <RefreshCw className="h-3 w-3 animate-spin text-orbi-muted" aria-hidden="true" />
+          <span className="text-xs text-orbi-muted">Obteniendo tu ubicación…</span>
+        </div>
+      )}
+
+      {searching && !gpsLoading && (
+        <div className="flex items-center gap-2 px-1">
+          <RefreshCw className="h-3 w-3 animate-spin text-orbi-muted" aria-hidden="true" />
+          <span className="text-xs text-orbi-muted">Buscando...</span>
+        </div>
+      )}
+
+      {showDropdown && suggestions.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-white/10 bg-orbi-panel shadow-lg">
+          {suggestions.map((s, i) => {
+            const parts = s.displayName.split(/, (.+)/);
+            const primary = parts[0] ?? s.displayName;
+            const secondary = parts[1] ?? "";
+            return (
+              <button
+                key={s.providerId || i}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelectSuggestion(s)}
+                className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition hover:bg-white/[0.06] ${
+                  i < suggestions.length - 1 ? "border-b border-white/[0.06]" : ""
+                }`}
+              >
+                <MapPin className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-orbi-muted" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-orbi-text">{primary}</p>
+                  {secondary && <p className="truncate text-xs text-orbi-muted">{secondary}</p>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {noResults && !searching && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">No encontramos ese lugar.</p>
+          <p className="mt-0.5 text-xs text-yellow-100/70">Prueba otra forma de escribirlo, o usa GPS o el mapa.</p>
+        </div>
+      )}
+
+      {searchUnavailable && !searching && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">La búsqueda no está disponible ahora.</p>
+          <p className="mt-0.5 text-xs text-yellow-100/70">Usa el GPS o el mapa para continuar.</p>
+        </div>
+      )}
+
+      {gpsError && !gpsLoading && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">{gpsError}</p>
+        </div>
+      )}
+
+      {pendingConfirm && (
+        <div className="rounded-md border border-yellow-300/20 bg-yellow-300/[0.08] px-3 py-3">
+          <p className="mb-2.5 text-xs font-semibold text-yellow-100">¿Es aquí?</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmPending}
+              className="flex-1 rounded-md border border-orbi-cyan/30 bg-orbi-blue/[0.15] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/25"
+            >
+              Sí, es aquí
+            </button>
+            <button
+              type="button"
+              onClick={onRejectPending}
+              className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/[0.08]"
+            >
+              Editar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DestinationPickerField({
+  value,
+  serviceLabel,
+  searchCenter,
+  isConfirmed,
+  pendingConfirm,
+  gpsLoading,
+  gpsError,
+  onChange,
+  onSelectSuggestion,
+  onGpsRequest,
+  onOpenMap,
+  onConfirmPending,
+  onRejectPending,
+}: {
+  value: string;
+  lat: number | null;
+  lng: number | null;
+  serviceLabel?: string;
+  searchCenter?: { lat: number; lng: number } | null;
+  isConfirmed: boolean;
+  pendingConfirm: DestPendingConfirm | null;
+  gpsLoading: boolean;
+  gpsError: string;
+  onChange: (value: string) => void;
+  onSelectSuggestion: (displayName: string, lat: number, lon: number) => void;
+  onGpsRequest: () => void;
+  onOpenMap: () => void;
+  onConfirmPending: () => void;
+  onRejectPending: () => void;
+}) {
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Cerrar dropdown al hacer clic fuera del componente.
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function handleChange(newValue: string) {
+    onChange(newValue);
+    setNoResults(false);
+    setSearchUnavailable(false);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    if (!newValue.trim() || newValue.trim().length < 2) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    debounceRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const searchUrl = new URL("/api/geocoding/search", window.location.origin);
+      searchUrl.searchParams.set("q", newValue.trim());
+      searchUrl.searchParams.set("limit", "5");
+      if (searchCenter) {
+        searchUrl.searchParams.set("lat", String(searchCenter.lat));
+        searchUrl.searchParams.set("lon", String(searchCenter.lng));
+      }
+      fetch(searchUrl.toString(), {
+        signal: controller.signal,
+      })
+        .then((res) => res.json())
+        .then((data: { results: SearchSuggestion[]; status?: string }) => {
+          if (data.status === "unavailable") {
+            setSuggestions([]);
+            setSearchUnavailable(true);
+            setShowDropdown(false);
+          } else if (!data.results?.length) {
+            setSuggestions([]);
+            setNoResults(true);
+            setShowDropdown(false);
+          } else {
+            setSuggestions(data.results);
+            setNoResults(false);
+            setShowDropdown(true);
+          }
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name !== "AbortError") {
+            setSuggestions([]);
+            setSearchUnavailable(true);
+            setShowDropdown(false);
+          }
+        })
+        .finally(() => setSearching(false));
+    }, 300);
+  }
+
+  function handleSelectSuggestion(s: SearchSuggestion) {
+    setShowDropdown(false);
+    setSuggestions([]);
+    setSearching(false);
+    setNoResults(false);
+    setSearchUnavailable(false);
+    onSelectSuggestion(s.displayName, s.lat, s.lon);
+  }
+
+  const inputBorder = isConfirmed
+    ? "border-emerald-400/40"
+    : pendingConfirm
+      ? "border-yellow-300/40"
+      : "border-white/10 focus-within:border-orbi-cyan/60 focus-within:ring-2 focus-within:ring-orbi-cyan/15";
+
+  const displayValue = pendingConfirm ? pendingConfirm.text : value;
+  const isTextDisabled = gpsLoading || Boolean(pendingConfirm);
+  const isMapDisabled = Boolean(pendingConfirm);
+
+  return (
+    <div className="space-y-2" ref={containerRef}>
+      {!isConfirmed && !pendingConfirm && !gpsLoading && (
+        <p className="px-0.5 text-xs text-orbi-muted">
+          Usamos tu ubicación para calcular la ruta y el costo del servicio.
+        </p>
+      )}
+      {/* Fila del input */}
+      <div className={`flex items-center gap-2 rounded-md border bg-white/[0.04] px-3 py-2.5 transition ${inputBorder}`}>
+        {isConfirmed ? (
+          <span className="flex-shrink-0 text-sm text-emerald-400" aria-hidden="true">✓</span>
+        ) : (
+          <MapPin className="h-4 w-4 flex-shrink-0 text-orbi-muted" aria-hidden="true" />
+        )}
+        <input
+          className="min-w-0 flex-1 bg-transparent text-sm text-orbi-text outline-none placeholder:text-orbi-muted/55"
+          value={displayValue}
+          placeholder={getDestinationPlaceholder(serviceLabel)}
+          disabled={isTextDisabled}
+          onChange={(e) => handleChange(e.target.value)}
+          autoComplete="off"
+        />
+        {/* Botón GPS */}
+        <button
+          type="button"
+          onClick={onGpsRequest}
+          disabled={isTextDisabled}
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan disabled:opacity-40"
+          aria-label="Usar mi ubicación como destino"
         >
-          {geocodeState.message}
-        </p>
-      ) : null}
-      {lat !== null && lng !== null ? (
-        <p className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200">
-          Ubicación encontrada: {formatCoordinates(lat, lng)}
-        </p>
-      ) : null}
+          {gpsLoading
+            ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            : <LocateFixed className="h-3.5 w-3.5" />
+          }
+        </button>
+        {/* Botón Mapa */}
+        <button
+          type="button"
+          onClick={onOpenMap}
+          disabled={isMapDisabled}
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan disabled:opacity-40"
+          aria-label="Elegir destino en mapa"
+        >
+          <MapPin className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {gpsLoading && (
+        <div className="flex items-center gap-2 px-1">
+          <RefreshCw className="h-3 w-3 animate-spin text-orbi-muted" aria-hidden="true" />
+          <span className="text-xs text-orbi-muted">Obteniendo tu ubicación…</span>
+        </div>
+      )}
+
+      {/* Indicador de búsqueda */}
+      {searching && !gpsLoading && (
+        <div className="flex items-center gap-2 px-1">
+          <RefreshCw className="h-3 w-3 animate-spin text-orbi-muted" aria-hidden="true" />
+          <span className="text-xs text-orbi-muted">Buscando...</span>
+        </div>
+      )}
+
+      {/* Dropdown de sugerencias */}
+      {showDropdown && suggestions.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-white/10 bg-orbi-panel shadow-lg">
+          {suggestions.map((s, i) => {
+            const parts = s.displayName.split(/, (.+)/);
+            const primary = parts[0] ?? s.displayName;
+            const secondary = parts[1] ?? "";
+            return (
+              <button
+                key={s.providerId || i}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelectSuggestion(s)}
+                className={`flex w-full items-start gap-3 px-3 py-2.5 text-left transition hover:bg-white/[0.06] ${
+                  i < suggestions.length - 1 ? "border-b border-white/[0.06]" : ""
+                }`}
+              >
+                <MapPin className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-orbi-muted" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-orbi-text">{primary}</p>
+                  {secondary && (
+                    <p className="truncate text-xs text-orbi-muted">{secondary}</p>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Sin resultados */}
+      {noResults && !searching && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">No encontramos ese lugar.</p>
+          <p className="mt-0.5 text-xs text-yellow-100/70">Prueba otra forma de escribirlo, o usa GPS o el mapa.</p>
+        </div>
+      )}
+
+      {/* Búsqueda no disponible */}
+      {searchUnavailable && !searching && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">La búsqueda no está disponible ahora.</p>
+          <p className="mt-0.5 text-xs text-yellow-100/70">Usa el GPS o el mapa para continuar.</p>
+        </div>
+      )}
+
+      {/* Error de GPS */}
+      {gpsError && !gpsLoading && (
+        <div className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2.5">
+          <p className="text-xs font-semibold text-yellow-100">{gpsError}</p>
+        </div>
+      )}
+
+      {/* Banner "¿Es aquí?" — ORBI eligió (GPS o mapa), el usuario confirma (ORBI-UX-01) */}
+      {pendingConfirm && (
+        <div className="rounded-md border border-yellow-300/20 bg-yellow-300/[0.08] px-3 py-3">
+          <p className="mb-2.5 text-xs font-semibold text-yellow-100">¿Es aquí?</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmPending}
+              className="flex-1 rounded-md border border-orbi-cyan/30 bg-orbi-blue/[0.15] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/25"
+            >
+              Sí, es aquí
+            </button>
+            <button
+              type="button"
+              onClick={onRejectPending}
+              className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/[0.08]"
+            >
+              Editar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2769,6 +3685,7 @@ function StateCard({
 
 function WaitingRequestCard({
   message,
+  canCancel,
   showCancelConfirm,
   onWait,
   onModify,
@@ -2777,6 +3694,7 @@ function WaitingRequestCard({
   onKeepWaiting
 }: {
   message: string;
+  canCancel: boolean;
   showCancelConfirm: boolean;
   onWait: () => void;
   onModify: () => void;
@@ -2785,66 +3703,74 @@ function WaitingRequestCard({
   onKeepWaiting: () => void;
 }) {
   return (
-    <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-8">
+    <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-8" style={{ animation: "orbiCardEnter 0.32s ease-out both" }}>
+      <style>{`
+        @keyframes orbiCardEnter {
+          0%   { opacity: 0; transform: translateY(6px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan shadow-[0_0_24px_rgba(31,139,255,0.14)]">
         <Radar aria-hidden="true" className="h-7 w-7" />
       </div>
-      <h2 className="text-center text-2xl font-black text-orbi-text">Ya lo tenemos</h2>
-      <p className="mx-auto mt-3 max-w-lg text-center text-sm leading-6 text-orbi-muted">
-        Ahora mismo no hay alguien disponible cerca. Estamos buscando.
-      </p>
       {message ? (
-        <p className="mt-4 rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-center text-sm font-bold text-emerald-200">
+        <p className="text-center text-xl font-black text-orbi-text">
           {message}
         </p>
       ) : null}
-      {showCancelConfirm ? (
-        <div className="mt-5 rounded-md border border-red-300/20 bg-red-400/10 p-4">
-          <h3 className="font-black text-red-100">¿Cancelamos?</h3>
-          <p className="mt-2 text-sm leading-6 text-red-100/85">
-            Todavía no hay ningún cargo. Puedes cancelar sin problema.
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      {canCancel ? (
+        showCancelConfirm ? (
+          <div className="mt-5 rounded-md border border-red-300/20 bg-red-400/10 p-4">
+            <h3 className="font-black text-red-100">¿Cancelamos?</h3>
+            <p className="mt-2 text-sm leading-6 text-red-100/85">
+              Todavía no hay ningún cargo. Puedes cancelar sin problema.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={onConfirmCancel}
+                className="min-h-11 rounded-md border border-red-300/25 bg-red-400/15 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
+              >
+                Sí, cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onKeepWaiting}
+                className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+              >
+                Seguir esperando
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <button
               type="button"
-              onClick={onConfirmCancel}
-              className="min-h-11 rounded-md border border-red-300/25 bg-red-400/15 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
-            >
-              Sí, cancelar
-            </button>
-            <button
-              type="button"
-              onClick={onKeepWaiting}
-              className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+              onClick={onWait}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
             >
               Seguir esperando
             </button>
+            <button
+              type="button"
+              onClick={onModify}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+            >
+              Cambiar algo
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
+            >
+              Cancelar
+            </button>
           </div>
-        </div>
+        )
       ) : (
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <button
-            type="button"
-            onClick={onWait}
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-          >
-            Seguir esperando
-          </button>
-          <button
-            type="button"
-            onClick={onModify}
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
-          >
-            Cambiar algo
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/15"
-          >
-            Cancelar
-          </button>
-        </div>
+        <p className="mt-5 text-center text-xs text-orbi-muted">
+          Ya no puedes cancelar desde ORBI.
+        </p>
       )}
     </section>
   );
@@ -2852,10 +3778,8 @@ function WaitingRequestCard({
 
 function PendingMissionCard({
   mission,
-  onCancel
 }: {
   mission: ActiveMission;
-  onCancel: () => void;
 }) {
   const total = mission.total ?? mission.total_amount ?? mission.precio_servicio ?? 0;
   const origin = mission.origin_text || "Origen no disponible";
@@ -2896,21 +3820,17 @@ function PendingMissionCard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <Link
           href={`/orbita/${mission.id}`}
           className="inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
         >
           Ver detalle
         </Link>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-red-300/20 bg-red-400/10 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/20"
-        >
-          Cancelar misión
-        </button>
       </div>
+      <p className="mt-4 text-center text-xs text-orbi-muted">
+        Ya no puedes cancelar desde ORBI.
+      </p>
     </section>
   );
 }
@@ -2953,26 +3873,15 @@ function commitmentTextForService(serviceType: string): {
 function OrbitExperienceStage({
   missionId,
   serviceType,
-  showRegisterPrompt,
-  requesterName,
-  requesterPhone,
-  onSaveSession,
-  onDismissRegister,
 }: {
   missionId: string;
   serviceType: string;
-  showRegisterPrompt: boolean;
-  requesterName: string;
-  requesterPhone: string;
-  onSaveSession: (name: string, phone: string, email: string) => void;
-  onDismissRegister: () => void;
 }) {
   const folio = missionId.replace(/-/g, "").slice(-6).toUpperCase();
   const { searching, horizon } = commitmentTextForService(serviceType);
 
   return (
     <div className="space-y-4">
-      {/* Capa de compromiso — Bloque A */}
       <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-5">
         <p className="text-xl font-black text-orbi-text">
           Ya lo tenemos.
@@ -2983,45 +3892,37 @@ function OrbitExperienceStage({
           #{folio}
         </p>
       </div>
-
-      {/* Tracker de estado */}
       <Suspense>
         <MissionOrbitTracker initialMissionId={missionId} />
       </Suspense>
-
-      {showRegisterPrompt ? (
-        <SaveSessionPrompt
-          name={requesterName}
-          phone={requesterPhone}
-          onSave={onSaveSession}
-          onDismiss={onDismissRegister}
-        />
-      ) : null}
     </div>
   );
 }
 
-function SaveSessionPrompt({
-  name,
-  phone,
-  onSave,
-  onDismiss: _onDismiss,
+// ── Auth gate — shown before mission creation when user is not authenticated ───
+
+function AuthGatePanel({
+  prefillName,
+  prefillPhone,
+  onAuthSuccess,
+  onDismiss,
 }: {
-  name: string;
-  phone: string;
-  onSave: (name: string, phone: string, email: string) => void;
+  prefillName: string;
+  prefillPhone: string;
+  onAuthSuccess: (userId: string, name: string, phone: string, email: string) => void;
   onDismiss: () => void;
 }) {
-  const [mode, setMode] = useState<"register" | "login">("register");
-  const [fullName, setFullName] = useState(name ?? "");
+  const [mode, setMode] = useState<"register" | "login" | "recovery">("register");
+  const [fullName, setFullName] = useState(prefillName ?? "");
+  const [phone, setPhone] = useState(prefillPhone ?? "");
   const [email, setEmail] = useState("");
   const [loginEmail, setLoginEmail] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [recoverySent, setRecoverySent] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const displayPhone = phone.replace(/\D/g, "").replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
 
   async function handleRegisterSubmit(e: FormEvent) {
     e.preventDefault();
@@ -3040,10 +3941,11 @@ function SaveSessionPrompt({
     setError(""); setIsSubmitting(true);
     try {
       const result = await registerCustomerAccount({
-        name: fullName.trim(), phone, email: email.trim(), password,
+        name: fullName.trim(), phone: phone.trim(), email: email.trim(), password,
       });
-      saveCustomerSession(result.name, result.phone, result.email);
-      onSave(result.name, result.phone, result.email);
+      // result.authUserId comes directly from signUp()'s data.user.id — available
+      // regardless of whether Supabase "Confirm email" is enabled or disabled.
+      onAuthSuccess(result.authUserId, result.name, result.phone, result.email);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible crear la cuenta.");
     } finally {
@@ -3059,8 +3961,9 @@ function SaveSessionPrompt({
     setError(""); setIsSubmitting(true);
     try {
       const session = await loginCustomerWithSupabase(loginEmail.trim(), password);
-      saveCustomerSession(session.name, session.phone, session.email);
-      onSave(session.name, session.phone ?? phone, session.email ?? loginEmail.trim());
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No se pudo resolver el usuario tras el inicio de sesión.");
+      onAuthSuccess(user.id, session.name, session.phone ?? "", session.email ?? loginEmail.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Datos incorrectos.");
     } finally {
@@ -3068,12 +3971,81 @@ function SaveSessionPrompt({
     }
   }
 
+  if (mode === "recovery") {
+    return (
+      <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
+        <p className="text-sm font-bold text-orbi-text">Recuperar contraseña</p>
+        <p className="mt-1 text-xs text-orbi-muted">
+          Te enviaremos un enlace para restablecer tu contraseña.
+        </p>
+        {recoverySent ? (
+          <p className="mt-3 rounded-md border border-orbi-cyan/20 bg-orbi-cyan/10 px-3 py-2 text-xs font-semibold text-orbi-cyan">
+            Revisa tu correo. Si la cuenta existe, recibirás el enlace en unos segundos.
+          </p>
+        ) : (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!recoveryEmail.trim()) { setError("Ingresa tu correo."); return; }
+              setError(""); setIsSubmitting(true);
+              try {
+                await supabase.auth.resetPasswordForEmail(recoveryEmail.trim(), {
+                  redirectTo: `${window.location.origin}/pedir`,
+                });
+                setRecoverySent(true);
+              } catch {
+                setError("No fue posible enviar el correo. Intenta de nuevo.");
+              } finally {
+                setIsSubmitting(false);
+              }
+            }}
+            className="mt-3 space-y-3"
+            noValidate
+          >
+            <div>
+              <label className="block text-xs font-semibold text-orbi-muted">Correo electrónico</label>
+              <input
+                type="email"
+                value={recoveryEmail}
+                onChange={(e) => setRecoveryEmail(e.target.value)}
+                className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+                placeholder="correo@ejemplo.com"
+                autoComplete="email"
+              />
+            </div>
+            {error ? (
+              <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+                {error}
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50"
+            >
+              {isSubmitting ? "Enviando…" : "Enviar enlace de recuperación"}
+            </button>
+          </form>
+        )}
+        <p className="mt-3 text-xs text-orbi-muted">
+          <button
+            type="button"
+            onClick={() => { setMode("login"); setError(""); setRecoverySent(false); }}
+            className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+          >
+            Volver al inicio de sesión
+          </button>
+        </p>
+      </div>
+    );
+  }
+
   if (mode === "login") {
     return (
       <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
-        <p className="text-sm font-bold text-orbi-text">Ya tienes una cuenta Orbi</p>
+        <p className="text-sm font-bold text-orbi-text">Inicia sesión para confirmar tu pedido</p>
         <p className="mt-1 text-xs text-orbi-muted">
-          Inicia sesión para vincular esta misión a tu historial.
+          Tu misión se creará con tu cuenta después de iniciar sesión.
         </p>
         <form onSubmit={handleLoginSubmit} className="mt-3 space-y-3" noValidate>
           <div>
@@ -3108,10 +4080,19 @@ function SaveSessionPrompt({
             disabled={isSubmitting}
             className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50"
           >
-            {isSubmitting ? "Verificando…" : "Iniciar sesión y seguir misión"}
+            {isSubmitting ? "Verificando…" : "Iniciar sesión"}
           </button>
         </form>
         <p className="mt-3 text-xs text-orbi-muted">
+          <button
+            type="button"
+            onClick={() => { setMode("recovery"); setError(""); setRecoveryEmail(loginEmail); }}
+            className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
+          >
+            ¿Olvidaste tu contraseña?
+          </button>
+        </p>
+        <p className="mt-2 text-xs text-orbi-muted">
           ¿Es una cuenta nueva?{" "}
           <button
             type="button"
@@ -3127,9 +4108,9 @@ function SaveSessionPrompt({
 
   return (
     <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.07] p-4">
-      <p className="text-sm font-bold text-orbi-text">¿Te reconocemos la próxima vez?</p>
+      <p className="text-sm font-bold text-orbi-text">Crea tu cuenta para confirmar el pedido</p>
       <p className="mt-1 text-xs text-orbi-muted">
-        Crea tu cuenta Orbi para guardar tu historial, seguir tu misión y pedir más rápido.
+        Tu misión quedará vinculada a tu cuenta desde el inicio.
       </p>
       <form onSubmit={handleRegisterSubmit} className="mt-3 space-y-3" noValidate>
         <div>
@@ -3156,9 +4137,14 @@ function SaveSessionPrompt({
         </div>
         <div>
           <label className="block text-xs font-semibold text-orbi-muted">WhatsApp</label>
-          <p className="mt-1 rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 font-mono text-sm font-bold text-orbi-cyan">
-            {displayPhone || phone}
-          </p>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:outline-none"
+            placeholder="Tu número de WhatsApp"
+            autoComplete="tel"
+          />
         </div>
         <div>
           <label className="block text-xs font-semibold text-orbi-muted">Contraseña</label>
@@ -3192,7 +4178,7 @@ function SaveSessionPrompt({
           disabled={isSubmitting}
           className="inline-flex w-full min-h-10 items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50"
         >
-          {isSubmitting ? "Creando cuenta…" : "Crear mi cuenta y seguir misión"}
+          {isSubmitting ? "Creando cuenta…" : "Crear cuenta"}
         </button>
       </form>
       <p className="mt-3 text-xs text-orbi-muted">
@@ -3203,6 +4189,10 @@ function SaveSessionPrompt({
           className="font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
         >
           Inicia sesión
+        </button>
+        {" · "}
+        <button type="button" onClick={onDismiss} className="text-orbi-muted/60 underline underline-offset-2 transition hover:text-orbi-muted">
+          Cancelar
         </button>
       </p>
     </div>
@@ -3377,41 +4367,18 @@ function isServiceCompatible(agentService: AgentServiceType, requestedService: A
   return agentService === "Todos los servicios" || agentService === requestedService;
 }
 
-function buildLocalGeocodeQuery(rawQuery: string) {
-  const query = rawQuery.trim();
-
-  if (!query) {
-    return "";
-  }
-
-  const hasStateOrCountry = /estado de m[eé]xico|m[eé]xico/i.test(query);
-  const hasMunicipality = /zumpahuac[aá]n/i.test(query);
-  const isShortReference = query.split(/\s+/).filter(Boolean).length <= 3;
-
-  if (hasStateOrCountry || !isShortReference) {
-    return query;
-  }
-
-  if (hasMunicipality) {
-    return `${query}, Estado de México, México`;
-  }
-
-  return `${query}, Zumpahuacán, Estado de México, México`;
-}
-
-async function reverseGeocodePoint(point: MapPoint) {
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
-      point.lat
-    )}&lon=${encodeURIComponent(point.lng)}`
+// Proxy a /api/geocoding/reverse — nunca llama a Nominatim directamente (INV-017).
+// Devuelve el nombre canónico del lugar o null si Nominatim no tiene datos para ese punto.
+// Los textos de fallback ("Ubicación actual", "Punto marcado en mapa") son
+// responsabilidad exclusiva de los sitios de llamada, no de esta función.
+async function reverseGeocodePoint(point: MapPoint): Promise<string | null> {
+  const res = await fetch(
+    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
   );
-
-  if (!response.ok) {
-    throw new Error("No fue posible consultar la dirección del punto marcado.");
-  }
-
-  const result = (await response.json()) as { display_name?: string };
-  return result.display_name?.trim() ?? "";
+  if (!res.ok) throw new Error("No fue posible consultar la dirección del punto marcado.");
+  const data = (await res.json()) as { displayName?: string | null; status?: string };
+  if (data.status === "unavailable") return null;
+  return data.displayName ?? null;
 }
 
 function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: number) {

@@ -732,39 +732,19 @@ function buildProfileTimeOptions(): string[] {
 
 const profileTimeOptions = buildProfileTimeOptions();
 
+// Proxy a /api/geocoding/reverse — nunca llama a Nominatim directamente (INV-017).
+// El campo zone usa el fallback porque el endpoint no expone subcampos estructurados
+// de la respuesta de Nominatim. El admin puede ajustar la zona manualmente.
 async function reverseGeocodePoint(point: { lat: number; lng: number }) {
   const res = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
-      point.lat
-    )}&lon=${encodeURIComponent(point.lng)}`
+    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
   );
   if (!res.ok) throw new Error("Geocoding failed");
-  const data = (await res.json()) as {
-    display_name?: string;
-    address?: {
-      neighbourhood?: string;
-      suburb?: string;
-      village?: string;
-      town?: string;
-      city?: string;
-      municipality?: string;
-      county?: string;
-      state?: string;
-    };
-  };
-  const addr = data.address ?? {};
-  const zone =
-    addr.neighbourhood ||
-    addr.suburb ||
-    addr.village ||
-    addr.town ||
-    addr.city ||
-    addr.municipality ||
-    addr.county ||
-    addr.state ||
-    "Zona calculada por ubicación";
-  const baseText = data.display_name?.trim() || `Punto marcado (${point.lat}, ${point.lng})`;
-  return { zone, baseText };
+  const data = (await res.json()) as { displayName?: string | null; status?: string };
+  const baseText =
+    (data.status !== "unavailable" && data.displayName?.trim()) ||
+    `Punto marcado (${point.lat}, ${point.lng})`;
+  return { zone: "Zona calculada por ubicación", baseText };
 }
 
 function ProfileTimeSelect({

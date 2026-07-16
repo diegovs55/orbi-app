@@ -1038,22 +1038,26 @@ function upsertById<T extends { id: string }>(items: T[], nextItem: T) {
   return items.map((item) => (item.id === nextItem.id ? nextItem : item));
 }
 
+// Proxy a /api/geocoding/search — nunca llama a Nominatim directamente (INV-017, INV-018).
+// La query se pasa sin modificación geográfica (INV-020 — sin hardcodes de municipio).
 async function geocodeBusinessLocation(query: string) {
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
-      buildLocalLocationQuery(query)
-    )}`
+  const res = await fetch(
+    `/api/geocoding/search?q=${encodeURIComponent(query.trim())}&limit=1`
   );
 
-  if (!response.ok) {
-    throw new Error("No fue posible consultar la ubicación.");
+  if (!res.ok) throw new Error("No fue posible consultar la ubicación.");
+
+  const data = (await res.json()) as {
+    results: Array<{ lat: number; lon: number }>;
+    status?: string;
+  };
+
+  const result = data.results[0];
+  if (!result || data.status === "unavailable") {
+    throw new Error("La ubicación no devolvió coordenadas válidas.");
   }
 
-  const results = (await response.json()) as Array<{ lat?: string; lon?: string }>;
-  const result = results[0];
-  const lat = Number(result?.lat);
-  const lng = Number(result?.lon);
-
+  const { lat, lon: lng } = result;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     throw new Error("La ubicación no devolvió coordenadas válidas.");
   }
@@ -1061,61 +1065,26 @@ async function geocodeBusinessLocation(query: string) {
   return { lat, lng };
 }
 
+// Proxy a /api/geocoding/reverse — nunca llama a Nominatim directamente (INV-017).
+// El campo zone usa el fallback porque el endpoint no expone subcampos estructurados.
 async function reverseGeocodeBusinessPoint(point: { lat: number; lng: number }) {
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(
-      point.lat
-    )}&lon=${encodeURIComponent(point.lng)}`
+  const res = await fetch(
+    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
   );
 
-  if (!response.ok) {
-    throw new Error("No fue posible leer la zona.");
-  }
+  if (!res.ok) throw new Error("No fue posible leer la zona.");
 
-  const result = (await response.json()) as {
-    display_name?: string;
-    address?: {
-      neighbourhood?: string;
-      suburb?: string;
-      village?: string;
-      town?: string;
-      city?: string;
-      municipality?: string;
-      county?: string;
-      state?: string;
-    };
-  };
-  const address = result.address ?? {};
-  const zone =
-    address.neighbourhood ||
-    address.suburb ||
-    address.village ||
-    address.town ||
-    address.city ||
-    address.municipality ||
-    address.county ||
-    address.state ||
-    "Zona calculada por ubicación";
-  const baseText = result.display_name?.trim() || `Punto marcado (${point.lat}, ${point.lng})`;
+  const data = (await res.json()) as { displayName?: string | null; status?: string };
+  const baseText =
+    (data.status !== "unavailable" && data.displayName?.trim()) ||
+    `Punto marcado (${point.lat}, ${point.lng})`;
 
   return {
     lat: point.lat,
     lng: point.lng,
-    zone,
+    zone: "Zona calculada por ubicación",
     baseText
   };
-}
-
-function buildLocalLocationQuery(rawQuery: string) {
-  const query = rawQuery.trim();
-  const hasStateOrCountry = /estado de m[eé]xico|m[eé]xico/i.test(query);
-  const isShortReference = query.split(/\s+/).filter(Boolean).length <= 3;
-
-  if (hasStateOrCountry || !isShortReference) {
-    return query;
-  }
-
-  return `${query}, Zumpahuacán, Estado de México, México`;
 }
 
 function normalizeSearch(value: string) {

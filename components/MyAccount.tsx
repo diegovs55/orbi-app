@@ -18,8 +18,8 @@ import {
   ActiveMission,
   CustomerMissionStats,
   fetchActiveMissions,
-  fetchMissionStatsByPhone,
-  fetchMissionHistoryByPhonePaged,
+  fetchMissionStats,
+  fetchMissionHistoryPaged,
   getMissionStatusLabel,
 } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
@@ -41,6 +41,35 @@ function formatDate(iso: string) {
 
 function shortFolio(id: string) {
   return `Folio: #${id.slice(-8).toUpperCase()}`;
+}
+
+function missionNarrativeMessage(m: ActiveMission): string {
+  const agent = m.selected_agent_name;
+  const business = m.business_name;
+  switch (m.status) {
+    case "esperando_negocio":
+      return business
+        ? `Tu pedido está en órbita. ${business} lo revisará en breve.`
+        : "Tu pedido está en órbita. El negocio lo revisará en breve.";
+    case "preparando":
+      return business
+        ? `${business} confirmó tu pedido. Lo están preparando.`
+        : "El negocio confirmó tu pedido. Lo están preparando.";
+    case "por_tomar":
+      return "Buscando quién te ayude. Puede tomar unos minutos.";
+    case "aceptada":
+      return agent
+        ? `${agent} aceptó tu misión y ya está en camino.`
+        : "Tu agente aceptó la misión y ya está en camino.";
+    case "en_mision":
+      return agent
+        ? `${agent} está en ruta con tu pedido.`
+        : "Tu agente está en ruta con tu pedido.";
+    case "cumplida":
+      return "Tu pedido llegó.";
+    default:
+      return getMissionStatusLabel(m.status);
+  }
 }
 
 type View = "choice" | "login" | "register";
@@ -65,11 +94,21 @@ export function MyAccount() {
         router.replace("/usuarios/cambiar-contrasena");
         return;
       }
-      if (cached) { setSession(cached); return; }
+      if (cached) {
+        // Enrich cached session with userId if it was saved before we added that field.
+        if (!cached.userId) {
+          const enriched = { ...cached, userId: data.user.id };
+          saveCustomerSession(enriched.name, enriched.phone, enriched.email, data.user.id);
+          setSession(enriched);
+        } else {
+          setSession(cached);
+        }
+        return;
+      }
       const customer = await getCustomerByAuthUserId(data.user.id);
       if (customer) {
-        saveCustomerSession(customer.name, customer.phone, customer.email);
-        setSession({ name: customer.name, phone: customer.phone, email: customer.email });
+        saveCustomerSession(customer.name, customer.phone, customer.email, data.user.id);
+        setSession({ name: customer.name, phone: customer.phone, email: customer.email, userId: data.user.id });
       }
     });
   }, [router]);
@@ -151,8 +190,6 @@ function SessionView({
   session: CustomerSession;
   onLogout: () => void;
 }) {
-  const phone = cleanPhone(session.phone);
-
   const [userId, setUserId] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveMission[]>([]);
   const [stats, setStats] = useState<CustomerMissionStats | null>(null);
@@ -164,24 +201,33 @@ function SessionView({
   const [loadingHist, setLoadingHist] = useState(true);
   const [histRefreshKey, setHistRefreshKey] = useState(0);
 
-  // Resolve auth user ID once on mount — used as the authoritative filter for mission history.
+  // Resolve auth user ID once on mount — sole key for all mission queries.
+  // Fallback: when "Confirm email" is enabled, signUp() creates no session,
+  // so getUser() returns null. In that case we use the userId persisted in
+  // CustomerSession during handleAuthGateSuccess registration.
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.id) setUserId(user.id);
+      if (user?.id) {
+        setUserId(user.id);
+      } else if (session.userId) {
+        setUserId(session.userId);
+      }
     });
-  }, []);
+  }, [session.userId]);
 
-  // Load active missions filtered by this customer's phone
+  // Load active missions filtered by this user's auth id
   const refreshActive = useCallback(async () => {
+    if (!userId) return;
     const all = await fetchActiveMissions();
-    setActive(all.filter((m) => cleanPhone(m.requester_phone ?? "") === phone));
-  }, [phone]);
+    setActive(all.filter((m) => m.user_id === userId));
+  }, [userId]);
 
   // Silent stats refresh (no loading spinner — called from Realtime callback)
   const refreshStats = useCallback(async () => {
-    const s = await fetchMissionStatsByPhone(phone, userId);
+    if (!userId) return;
+    const s = await fetchMissionStats(userId);
     setStats(s);
-  }, [phone, userId]);
+  }, [userId]);
 
   // Suscripción estable: refresca misiones activas, KPIs e historial en cada evento
   useEffect(() => {
@@ -193,26 +239,28 @@ function SessionView({
     });
   }, [refreshActive, refreshStats]);
 
-  // Load KPI stats once on mount (with loading spinner)
+  // Load KPI stats once userId is known
   useEffect(() => {
+    if (!userId) return;
     setLoadingStats(true);
-    fetchMissionStatsByPhone(phone, userId).then((s) => {
+    fetchMissionStats(userId).then((s) => {
       setStats(s);
       setLoadingStats(false);
     });
-  }, [phone, userId]);
+  }, [userId]);
 
   // Load history page — también reacciona a histRefreshKey para refrescar tras cambios de Realtime
   const loadPage = useCallback(
     async (p: number) => {
+      if (!userId) return;
       setLoadingHist(true);
-      const result = await fetchMissionHistoryByPhonePaged(phone, p, userId);
+      const result = await fetchMissionHistoryPaged(userId, p);
       setMissions(result.missions);
       setHasMore(result.hasMore);
       setTotal(result.total);
       setLoadingHist(false);
     },
-    [phone, userId]
+    [userId]
   );
 
   useEffect(() => { void loadPage(page); }, [loadPage, page, histRefreshKey]);
@@ -222,6 +270,66 @@ function SessionView({
 
   return (
     <section className="mt-8 space-y-6">
+
+      {/* Active missions — first when present */}
+      {active.length > 0 && (
+        <div>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+            Misión activa
+          </p>
+          <div className="space-y-3">
+            {active.map((m) => {
+              const isPending = m.status === "por_tomar";
+              const isMoving = m.status === "aceptada" || m.status === "en_mision";
+              const borderClass = isMoving
+                ? "border-orbi-cyan/40"
+                : isPending
+                ? "border-orbi-cyan/20"
+                : "border-white/10";
+              return (
+                <div
+                  key={m.id}
+                  className={`rounded-md border bg-white/[0.04] px-4 py-4 transition-colors ${borderClass}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      {isPending && (
+                        <span className="relative flex h-2.5 w-2.5 shrink-0">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orbi-cyan opacity-60" />
+                          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-orbi-cyan" />
+                        </span>
+                      )}
+                      {isMoving && (
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-orbi-cyan" />
+                      )}
+                      {!isPending && !isMoving && (
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-orbi-muted/40" />
+                      )}
+                      <p className="text-sm font-bold text-orbi-text">{m.service_type}</p>
+                    </div>
+                    <p className="font-mono text-[10px] text-orbi-muted/50 shrink-0">{shortFolio(m.id)}</p>
+                  </div>
+                  <p className="mt-2 text-sm leading-5 text-orbi-muted">
+                    {missionNarrativeMessage(m)}
+                  </p>
+                  <div className="mt-3">
+                    <Link
+                      href={`/orbita/${m.id}`}
+                      className={`inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold transition ${
+                        isMoving
+                          ? "bg-orbi-blue text-white shadow-glow hover:bg-[#0f7af0]"
+                          : "border border-orbi-cyan/25 bg-orbi-blue/[0.08] text-orbi-cyan hover:bg-orbi-blue/15"
+                      }`}
+                    >
+                      {isMoving ? "Ver en mapa" : "Ver pedido"}
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Identity card */}
       <div className="flex items-start gap-4 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 p-5">
@@ -267,35 +375,6 @@ function SessionView({
         />
       </div>
 
-      {/* Active missions */}
-      {active.length > 0 && (
-        <div>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-            Misiones activas
-          </p>
-          <div className="space-y-2">
-            {active.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-bold text-orbi-text">{m.service_type}</p>
-                  <p className="font-mono text-[10px] text-orbi-muted/60">{shortFolio(m.id)}</p>
-                  <p className="text-xs text-orbi-muted">{getMissionStatusLabel(m.status)}</p>
-                </div>
-                <Link
-                  href={`/orbita/${m.id}`}
-                  className="text-xs font-semibold text-orbi-cyan underline underline-offset-2 transition hover:text-white"
-                >
-                  Ver en órbita
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Mission history */}
       <div>
         <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
@@ -328,7 +407,7 @@ function SessionView({
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-orbi-muted">
                       {total === 0
-                        ? "Aún no tienes misiones asociadas a este número."
+                        ? "Aún no tienes misiones."
                         : "Sin resultados en esta página."}
                     </td>
                   </tr>
@@ -410,7 +489,7 @@ function KpiChip({
     accent === "emerald"
       ? "text-emerald-300"
       : accent === "red"
-      ? "text-red-400"
+      ? "text-orbi-muted"
       : accent === "blue"
       ? "text-sky-300"
       : "text-orbi-text";
@@ -454,8 +533,9 @@ function LoginForm({
         router.replace("/usuarios/cambiar-contrasena");
         return;
       }
-      saveCustomerSession(session.name, session.phone, session.email);
-      onSuccess(session);
+      const userId = data.user?.id;
+      saveCustomerSession(session.name, session.phone, session.email, userId);
+      onSuccess({ ...session, userId });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Datos incorrectos.");
     }
@@ -499,7 +579,7 @@ function LoginForm({
           />
         </div>
         {error ? (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+          <p className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2 text-xs font-semibold text-yellow-100">
             {error}
           </p>
         ) : null}
@@ -583,8 +663,8 @@ function RegisterForm({
         email: email.trim(),
         password,
       });
-      saveCustomerSession(result.name, result.phone, result.email);
-      onSuccess({ name: result.name, phone: result.phone, email: result.email });
+      saveCustomerSession(result.name, result.phone, result.email, result.authUserId);
+      onSuccess({ name: result.name, phone: result.phone, email: result.email, userId: result.authUserId });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible crear la cuenta.");
     }
@@ -659,7 +739,7 @@ function RegisterForm({
           />
         </div>
         {error ? (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-400">
+          <p className="rounded-md border border-yellow-300/15 bg-yellow-300/[0.06] px-3 py-2 text-xs font-semibold text-yellow-100">
             {error}
           </p>
         ) : null}

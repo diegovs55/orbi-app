@@ -1,6 +1,5 @@
 import { supabase } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
-import { ActiveMission, associateMissionsToUserByPhone, backfillMissionUserIdByPhone } from "@/lib/missions";
 
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
 
@@ -10,6 +9,7 @@ export type CustomerSession = {
   name: string;
   phone: string;
   email?: string;
+  userId?: string;
 };
 
 export function getCurrentCustomerSession(): CustomerSession | null {
@@ -25,10 +25,11 @@ export function getCurrentCustomerSession(): CustomerSession | null {
   }
 }
 
-export function saveCustomerSession(name: string, phone: string, email?: string): void {
+export function saveCustomerSession(name: string, phone: string, email?: string, userId?: string): void {
   if (typeof window === "undefined") return;
   const session: CustomerSession = { name: name.trim(), phone: normalizePhone(phone) };
   if (email?.trim()) session.email = email.trim();
+  if (userId?.trim()) session.userId = userId.trim();
   window.localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(session));
 }
 
@@ -51,8 +52,23 @@ export async function registerCustomerAccount({
   password: string;
 }) {
   const normalizedPhone = normalizePhone(phone);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Pre-check: if email already exists in customers, block registration immediately.
+  const { data: existingByEmail } = await supabase
+    .from("customers")
+    .select("id, is_registered, auth_user_id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (existingByEmail?.is_registered) {
+    throw new Error(
+      "Ya existe una cuenta con este correo. Inicia sesión o recupera tu contraseña."
+    );
+  }
+
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: normalizedEmail,
     password,
     options: { data: { name, phone: normalizedPhone } },
   });
@@ -60,18 +76,36 @@ export async function registerCustomerAccount({
   if (error) throw new Error(getAuthErrorMessage(error.message));
 
   const userId = data.user?.id;
-  if (!userId) throw new Error("No pudimos crear la cuenta. Intenta de nuevo.");
+  if (!userId) {
+    // Supabase returns null user (without error) when "Confirm email" is ON and
+    // the address already exists. Surface it as a clear conflict message.
+    throw new Error(
+      "Ya existe una cuenta con este correo. Inicia sesión o recupera tu contraseña."
+    );
+  }
+
+  // Post-check: if this auth_user_id already owns a registered customer, block.
+  const { data: existingByAuth } = await supabase
+    .from("customers")
+    .select("id, is_registered")
+    .eq("auth_user_id", userId)
+    .maybeSingle();
+
+  if (existingByAuth?.is_registered) {
+    throw new Error(
+      "Ya existe una cuenta con este correo. Inicia sesión o recupera tu contraseña."
+    );
+  }
 
   await callUpsertAPI({
     name: name.trim(),
     phone: normalizedPhone,
-    email: email.trim(),
+    email: normalizedEmail,
     is_registered: true,
     auth_user_id: userId,
   });
 
-  associateMissionsToUserByPhone(normalizedPhone, userId);
-  return { name, phone: normalizedPhone, email };
+  return { name, phone: normalizedPhone, email: normalizedEmail, authUserId: userId };
 }
 
 // ── Supabase Auth — login ─────────────────────────────────────────────────────
@@ -102,14 +136,6 @@ export async function loginCustomerWithSupabase(
   }
 
   const customer = await getCustomerByAuthUserId(data.user.id);
-  const resolvedPhone = customer?.phone
-    ?? normalizePhone((data.user.user_metadata as { phone?: string } | undefined)?.phone ?? "");
-
-  // Backfill: link any existing phone-only missions to this auth user, then update localStorage.
-  if (resolvedPhone) {
-    void backfillMissionUserIdByPhone(resolvedPhone, data.user.id);
-    associateMissionsToUserByPhone(resolvedPhone, data.user.id);
-  }
 
   if (customer) {
     return { name: customer.name, phone: customer.phone, email: customer.email };
@@ -117,6 +143,7 @@ export async function loginCustomerWithSupabase(
 
   // Fallback: build session from Auth user metadata
   const meta = data.user.user_metadata as { name?: string; phone?: string } | undefined;
+  const resolvedPhone = normalizePhone(meta?.phone ?? "");
   return {
     name: meta?.name ?? email,
     phone: resolvedPhone,
@@ -205,18 +232,6 @@ async function callUpsertAPI(payload: {
   } catch (err) {
     console.error("[customers] upsert API exception:", err);
   }
-}
-
-export async function upsertGuestCustomerFromMission(mission: ActiveMission) {
-  const phone = normalizePhone(mission.requester_phone ?? "");
-  if (!phone || !mission.requester_name?.trim()) return;
-
-  await callUpsertAPI({
-    name: mission.requester_name.trim(),
-    phone,
-    email: null,
-    is_registered: false,
-  });
 }
 
 export async function syncRegisteredCustomerToSupabase(

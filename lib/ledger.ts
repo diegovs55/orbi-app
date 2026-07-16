@@ -63,11 +63,8 @@ function r2(n: number): number {
 }
 
 function resolveCustomerOwnerId(mission: ActiveMission): string {
-  // Jerarquía de identidad financiera del cliente:
-  //   1. user_id    — UUID de Supabase Auth (cliente con cuenta registrada)
-  //   2. guest_id   — UUID temporal de cliente invitado (puente hacia customer_id definitivo)
-  //   3. requester_phone — fallback de compatibilidad para misiones históricas pre-blindaje
-  return mission.user_id ?? mission.guest_id ?? mission.requester_phone;
+  // user_id (Supabase Auth UUID) es la única identidad válida del cliente.
+  return mission.user_id ?? "";
 }
 
 // ── Validador de IDs críticos ────────────────────────────────────────────────
@@ -82,12 +79,12 @@ function resolveCustomerOwnerId(mission: ActiveMission): string {
 export function validateMissionIds(mission: ActiveMission): void {
   const isCatalog = mission.mission_type === "compra_negocio";
 
-  // El cliente siempre debe tener un identificador válido (UUID o teléfono no vacío)
+  // El cliente debe tener user_id — única identidad válida.
   const customerId = resolveCustomerOwnerId(mission);
   if (!customerId || customerId.trim() === "") {
     throw new Error(
       `[ledger] owner_id del cliente es inválido en misión ${mission.id}. ` +
-      `Requiere user_id o requester_phone.`
+      `Requiere user_id.`
     );
   }
 
