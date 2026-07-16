@@ -32,7 +32,7 @@ import {
 } from "@/lib/agents";
 import { supabase, subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
-import { estimateMissionCost, calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
+import { calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   getCurrentCustomerSession,
@@ -293,6 +293,11 @@ export function ServiceRequestFlow() {
   const [destPendingConfirm, setDestPendingConfirm] = useState<DestPendingConfirm | null>(null);
   const [destGpsLoading, setDestGpsLoading] = useState(false);
   const [destGpsError, setDestGpsError] = useState("");
+
+  // Cotización de precio desde servidor — garantiza que el preview = precio persistido.
+  const [directQuote, setDirectQuote] = useState<{ fee: number; loading: boolean; error: boolean }>({
+    fee: 0, loading: false, error: false,
+  });
 
   const isOrbitPending = activeMission?.status === "por_tomar" && activeMission.selected_agent_id;
   const isOrbitExperienceActive = orbitExperienceActive;
@@ -819,6 +824,50 @@ export function ServiceRequestFlow() {
     });
     return () => { cancelled = true; };
   }, [originCoordinatePair, destinationCoordinatePair]);
+
+  // Cotización de precio para traslado directo — consulta el mismo motor que usa el backend.
+  useEffect(() => {
+    if (isCatalogMission || !selectedAgent || !details.originLat || !details.originLng) {
+      setDirectQuote({ fee: 0, loading: false, error: false });
+      return;
+    }
+    const agentLocation = getAgentLocation(selectedAgent);
+    if (!agentLocation) {
+      setDirectQuote({ fee: 0, loading: false, error: false });
+      return;
+    }
+    let cancelled = false;
+    setDirectQuote((q) => ({ ...q, loading: true, error: false }));
+    void fetch("/api/pricing/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        is_catalog:      false,
+        agent_lat:       agentLocation.lat,
+        agent_lng:       agentLocation.lng,
+        origin_lat:      details.originLat,
+        origin_lng:      details.originLng,
+        destination_lat: details.destinationLat,
+        destination_lng: details.destinationLng,
+        distance_km:     routeDistance,
+        service_type:    selectedService?.label ?? "",
+      }),
+    })
+      .then((r) => r.json())
+      .then((data: { serviceFee?: number }) => {
+        if (!cancelled) setDirectQuote({ fee: data.serviceFee ?? 0, loading: false, error: false });
+      })
+      .catch(() => {
+        if (!cancelled) setDirectQuote((q) => ({ ...q, loading: false, error: true }));
+      });
+    return () => { cancelled = true; };
+  }, [
+    isCatalogMission, selectedAgent,
+    details.originLat, details.originLng,
+    details.destinationLat, details.destinationLng,
+    routeDistance, selectedService,
+  ]);
+
   const serviceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : null;
   const logisticsStatusMessage = getLogisticsStatusMessage({
     hasCatalogOrigin: Boolean(originCoordinatePair),
@@ -1282,7 +1331,7 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const estimatedOrbit = getEstimatedOrbit(distance);
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : estimateMissionCost(distance).price;
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
     const totalEstimate = cartSubtotal + (currentServiceFee ?? 0);
 
     const message = [
@@ -1347,8 +1396,7 @@ export function ServiceRequestFlow() {
     setSubmitError(null);
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
-    const cost = estimateMissionCost(distance);
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
 
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
@@ -1357,7 +1405,7 @@ export function ServiceRequestFlow() {
       return;
     }
 
-    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
+    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : directQuote.fee;
     const agentLocation = getAgentLocation(selectedAgent);
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
@@ -1422,8 +1470,8 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       precio_servicio: servicePrice,
-      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : cost.agentCost,
-      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : servicePrice - cost.agentCost,
+      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : Math.round(directQuote.fee * 0.70),
+      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : directQuote.fee - Math.round(directQuote.fee * 0.70),
       estimated_orbit: getEstimatedOrbit(distance),
       mission_type: isCatalogMission ? "compra_negocio" : "directa",
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
@@ -1478,8 +1526,7 @@ export function ServiceRequestFlow() {
     setIsSending(true);
     setSubmitError(null);
 
-    const cost = estimateMissionCost(null);
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : cost.price;
+    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
 
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
@@ -1488,7 +1535,7 @@ export function ServiceRequestFlow() {
       return;
     }
 
-    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : cost.price;
+    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : directQuote.fee;
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
@@ -1545,8 +1592,8 @@ export function ServiceRequestFlow() {
       payment_status: paymentStatus,
       payment_method: paymentMethod,
       precio_servicio: servicePrice,
-      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : cost.agentCost,
-      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : servicePrice - cost.agentCost,
+      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : Math.round(directQuote.fee * 0.70),
+      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : directQuote.fee - Math.round(directQuote.fee * 0.70),
       estimated_orbit: "Por confirmar con el agente",
       mission_type: isCatalogMission ? "compra_negocio" : "directa",
       status: isCatalogMission ? "esperando_negocio" : "por_tomar"
@@ -2232,7 +2279,11 @@ export function ServiceRequestFlow() {
           <div className="mt-3">
             {isCatalogMission
               ? <CostBreakdown subtotal={cartSubtotal} serviceFee={serviceFee ?? 0} total={cartSubtotal + (serviceFee ?? 0)} />
-              : <CostBreakdown subtotal={null} serviceFee={estimateMissionCost(null).price} total={estimateMissionCost(null).price} />
+              : directQuote.loading
+                ? <p className="text-sm text-orbi-muted">Calculando precio…</p>
+                : directQuote.error
+                  ? <p className="text-sm text-red-400">No se pudo calcular el precio. Intenta de nuevo.</p>
+                  : <CostBreakdown subtotal={null} serviceFee={directQuote.fee} total={directQuote.fee} />
             }
           </div>
 

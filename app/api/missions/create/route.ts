@@ -40,47 +40,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { calcularMisionCatalogo, estimateMissionCost, PRICING_RULE, DIRECT } from "@/lib/pricing";
-import type { DirectParams } from "@/lib/pricing/direct";
+import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
+import { computeQuote, haversineKmServer, resolveDistanceServer } from "@/lib/pricing/server";
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
-
-// ── Admin client ──────────────────────────────────────────────────────────────
-
-
-// ── Haversine server-side ─────────────────────────────────────────────────────
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/**
- * Estrategia de distancia para pricing:
- * El cliente puede enviar distance_km desde OSRM (más preciso que haversine).
- * El servidor acepta ese valor solo si está dentro del ±25% de su propio haversine.
- * Si difiere más, usa el haversine del servidor — posible manipulación de distancia.
- */
-function resolveDistance(
-  clientDistanceKm: number | null | undefined,
-  serverHaversine: number
-): number {
-  if (clientDistanceKm == null || !Number.isFinite(clientDistanceKm) || clientDistanceKm <= 0) {
-    return serverHaversine;
-  }
-  const ratio = clientDistanceKm / serverHaversine;
-  if (ratio >= 0.75 && ratio <= 1.25) {
-    return clientDistanceKm; // OSRM es más preciso — usar si está dentro del margen
-  }
-  return serverHaversine; // Diferencia sospechosa — usar haversine del servidor
-}
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
@@ -194,8 +157,8 @@ export async function POST(req: NextRequest) {
 
   let pricingDistanceKm: number | null = null;
   if (oLat != null && oLng != null && dLat != null && dLng != null) {
-    const serverHaversine = haversineKm(oLat, oLng, dLat, dLng);
-    pricingDistanceKm = resolveDistance(
+    const serverHaversine = haversineKmServer(oLat, oLng, dLat, dLng);
+    pricingDistanceKm = resolveDistanceServer(
       typeof clientDistanceKm === "number" ? clientDistanceKm : null,
       serverHaversine
     );
@@ -350,74 +313,25 @@ export async function POST(req: NextRequest) {
     gananciaOrbi = catalogResult.gananciaOrbi;
 
   } else {
-    // Misión directa — distancia agente→origen para pricing
+    // Misión directa — delegado a computeQuote (motor_params DB, agente→origen)
     const agentLat = typeof selected_agent_lat === "number" ? selected_agent_lat : null;
     const agentLng = typeof selected_agent_lng === "number" ? selected_agent_lng : null;
 
-    let agentToOriginKm: number | null = null;
-    if (agentLat != null && agentLng != null && oLat != null && oLng != null) {
-      agentToOriginKm = haversineKm(agentLat, agentLng, oLat, oLng);
-    }
+    const directResult = await computeQuote({
+      isCatalog:        false,
+      agentLat, agentLng,
+      originLat:        oLat, originLng: oLng,
+      destinationLat:   dLat, destinationLng: dLng,
+      clientDistanceKm: null, // create siempre usa haversine propio; OSRM viene del cliente solo para catálogo
+      items:            [],
+      serviceType:      service_type as string,
+    });
 
-    // Leer parámetros desde motor_params con validación. Fallback a DIRECT si algo falla.
-    const fallbackParams: DirectParams = {
-      tarifaBase:     DIRECT.tarifaBase,
-      costoPorKm:     DIRECT.costoPorKm,
-      comisionAgente: DIRECT.comisionAgente,
-    };
-    let motorParams: DirectParams = { ...fallbackParams };
-    let motorParamsVersion: number | null = null;
-    let paramsSource: "db" | "fallback" = "fallback";
-
-    try {
-      const [paramsRes, histRes] = await Promise.all([
-        admin.from("motor_params").select("key, value").eq("scope", "zumpahuacan"),
-        admin.from("motor_params_history").select("id").eq("scope", "zumpahuacan")
-          .order("id", { ascending: false }).limit(1).maybeSingle(),
-      ]);
-
-      if (paramsRes.error || !paramsRes.data?.length) {
-        console.warn("[missions/create] motor_params no disponible, usando fallback:", paramsRes.error?.message);
-      } else {
-        const map = new Map(paramsRes.data.map((r) => [r.key as string, Number(r.value)]));
-
-        // Validar cada parámetro obligatorio: debe existir, ser finito y positivo.
-        const raw = {
-          tarifaBase:     map.get("tarifa_base"),
-          costoPorKm:     map.get("costo_por_km"),
-          comisionAgente: map.get("comision_agente"),
-        };
-        const invalid = Object.entries(raw)
-          .filter(([, v]) => v == null || !Number.isFinite(v) || v <= 0)
-          .map(([k]) => k);
-
-        if (invalid.length > 0) {
-          console.warn(
-            "[missions/create] Parámetros inválidos en motor_params, usando fallback para:",
-            invalid,
-            raw,
-          );
-          // fallbackParams ya está asignado — no se sobreescribe motorParams
-        } else {
-          motorParams    = raw as DirectParams;
-          motorParamsVersion = (histRes.data as { id: number } | null)?.id ?? null;
-          paramsSource   = "db";
-        }
-      }
-    } catch (err) {
-      console.warn("[missions/create] Error leyendo motor_params, usando fallback:", err);
-    }
-
-    if (paramsSource === "fallback") {
-      console.warn("[missions/create] Precios calculados con DIRECT fallback (config.ts). Verificar motor_params en Supabase.");
-    }
-
-    const directResult = estimateMissionCost(agentToOriginKm, motorParams);
-    serviceFee   = directResult.price;
-    totalAmount  = directResult.price;
-    costoAgente  = directResult.agentCost;
-    gananciaOrbi = directResult.orbiProfit;
-    motorParamsVersionForRow = motorParamsVersion;
+    serviceFee            = directResult.serviceFee;
+    totalAmount           = directResult.totalAmount;
+    costoAgente           = Math.round(serviceFee * 0.70);
+    gananciaOrbi          = serviceFee - costoAgente;
+    motorParamsVersionForRow = directResult.motorParamsVersion;
   }
 
   // ── Construir fila para Supabase ─────────────────────────────────────────
