@@ -1040,8 +1040,26 @@ export function ServiceRequestFlow() {
       return;
     }
 
+    // [DIAG-GPS]
+    const _reqId = ++_gpsReqCounter;
+    const _reqStart = Date.now();
+    const _reqOptions = { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 };
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "geolocation" }).then((r) => {
+        console.info("[GPS:permission]", { fn: "handleOriginGps", reqId: _reqId, state: r.state });
+      }).catch(() => undefined);
+    }
+    console.info("[GPS:start]", {
+      fn: "handleOriginGps", reqId: _reqId,
+      time: new Date().toISOString(), visibility: document.visibilityState, options: _reqOptions,
+    });
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        console.info("[GPS:success]", {
+          fn: "handleOriginGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+          lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy,
+        });
         const point = { lat: position.coords.latitude, lng: position.coords.longitude };
         _lastKnownCustomerPos = point;
         try {
@@ -1054,6 +1072,10 @@ export function ServiceRequestFlow() {
         }
       },
       (err) => {
+        console.error("[GPS:error]", {
+          fn: "handleOriginGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+          code: err.code, message: err.message,
+        });
         const msg = err.code === 1
           ? "Activa el GPS en Configuración → Safari → Ubicación para usar esta función."
           : err.code === 3
@@ -1062,7 +1084,7 @@ export function ServiceRequestFlow() {
         setOriginGpsError(msg);
         setOriginGpsLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      _reqOptions
     );
   }
 
@@ -1089,8 +1111,26 @@ export function ServiceRequestFlow() {
       return;
     }
 
+    // [DIAG-GPS]
+    const _reqId = ++_gpsReqCounter;
+    const _reqStart = Date.now();
+    const _reqOptions = { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 };
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "geolocation" }).then((r) => {
+        console.info("[GPS:permission]", { fn: "handleDestGps", reqId: _reqId, state: r.state });
+      }).catch(() => undefined);
+    }
+    console.info("[GPS:start]", {
+      fn: "handleDestGps", reqId: _reqId,
+      time: new Date().toISOString(), visibility: document.visibilityState, options: _reqOptions,
+    });
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        console.info("[GPS:success]", {
+          fn: "handleDestGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+          lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy,
+        });
         const point = { lat: position.coords.latitude, lng: position.coords.longitude };
         _lastKnownCustomerPos = point;
         try {
@@ -1103,6 +1143,10 @@ export function ServiceRequestFlow() {
         }
       },
       (err) => {
+        console.error("[GPS:error]", {
+          fn: "handleDestGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+          code: err.code, message: err.message,
+        });
         const msg = err.code === 1
           ? "Activa el GPS en Configuración → Safari → Ubicación para usar esta función."
           : err.code === 3
@@ -1111,7 +1155,7 @@ export function ServiceRequestFlow() {
         setDestGpsError(msg);
         setDestGpsLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      _reqOptions
     );
   }
 
@@ -1154,15 +1198,33 @@ export function ServiceRequestFlow() {
     setMapTarget(target);
 
     if (!currentPoint && navigator.geolocation) {
+      // [DIAG-GPS]
+      const _reqId = ++_gpsReqCounter;
+      const _reqStart = Date.now();
+      const _reqOptions = { enableHighAccuracy: true, timeout: 8000 };
+      console.info("[GPS:start]", {
+        fn: "handleOpenMap", reqId: _reqId,
+        time: new Date().toISOString(), visibility: document.visibilityState,
+        target, options: _reqOptions,
+      });
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          console.info("[GPS:success]", {
+            fn: "handleOpenMap", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+            lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy,
+          });
           setMapPoint({
             lat: position.coords.latitude,
             lng: position.coords.longitude
           });
         },
-        () => undefined,
-        { enableHighAccuracy: true, timeout: 8000 }
+        (err) => {
+          console.error("[GPS:error]", {
+            fn: "handleOpenMap", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
+            code: err.code, message: err.message,
+          });
+        },
+        _reqOptions
       );
     }
   }
@@ -2951,6 +3013,9 @@ function RequestInput({
 // Módulo singleton: sobrevive re-renders y navegación de página. Se actualiza cada vez que
 // el cliente obtiene GPS (origen o destino). Acceso sincrónico para resolveSearchCenter.
 let _lastKnownCustomerPos: { lat: number; lng: number } | null = null;
+
+// [DIAG-GPS] Contador incremental de solicitudes GPS. Solo para diagnóstico temporal.
+let _gpsReqCounter = 0;
 
 // PR-05 — LocationPicker para origen y destino con autocomplete, GPS y mapa.
 // Implementa ORBI-UX-01: sugerencia seleccionada → confirmado directo; GPS/mapa → muestra "¿Es aquí?".
