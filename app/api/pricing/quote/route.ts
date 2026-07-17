@@ -19,20 +19,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  const result = await computeQuote({
-    isCatalog:        Boolean(body.is_catalog),
-    agentLat:         typeof body.agent_lat        === "number" ? body.agent_lat        : null,
-    agentLng:         typeof body.agent_lng        === "number" ? body.agent_lng        : null,
-    originLat:        typeof body.origin_lat       === "number" ? body.origin_lat       : null,
-    originLng:        typeof body.origin_lng       === "number" ? body.origin_lng       : null,
-    destinationLat:   typeof body.destination_lat  === "number" ? body.destination_lat  : null,
-    destinationLng:   typeof body.destination_lng  === "number" ? body.destination_lng  : null,
-    clientDistanceKm: typeof body.distance_km      === "number" ? body.distance_km      : null,
-    items:            Array.isArray(body.items)
-                        ? (body.items as Array<{ product_id: string; quantity: number }>)
-                        : [],
-    serviceType:      typeof body.service_type === "string" ? body.service_type : "",
-  });
-
-  return NextResponse.json(result);
+  try {
+    const result = await computeQuote({
+      isCatalog:        Boolean(body.is_catalog),
+      agentLat:         typeof body.agent_lat        === "number" ? body.agent_lat        : null,
+      agentLng:         typeof body.agent_lng        === "number" ? body.agent_lng        : null,
+      originLat:        typeof body.origin_lat       === "number" ? body.origin_lat       : null,
+      originLng:        typeof body.origin_lng       === "number" ? body.origin_lng       : null,
+      destinationLat:   typeof body.destination_lat  === "number" ? body.destination_lat  : null,
+      destinationLng:   typeof body.destination_lng  === "number" ? body.destination_lng  : null,
+      clientDistanceKm: typeof body.distance_km      === "number" ? body.distance_km      : null,
+      items:            Array.isArray(body.items)
+                          ? (body.items as Array<{ product_id: string; quantity: number }>)
+                          : [],
+      serviceType:      typeof body.service_type === "string" ? body.service_type : "",
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error al calcular cotización.";
+    return NextResponse.json({ error: message }, { status: 422 });
+  }
 }

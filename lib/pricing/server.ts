@@ -33,7 +33,13 @@ export type QuoteResult = {
   subtotalProductos: number | null;
   pricingRule: string;
   distanceKm: number | null;
-  segment: "agente_origen" | "origen_destino";
+  segment: "origen_destino";
+};
+
+export type MotorParams = DirectParams & {
+  radioServicioMaximoKm:      number;
+  radioAsignacionAutomaticaKm: number;
+  radioAsignacionMaximaKm:    number;
 };
 
 export function haversineKmServer(
@@ -60,91 +66,149 @@ export function resolveDistanceServer(
   return ratio >= 0.75 && ratio <= 1.25 ? clientKm : serverHaversine;
 }
 
-export async function loadMotorParams(): Promise<{ params: DirectParams; source: "db" | "fallback"; version: number | null }> {
-  const fallback: DirectParams = {
-    tarifaBase:     DIRECT.tarifaBase,
-    costoPorKm:     DIRECT.costoPorKm,
-    comisionAgente: DIRECT.comisionAgente,
-  };
+const IS_PROD = process.env.NODE_ENV === "production";
+
+// Fallback de dev/test: valores sincronizados con seeds de motor_params.
+// En producción nunca se usa — un fallo de DB es un fallo cerrado (A3).
+const FALLBACK_MOTOR: MotorParams = {
+  tarifaBase:                  DIRECT.tarifaBase,
+  costoPorKm:                  DIRECT.costoPorKm,
+  comisionAgente:              DIRECT.comisionAgente,
+  tarifaMinima:                DIRECT.tarifaMinima,
+  radioServicioMaximoKm:       15,
+  radioAsignacionAutomaticaKm:  3,
+  radioAsignacionMaximaKm:      8,
+};
+
+export async function loadMotorParams(
+  scope: string,
+): Promise<{ params: MotorParams; source: "db" | "fallback"; version: number | null }> {
   const admin = getAdmin();
-  if (!admin) return { params: fallback, source: "fallback", version: null };
+
+  // A3: sin cliente admin no hay cotización en producción.
+  if (!admin) {
+    if (IS_PROD) throw new Error("[pricing/server] Admin client no disponible en producción.");
+    return { params: FALLBACK_MOTOR, source: "fallback", version: null };
+  }
 
   try {
     const [paramsRes, histRes] = await Promise.all([
-      admin.from("motor_params").select("key, value").eq("scope", "zumpahuacan"),
-      admin.from("motor_params_history").select("id").eq("scope", "zumpahuacan")
-        .order("id", { ascending: false }).limit(1).maybeSingle(),
+      admin
+        .from("motor_params")
+        .select("key, value")
+        .eq("scope", scope)
+        .in("key", [
+          "tarifa_base",
+          "costo_por_km",
+          "comision_agente",
+          "tarifa_minima",
+          "radio_servicio_maximo_km",
+          "radio_asignacion_automatica_km",
+          "radio_asignacion_maxima_km",
+        ]),
+      admin
+        .from("motor_params_history")
+        .select("id")
+        .eq("scope", scope)
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
-    if (paramsRes.error || !paramsRes.data?.length) {
-      console.warn("[pricing/server] motor_params no disponible, usando fallback:", paramsRes.error?.message);
-      return { params: fallback, source: "fallback", version: null };
+    // A3: fallo de DB es fallo cerrado en producción.
+    if (paramsRes.error) {
+      if (IS_PROD) throw new Error(`[pricing/server] Error leyendo motor_params: ${paramsRes.error.message}`);
+      console.warn("[pricing/server] DB no disponible, usando fallback (dev/test):", paramsRes.error.message);
+      return { params: FALLBACK_MOTOR, source: "fallback", version: null };
+    }
+
+    if (!paramsRes.data?.length) {
+      if (IS_PROD) throw new Error(`[pricing/server] motor_params vacío para scope '${scope}'.`);
+      console.warn(`[pricing/server] Scope '${scope}' sin parámetros, usando fallback (dev/test).`);
+      return { params: FALLBACK_MOTOR, source: "fallback", version: null };
     }
 
     const map = new Map(paramsRes.data.map((r) => [r.key as string, Number(r.value)]));
-    const raw = {
-      tarifaBase:     map.get("tarifa_base"),
-      costoPorKm:     map.get("costo_por_km"),
-      comisionAgente: map.get("comision_agente"),
+
+    const raw: MotorParams = {
+      tarifaBase:                  map.get("tarifa_base")                    ?? 0,
+      costoPorKm:                  map.get("costo_por_km")                   ?? 0,
+      comisionAgente:              map.get("comision_agente")                ?? 0,
+      tarifaMinima:                map.get("tarifa_minima")                  ?? 0,
+      radioServicioMaximoKm:       map.get("radio_servicio_maximo_km")       ?? 0,
+      radioAsignacionAutomaticaKm: map.get("radio_asignacion_automatica_km") ?? 0,
+      radioAsignacionMaximaKm:     map.get("radio_asignacion_maxima_km")     ?? 0,
     };
-    const invalid = Object.entries(raw)
-      .filter(([, v]) => v == null || !Number.isFinite(v) || v <= 0)
+
+    const invalid = (Object.entries(raw) as [string, number][])
+      .filter(([, v]) => !Number.isFinite(v) || v <= 0)
       .map(([k]) => k);
 
     if (invalid.length > 0) {
-      console.warn("[pricing/server] Parámetros inválidos en motor_params, usando fallback para:", invalid);
-      return { params: fallback, source: "fallback", version: null };
+      if (IS_PROD) throw new Error(`[pricing/server] Parámetros inválidos en scope '${scope}': ${invalid.join(", ")}`);
+      console.warn("[pricing/server] Parámetros inválidos, usando fallback (dev/test):", invalid);
+      return { params: FALLBACK_MOTOR, source: "fallback", version: null };
     }
 
     const version = (histRes.data as { id: number } | null)?.id ?? null;
-    return { params: raw as DirectParams, source: "db", version };
+    return { params: raw, source: "db", version };
   } catch (err) {
-    console.warn("[pricing/server] Error leyendo motor_params, usando fallback:", err);
-    return { params: fallback, source: "fallback", version: null };
+    if (IS_PROD) throw err;
+    console.warn("[pricing/server] Error inesperado, usando fallback (dev/test):", err);
+    return { params: FALLBACK_MOTOR, source: "fallback", version: null };
   }
 }
 
-export async function computeQuote(input: QuoteInput): Promise<QuoteResult & { motorParamsVersion: number | null }> {
+export async function computeQuote(
+  input: QuoteInput,
+): Promise<QuoteResult & { motorParamsVersion: number | null }> {
   const {
-    isCatalog, agentLat, agentLng,
-    originLat, originLng, destinationLat, destinationLng,
+    isCatalog,
+    originLat, originLng,
+    destinationLat, destinationLng,
     clientDistanceKm, serviceType,
   } = input;
 
+  // Principio de resolución geográfica: scope determinado por origen de la misión.
+  // Para el piloto, scope fijo 'zumpahuacan'. El resolver geográfico completo es Fase futura.
+  const scope = "zumpahuacan";
+
+  // A4: sin coordenadas válidas no hay distancia ni cotización.
+  const hasCoords =
+    originLat != null && originLng != null &&
+    destinationLat != null && destinationLng != null;
+
+  if (!hasCoords) {
+    throw new Error("[pricing/server] Coordenadas de origen o destino ausentes. No se puede cotizar sin distancia real (A4).");
+  }
+
+  const serverHaversine = haversineKmServer(originLat!, originLng!, destinationLat!, destinationLng!);
+  const pricingDistanceKm = resolveDistanceServer(clientDistanceKm, serverHaversine);
+
   if (isCatalog) {
-    let pricingDistanceKm: number | null = null;
-    if (originLat != null && originLng != null && destinationLat != null && destinationLng != null) {
-      const serverH = haversineKmServer(originLat, originLng, destinationLat, destinationLng);
-      pricingDistanceKm = resolveDistanceServer(clientDistanceKm, serverH);
-    }
     const result = calcularMisionCatalogo(pricingDistanceKm, 0, serviceType);
     return {
-      serviceFee:        result.servicioOrbi,
-      totalAmount:       result.servicioOrbi,
-      subtotalProductos: null,
-      pricingRule:       PRICING_RULE,
-      distanceKm:        pricingDistanceKm,
-      segment:           "origen_destino",
+      serviceFee:         result.servicioOrbi,
+      totalAmount:        result.servicioOrbi,
+      subtotalProductos:  null,
+      pricingRule:        PRICING_RULE,
+      distanceKm:         pricingDistanceKm,
+      segment:            "origen_destino",
       motorParamsVersion: null,
     };
   }
 
-  // Misión directa — distancia agente→origen
-  let agentToOriginKm: number | null = null;
-  if (agentLat != null && agentLng != null && originLat != null && originLng != null) {
-    agentToOriginKm = haversineKmServer(agentLat, agentLng, originLat, originLng);
-  }
-
-  const { params: motorParams, version } = await loadMotorParams();
-  const result = estimateMissionCost(agentToOriginKm, motorParams);
+  // Misión directa — DEC-16-B sobre distancia origin→destination.
+  const { params: motorParams, version } = await loadMotorParams(scope);
+  const result = estimateMissionCost(pricingDistanceKm, motorParams);
 
   return {
-    serviceFee:        result.price,
-    totalAmount:       result.price,
-    subtotalProductos: null,
-    pricingRule:       PRICING_RULE,
-    distanceKm:        agentToOriginKm,
-    segment:           "agente_origen",
+    serviceFee:         result.price,
+    totalAmount:        result.price,
+    subtotalProductos:  null,
+    pricingRule:        PRICING_RULE,
+    distanceKm:         pricingDistanceKm,
+    segment:            "origen_destino",
     motorParamsVersion: version,
   };
 }

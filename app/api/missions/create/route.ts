@@ -313,7 +313,7 @@ export async function POST(req: NextRequest) {
     gananciaOrbi = catalogResult.gananciaOrbi;
 
   } else {
-    // Misión directa — delegado a computeQuote (motor_params DB, agente→origen)
+    // Misión directa — delegado a computeQuote (motor_params DB, origin→destination)
     const agentLat = typeof selected_agent_lat === "number" ? selected_agent_lat : null;
     const agentLng = typeof selected_agent_lng === "number" ? selected_agent_lng : null;
 

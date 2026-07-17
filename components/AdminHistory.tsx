@@ -8,6 +8,7 @@ import {
   getMissionStatusLabel,
   MissionHistoryFilters,
 } from "@/lib/missions";
+import { AdminMissionAudit } from "@/components/AdminMissionAudit";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -86,6 +87,7 @@ export function AdminHistory() {
   const [serviceType, setServiceType] = useState("Todos");
   const [status, setStatus] = useState("Todos");
   const [search, setSearch] = useState("");
+  const [auditMissionId, setAuditMissionId] = useState<string | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -228,51 +230,73 @@ export function AdminHistory() {
                 </td>
               </tr>
             ) : (
-              visibleMissions.map((m) => (
-                <tr
-                  key={m.id}
-                  className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]"
-                >
-                  <td className="truncate px-2 py-2 text-orbi-muted">
-                    {formatDate(m.created_at || m.updated_at)}
-                  </td>
-                  <td className="truncate px-2 py-2 font-semibold text-orbi-text">
-                    {m.service_type}
-                  </td>
-                  <td className="truncate px-2 py-2 text-orbi-text">
-                    {m.requester_name || "—"}
-                  </td>
-                  <td className="truncate px-2 py-2 text-orbi-muted">
-                    {m.selected_agent_name || "—"}
-                  </td>
-                  <td className="truncate px-2 py-2 font-bold text-orbi-text">
-                    {(m.total_amount ?? 0) > 0
-                      ? `$${(m.total_amount ?? 0).toLocaleString("es-MX", { maximumFractionDigits: 0 })}`
-                      : "—"}
-                  </td>
-                  <td className="px-2 py-2">
-                    <span className="flex items-center gap-1">
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[m.status] ?? "bg-white/30"}`} />
-                      <span className="truncate text-orbi-muted">
-                        {getMissionStatusLabel(m.status)}
+              visibleMissions.flatMap((m) => {
+                const isAuditOpen = auditMissionId === m.id;
+                return [
+                  <tr
+                    key={m.id}
+                    className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.025]"
+                  >
+                    <td className="truncate px-2 py-2 text-orbi-muted">
+                      {formatDate(m.created_at || m.updated_at)}
+                    </td>
+                    <td className="truncate px-2 py-2 font-semibold text-orbi-text">
+                      {m.service_type}
+                    </td>
+                    <td className="truncate px-2 py-2 text-orbi-text">
+                      {m.requester_name || "—"}
+                    </td>
+                    <td className="truncate px-2 py-2 text-orbi-muted">
+                      {m.selected_agent_name || "—"}
+                    </td>
+                    <td className="truncate px-2 py-2 font-bold text-orbi-text">
+                      {(m.total_amount ?? 0) > 0
+                        ? `$${(m.total_amount ?? 0).toLocaleString("es-MX", { maximumFractionDigits: 0 })}`
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-2">
+                      <span className="flex items-center gap-1">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[m.status] ?? "bg-white/30"}`} />
+                        <span className="truncate text-orbi-muted">
+                          {getMissionStatusLabel(m.status)}
+                        </span>
                       </span>
-                    </span>
-                  </td>
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="shrink-0 font-mono text-[10px] text-orbi-muted/70">
-                        #{m.id.slice(-8).toUpperCase()}
-                      </span>
-                      <Link
-                        href={`/orbita/${m.id}`}
-                        className="shrink-0 rounded border border-orbi-cyan/25 px-1.5 py-0.5 text-[10px] font-semibold text-orbi-cyan transition hover:bg-orbi-cyan/10"
-                      >
-                        Ver órbita
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="shrink-0 font-mono text-[10px] text-orbi-muted/70">
+                          #{m.id.slice(-8).toUpperCase()}
+                        </span>
+                        <Link
+                          href={`/orbita/${m.id}`}
+                          className="shrink-0 rounded border border-orbi-cyan/25 px-1.5 py-0.5 text-[10px] font-semibold text-orbi-cyan transition hover:bg-orbi-cyan/10"
+                        >
+                          Ver órbita
+                        </Link>
+                        <button
+                          onClick={() => setAuditMissionId(isAuditOpen ? null : m.id)}
+                          className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+                            isAuditOpen
+                              ? "border-orbi-cyan/50 bg-orbi-cyan/10 text-orbi-cyan"
+                              : "border-white/15 text-orbi-muted/70 hover:border-white/30 hover:text-orbi-muted"
+                          }`}
+                        >
+                          $ Auditar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>,
+                  ...(isAuditOpen
+                    ? [
+                        <tr key={`${m.id}-audit`} className="border-b border-white/[0.05]">
+                          <td colSpan={7} className="p-0">
+                            <AdminMissionAudit missionId={m.id} />
+                          </td>
+                        </tr>,
+                      ]
+                    : []),
+                ];
+              })
             )}
           </tbody>
         </table>

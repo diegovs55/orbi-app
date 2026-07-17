@@ -1,8 +1,9 @@
 /**
- * ORBI Motor Económico 1.0 — Única fuente de verdad para tarifas.
+ * ORBI Motor Económico 1.0 — Valores de fallback para entorno sin DB.
  *
- * Todos los valores numéricos del sistema de precios viven aquí.
- * Para cambiar una tarifa, modifica solo este archivo.
+ * En producción la fuente de verdad es motor_params en Supabase.
+ * Estos valores se usan únicamente en dev/test cuando la DB no está disponible.
+ * Deben mantenerse sincronizados con los seeds de motor_params.
  */
 
 export const PRICING_RULE = "ORBI_MOTOR_1.0";
@@ -10,8 +11,8 @@ export const PRICING_RULE = "ORBI_MOTOR_1.0";
 // ── Misiones directas (Mandado, Mensajería, etc.) ────────────────────────────
 
 export const DIRECT = {
-  tarifaBase: 45,
-  costoPorKm: 12,
+  tarifaBase: 20,
+  costoPorKm: 6,
   comisionAgente: 0.70,
   tarifaMinima: 45,
 } as const;

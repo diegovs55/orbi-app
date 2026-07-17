@@ -273,6 +273,8 @@ export function ServiceRequestFlow() {
   // same event-loop tick before a re-render flushes the isSending state update.
   const isSendingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // ID del log de interpretación activo (null si no hubo búsqueda por texto libre)
+  const intentionLogIdRef = useRef<string | null>(null);
   const [orbitExperienceActive, setOrbitExperienceActive] = useState(false);
   const [sentMission, setSentMission] = useState<ActiveMission | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -826,16 +828,13 @@ export function ServiceRequestFlow() {
   }, [originCoordinatePair, destinationCoordinatePair]);
 
   // Cotización de precio para traslado directo — consulta el mismo motor que usa el backend.
+  // No requiere agente seleccionado: DEC-16-B solo necesita origin→destination (ORBI-P-13).
   useEffect(() => {
-    if (isCatalogMission || !selectedAgent || !details.originLat || !details.originLng) {
+    if (isCatalogMission || !details.originLat || !details.originLng || !details.destinationLat || !details.destinationLng) {
       setDirectQuote({ fee: 0, loading: false, error: false });
       return;
     }
-    const agentLocation = getAgentLocation(selectedAgent);
-    if (!agentLocation) {
-      setDirectQuote({ fee: 0, loading: false, error: false });
-      return;
-    }
+    const agentLocation = selectedAgent ? getAgentLocation(selectedAgent) : null;
     let cancelled = false;
     setDirectQuote((q) => ({ ...q, loading: true, error: false }));
     void fetch("/api/pricing/quote", {
@@ -843,8 +842,7 @@ export function ServiceRequestFlow() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         is_catalog:      false,
-        agent_lat:       agentLocation.lat,
-        agent_lng:       agentLocation.lng,
+        ...(agentLocation ? { agent_lat: agentLocation.lat, agent_lng: agentLocation.lng } : {}),
         origin_lat:      details.originLat,
         origin_lng:      details.originLng,
         destination_lat: details.destinationLat,
@@ -975,9 +973,11 @@ export function ServiceRequestFlow() {
     setSelectedAgent(null);
   }
 
-  function handleSelectCustomMission(label: "Mandado" | "Compra local" | "Servicio personalizado") {
-    const serviceLabel = label === "Servicio personalizado" ? "Mandado" : label;
-    const service = services.find((item) => item.label === serviceLabel) ?? services[0];
+  function handleSelectCustomMission(
+    label: ServiceOption["label"],
+    intentionContext?: { intencionOrbi: string; propuestaMostrada: string; resultadosCatalogo: number },
+  ) {
+    const service = services.find((item) => item.label === label) ?? services[0];
     setSelectedService(service);
     setSelectedStep("pedido");
     setExpandedDraftSection(null);
@@ -989,6 +989,28 @@ export function ServiceRequestFlow() {
       ...currentDetails,
       detail: searchQuery ? `Necesidad buscada: ${searchQuery}` : currentDetails.detail
     }));
+
+    // Auditoría de interpretación: solo cuando proviene de búsqueda por texto libre.
+    if (searchQuery.trim() && intentionContext) {
+      const { intencionOrbi, propuestaMostrada, resultadosCatalogo } = intentionContext;
+      const correccionHumana = label !== intencionOrbi ? label : null;
+      void fetch("/api/intention-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          texto_original:      searchQuery.trim(),
+          intencion_orbi:      intencionOrbi,
+          propuesta_mostrada:  propuestaMostrada,
+          resultados_catalogo: resultadosCatalogo,
+          correccion_humana:   correccionHumana,
+        }),
+      })
+        .then((r) => r.json())
+        .then((data: { id?: string }) => {
+          if (data.id) intentionLogIdRef.current = data.id;
+        })
+        .catch(() => { /* fire-and-forget: el flujo principal no depende del log */ });
+    }
   }
 
   function handleAddMoreProduct() {
@@ -1485,6 +1507,19 @@ export function ServiceRequestFlow() {
     setSentMission(mission);
     // Persist missionId so /orbita always shows THIS customer's mission.
     sessionStorage.setItem("orbi_active_mission_id", mission.id);
+    // Auditoría de interpretación: completar el log si esta misión vino de texto libre.
+    if (intentionLogIdRef.current) {
+      const logId = intentionLogIdRef.current;
+      intentionLogIdRef.current = null;
+      void fetch(`/api/intention-logs/${logId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resultado_final: mission.service_type,
+          mission_id:      mission.id,
+        }),
+      }).catch(() => { /* fire-and-forget */ });
+    }
     setRequestStatusMessage(
       isCatalogMission
         ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
@@ -2731,7 +2766,10 @@ function CatalogSuggestions({
   cartItems: CartItem[];
   message: string;
   onSelectProduct: (product: CatalogSearchResult) => void;
-  onSelectCustomMission: (label: "Mandado" | "Compra local" | "Servicio personalizado") => void;
+  onSelectCustomMission: (
+    label: ServiceOption["label"],
+    intentionContext: { intencionOrbi: string; propuestaMostrada: string; resultadosCatalogo: number },
+  ) => void;
 }) {
   const intention = detectIntention(query);
   const isNonCatalogService =
@@ -2739,13 +2777,13 @@ function CatalogSuggestions({
     intention.serviceLabel === "Recolección" ||
     intention.serviceLabel === "Pago o trámite";
 
-  if (!results.length || isNonCatalogService) {
-    const missionLabel = intention.serviceLabel === "Compra local"
-      ? "Compra local"
-      : intention.serviceLabel === "Mandado"
-        ? "Mandado"
-        : "Servicio personalizado";
+  const intentionContext = {
+    intencionOrbi:      intention.serviceLabel,
+    propuestaMostrada:  intention.proposal,
+    resultadosCatalogo: results.length,
+  };
 
+  if (!results.length || isNonCatalogService) {
     return (
       <div className="mt-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-5">
         <p className="text-base font-black text-orbi-text">{intention.proposal}</p>
@@ -2753,14 +2791,14 @@ function CatalogSuggestions({
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => onSelectCustomMission(missionLabel as "Mandado" | "Compra local" | "Servicio personalizado")}
+            onClick={() => onSelectCustomMission(intention.serviceLabel, intentionContext)}
             className="inline-flex min-h-10 items-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
           >
             Sí, pedir
           </button>
           <button
             type="button"
-            onClick={() => onSelectCustomMission("Mandado")}
+            onClick={() => onSelectCustomMission("Mandado", intentionContext)}
             className="inline-flex min-h-10 items-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-sm font-bold text-orbi-muted transition hover:bg-white/10"
           >
             Es otra cosa
