@@ -10,11 +10,20 @@ export const metadata: Metadata = {
   description: "Red local para conectar necesidades, mover productos o personas y llegar para resolver.",
   applicationName: "Orbi",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/orbi-icon.svg", type: "image/svg+xml" },
+    ],
+    apple: { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+  },
   appleWebApp: {
     capable: true,
     title: "Orbi",
-    statusBarStyle: "black-translucent"
-  }
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export const viewport: Viewport = {
