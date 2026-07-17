@@ -78,8 +78,7 @@ export async function GET(
     return NextResponse.json({ error: "Misión no encontrada." }, { status: 404 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = raw as any;
+  const data = raw as unknown as Record<string, unknown>;
 
   const serviceFee      = data.service_fee      as number | null;
   const costoAgente     = data.costo_agente     as number | null;
