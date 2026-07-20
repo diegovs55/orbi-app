@@ -25,6 +25,9 @@ export type QuoteInput = {
   clientDistanceKm: number | null;
   items: Array<{ product_id: string; quantity: number }>;
   serviceType: string;
+  // Permite inyectar params ya cargados para evitar una segunda lectura a DB.
+  // Si se provee, computeQuote omite su loadMotorParams() interno.
+  preloadedMotorData?: { params: MotorParams; version: number | null };
 };
 
 export type QuoteResult = {
@@ -75,7 +78,7 @@ const FALLBACK_MOTOR: MotorParams = {
   costoPorKm:                  DIRECT.costoPorKm,
   comisionAgente:              DIRECT.comisionAgente,
   tarifaMinima:                DIRECT.tarifaMinima,
-  radioServicioMaximoKm:       15,
+  radioServicioMaximoKm:       30,  // A2.1 — sincronizado con migración 20260720_a2_radio_servicio_v2
   radioAsignacionAutomaticaKm:  3,
   radioAsignacionMaximaKm:      8,
 };
@@ -167,6 +170,7 @@ export async function computeQuote(
     originLat, originLng,
     destinationLat, destinationLng,
     clientDistanceKm, serviceType,
+    preloadedMotorData,
   } = input;
 
   // Principio de resolución geográfica: scope determinado por origen de la misión.
@@ -199,7 +203,7 @@ export async function computeQuote(
   }
 
   // Misión directa — DEC-16-B sobre distancia origin→destination.
-  const { params: motorParams, version } = await loadMotorParams(scope);
+  const { params: motorParams, version } = preloadedMotorData ?? await loadMotorParams(scope);
   const result = estimateMissionCost(pricingDistanceKm, motorParams);
 
   return {

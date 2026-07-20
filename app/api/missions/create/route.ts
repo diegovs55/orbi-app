@@ -41,7 +41,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
-import { computeQuote, haversineKmServer, resolveDistanceServer } from "@/lib/pricing/server";
+import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams } from "@/lib/pricing/server";
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
 
@@ -317,14 +317,50 @@ export async function POST(req: NextRequest) {
     const agentLat = typeof selected_agent_lat === "number" ? selected_agent_lat : null;
     const agentLng = typeof selected_agent_lng === "number" ? selected_agent_lng : null;
 
+    // A2.1 — Carga única de motor_params para validación de cobertura + cotización.
+    // Se pasa preloadedMotorData a computeQuote para evitar una segunda lectura a DB.
+    const motorData = await loadMotorParams("zumpahuacan");
+
+    // Validación de radio de servicio (A2.1).
+    // Usa pricingDistanceKm (Haversine servidor), nunca la distancia vial del cliente.
+    // Comparación estricta: el valor configurado es el máximo incluido en cobertura.
+    if (pricingDistanceKm != null && pricingDistanceKm > motorData.params.radioServicioMaximoKm) {
+      // Una decimal normalmente; dos decimales cuando está a menos de 0.1 km del límite
+      // para evitar mensajes confusos como "30.0 km supera el límite de 30 km".
+      const limitKm   = motorData.params.radioServicioMaximoKm;
+      const delta     = pricingDistanceKm - limitKm;
+      const displayKm = delta < 0.1
+        ? pricingDistanceKm.toFixed(2)
+        : pricingDistanceKm.toFixed(1);
+      await logEvent({
+        event_type:   "api.create.error_422",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: "a2_coverage_exceeded", pricingDistanceKm, radioServicioMaximoKm: limitKm, scope: "zumpahuacan" },
+        http_status:  422,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
+      return NextResponse.json(
+        {
+          error: `Esta solicitud cubre aproximadamente ${displayKm} km y supera el límite actual de cobertura de ORBI de ${limitKm} km. Ajusta el origen o destino para continuar.`,
+        },
+        { status: 422 }
+      );
+    }
+
     const directResult = await computeQuote({
-      isCatalog:        false,
+      isCatalog:          false,
       agentLat, agentLng,
-      originLat:        oLat, originLng: oLng,
-      destinationLat:   dLat, destinationLng: dLng,
-      clientDistanceKm: null, // create siempre usa haversine propio; OSRM viene del cliente solo para catálogo
-      items:            [],
-      serviceType:      service_type as string,
+      originLat:          oLat, originLng: oLng,
+      destinationLat:     dLat, destinationLng: dLng,
+      clientDistanceKm:   null, // create siempre usa haversine propio; OSRM viene del cliente solo para catálogo
+      items:              [],
+      serviceType:        service_type as string,
+      preloadedMotorData: motorData,
     });
 
     serviceFee            = directResult.serviceFee;
