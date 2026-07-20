@@ -13,6 +13,8 @@ import {
   getBusinessOwnProducts,
   updateBusinessProfile,
   upsertBusinessProduct,
+  discontinueCatalogProduct,
+  restoreCatalogProduct,
   productCategories,
   normalizeTimeToHHmm,
 } from "@/lib/catalog";
@@ -45,9 +47,10 @@ const LocationPickerMap = dynamic(
 );
 
 const statusLabel: Record<CatalogProductStatus, string> = {
-  disponible: "Disponible",
-  agotado: "Agotado",
-  pausado: "Pausado"
+  disponible:    "Disponible",
+  agotado:       "Agotado",
+  pausado:       "Pausado",
+  descontinuado: "Descontinuado",
 };
 
 export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
@@ -154,11 +157,42 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
   async function handleToggle(p: CatalogProduct) {
     if (!myBusiness) return;
+    if (p.status === "descontinuado") return; // solo reactivable vía handleRestore
     const nextStatus: CatalogProductStatus = p.status === "disponible" ? "pausado" : "disponible";
     const updated: CatalogProduct = { ...p, status: nextStatus, available: nextStatus === "disponible" };
     try {
       await upsertBusinessProduct(updated);
       setProducts((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+    } catch {
+      // silent – keep UI unchanged
+    }
+  }
+
+  async function handleDiscontinue(p: CatalogProduct) {
+    const ok = window.confirm(
+      `Este producto dejará de aparecer a los clientes y no podrá recibir nuevas ventas. Su historial permanecerá intacto.\n\n¿Descontinuar "${p.name}"?`
+    );
+    if (!ok) return;
+    try {
+      await discontinueCatalogProduct(p.id);
+      setProducts((prev) => prev.map((x) =>
+        x.id === p.id ? { ...x, status: "descontinuado" as CatalogProductStatus, available: false } : x
+      ));
+    } catch {
+      // silent – keep UI unchanged
+    }
+  }
+
+  async function handleRestore(p: CatalogProduct) {
+    const ok = window.confirm(
+      `El producto volverá al estado "Pausado". Deberás activarlo manualmente para que sea visible a los clientes.\n\n¿Restaurar "${p.name}"?`
+    );
+    if (!ok) return;
+    try {
+      await restoreCatalogProduct(p.id);
+      setProducts((prev) => prev.map((x) =>
+        x.id === p.id ? { ...x, status: "pausado" as CatalogProductStatus, available: false } : x
+      ));
     } catch {
       // silent – keep UI unchanged
     }
@@ -511,25 +545,42 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
                 <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[11px] font-bold ${
                   p.status === "disponible"
                     ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                    : p.status === "descontinuado"
+                    ? "border-amber-500/25 bg-amber-500/10 text-amber-400 line-through"
                     : "border-white/10 bg-white/[0.04] text-orbi-muted"
                 }`}>
                   {statusLabel[p.status]}
                 </span>
               </div>
               <div className="flex shrink-0 gap-2">
-                <button type="button" onClick={() => startEdit(p)} title="Editar"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan">
-                  <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" onClick={() => handleToggle(p)}
-                  title={p.status === "disponible" ? "Desactivar" : "Activar"}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-                    p.status === "disponible"
-                      ? "border-red-300/15 bg-red-400/10 text-red-300 hover:bg-red-400/20"
-                      : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/20"
-                  }`}>
-                  <PowerOff aria-hidden="true" className="h-3.5 w-3.5" />
-                </button>
+                {p.status !== "descontinuado" && (
+                  <button type="button" onClick={() => startEdit(p)} title="Editar"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan">
+                    <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {p.status === "descontinuado" ? (
+                  <button type="button" onClick={() => handleRestore(p)} title="Restaurar producto"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-400 transition hover:bg-amber-500/20">
+                    <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => handleToggle(p)}
+                      title={p.status === "disponible" ? "Desactivar" : "Activar"}
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                        p.status === "disponible"
+                          ? "border-red-300/15 bg-red-400/10 text-red-300 hover:bg-red-400/20"
+                          : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/20"
+                      }`}>
+                      <PowerOff aria-hidden="true" className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => handleDiscontinue(p)} title="Descontinuar producto"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-500/15 bg-amber-500/[0.06] text-amber-500/70 transition hover:border-amber-500/30 hover:text-amber-400">
+                      <PowerOff aria-hidden="true" className="h-3.5 w-3.5 rotate-45" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </article>
@@ -584,6 +635,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
               <option value="disponible">Disponible</option>
               <option value="agotado">Agotado temporalmente</option>
               <option value="pausado">Pausado</option>
+              <option value="descontinuado">Descontinuado</option>
             </select>
           </FormField>
           {ferror ? <p className="text-xs font-semibold text-red-400">{ferror}</p> : null}

@@ -47,7 +47,7 @@ export const productCategories = [
 export type BusinessSector = (typeof businessSectors)[number];
 export type ProductCategory = (typeof productCategories)[number];
 export type CatalogBusinessStatus = "activo" | "inactivo";
-export type CatalogProductStatus = "disponible" | "agotado" | "pausado";
+export type CatalogProductStatus = "disponible" | "agotado" | "pausado" | "descontinuado";
 
 export type CatalogBusiness = {
   id: string;
@@ -311,6 +311,28 @@ export async function deleteCatalogProduct(id: string) {
   }
 }
 
+export async function discontinueCatalogProduct(id: string): Promise<void> {
+  await assertAuthenticated();
+  if (!supabase) throw new Error("Supabase no disponible.");
+  const { error } = await supabase
+    .from("products")
+    .update({ available: false, status: "descontinuado" })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function restoreCatalogProduct(id: string): Promise<void> {
+  await assertAuthenticated();
+  if (!supabase) throw new Error("Supabase no disponible.");
+  // Restaura a 'pausado', nunca a 'disponible' directamente.
+  // El negocio debe activarlo manualmente después de revisarlo.
+  const { error } = await supabase
+    .from("products")
+    .update({ available: false, status: "pausado" })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 export function searchCatalog(items: CatalogProduct[], query: string) {
   const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
 
@@ -480,7 +502,9 @@ function isActiveBusinessRow(row: BusinessRow) {
 }
 
 function isActiveProductRow(row: ProductRow) {
-  return row.available !== false && row.status !== "pausado";
+  return row.available !== false
+    && row.status !== "pausado"
+    && row.status !== "descontinuado";
 }
 
 function normalizeSector(value: string | null | undefined): BusinessSector {
@@ -497,10 +521,9 @@ function normalizeProductCategory(value: string | null | undefined): ProductCate
 }
 
 function normalizeProductStatus(value: string | null | undefined): CatalogProductStatus {
-  if (value === "agotado" || value === "pausado") {
+  if (value === "agotado" || value === "pausado" || value === "descontinuado") {
     return value;
   }
-
   return "disponible";
 }
 

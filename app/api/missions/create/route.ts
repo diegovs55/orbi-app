@@ -209,7 +209,7 @@ export async function POST(req: NextRequest) {
     // Consultar precios y metadata desde public.products — fuente autoritativa
     const { data: catalogRows, error: catalogError } = await admin
       .from("products")
-      .select("id, name, price, business_id, category")
+      .select("id, name, price, business_id, category, status, available")
       .in("id", productIds);
 
     if (catalogError) {
@@ -226,6 +226,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `Productos no encontrados en el catálogo: ${missingIds.join(", ")}` },
         { status: 404 }
+      );
+    }
+
+    // Validar que todos los productos son vendibles: status='disponible' AND available=true.
+    // Ejecutado antes de cualquier INSERT, ledger o intention_log.
+    const notSellable = productIds.filter((pid) => {
+      const row = catalogMap.get(pid);
+      return !row || row.status !== "disponible" || row.available !== true;
+    });
+    if (notSellable.length > 0) {
+      const labels = notSellable.map((pid) => {
+        const row = catalogMap.get(pid);
+        const reason =
+          !row                             ? "no encontrado"           :
+          row.status === "agotado"         ? "agotado temporalmente"   :
+          row.status === "pausado"         ? "temporalmente no disponible" :
+          row.status === "descontinuado"   ? "descontinuado"           :
+                                             "no disponible";
+        const name = row?.name ? `"${row.name}"` : `id ${pid}`;
+        return `${name} (${reason})`;
+      });
+      const plural = labels.length === 1;
+      await logEvent({
+        event_type:   "api.create.error_422",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: "products_not_sellable", product_ids: notSellable },
+        http_status:  422,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
+      return NextResponse.json(
+        {
+          error: `${labels.join(", ")} ${plural ? "no está" : "no están"} disponible${plural ? "" : "s"} en este momento. Revisa el carrito e intenta de nuevo.`,
+        },
+        { status: 422 }
       );
     }
 
