@@ -2204,6 +2204,15 @@ export function ServiceRequestFlow() {
                   placeholder="55 0000 0000"
                   onChange={(value) => updateDetails("requesterPhone", value)}
                 />
+                {isCatalogMission ? (
+                  quoteLoading
+                    ? <p className="text-sm text-orbi-muted">Cotizando…</p>
+                    : quoteError
+                      ? <p className="text-sm text-red-400">{quoteError}</p>
+                      : !catalogQuote
+                        ? <p className="text-sm text-orbi-muted">Esperando cotización del servicio…</p>
+                        : null
+                ) : null}
                 <ContinueStepButton
                   disabled={!requesterIsComplete || (isCatalogMission && (!catalogQuote || quoteLoading || Boolean(quoteError)))}
                   onClick={() => {

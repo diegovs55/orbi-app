@@ -113,14 +113,14 @@ export async function POST(req: NextRequest) {
     // S1: Resolver coordenadas del negocio desde DB (nunca del cliente)
     const { data: businessRow, error: businessError } = await admin
       .from("businesses")
-      .select("latitude, longitude")
+      .select("lat, lng")
       .eq("id", businessId)
       .single();
     if (businessError || !businessRow) {
       return NextResponse.json({ error: "Negocio no encontrado." }, { status: 404 });
     }
-    const bLat = Number(businessRow.latitude);
-    const bLng = Number(businessRow.longitude);
+    const bLat = Number(businessRow.lat);
+    const bLng = Number(businessRow.lng);
     if (!Number.isFinite(bLat) || !Number.isFinite(bLng)) {
       return NextResponse.json(
         { error: "El negocio no tiene coordenadas geográficas válidas." },

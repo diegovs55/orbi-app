@@ -340,14 +340,14 @@ export async function POST(req: NextRequest) {
     // S1 (G1): Resolver coordenadas del negocio desde DB — nunca confiar en GPS del cliente
     const { data: bizRow, error: bizError } = await admin
       .from("businesses")
-      .select("latitude, longitude")
+      .select("lat, lng")
       .eq("id", declaredBusinessId)
       .single();
     if (bizError || !bizRow) {
       return NextResponse.json({ error: "Negocio no encontrado." }, { status: 404 });
     }
-    const bizLat = Number(bizRow.latitude);
-    const bizLng = Number(bizRow.longitude);
+    const bizLat = Number(bizRow.lat);
+    const bizLng = Number(bizRow.lng);
     if (!Number.isFinite(bizLat) || !Number.isFinite(bizLng)) {
       return NextResponse.json(
         { error: "El negocio no tiene coordenadas geográficas válidas." },
