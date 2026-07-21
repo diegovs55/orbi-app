@@ -1518,7 +1518,7 @@ export function ServiceRequestFlow() {
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
       setIsSending(false);
-      setLocationError(logisticsStatusMessage);
+      setSubmitError("Cotización no disponible. Espera un momento o recarga la página.");
       return;
     }
 
@@ -1672,7 +1672,7 @@ export function ServiceRequestFlow() {
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
       setIsSending(false);
-      setLocationError(logisticsStatusMessage);
+      setSubmitError("Cotización no disponible. Espera un momento o recarga la página.");
       return;
     }
 
@@ -2205,7 +2205,7 @@ export function ServiceRequestFlow() {
                   onChange={(value) => updateDetails("requesterPhone", value)}
                 />
                 <ContinueStepButton
-                  disabled={!requesterIsComplete}
+                  disabled={!requesterIsComplete || (isCatalogMission && (!catalogQuote || quoteLoading || Boolean(quoteError)))}
                   onClick={() => {
                     setConfirmedDraftSections((currentSections) => ({
                       ...currentSections,
@@ -2431,7 +2431,13 @@ export function ServiceRequestFlow() {
           </div>
           <div className="mt-3">
             {isCatalogMission
-              ? <CostBreakdown subtotal={cartSubtotal} serviceFee={serviceFee ?? 0} total={cartSubtotal + (serviceFee ?? 0)} />
+              ? quoteLoading
+                ? <p className="text-sm text-orbi-muted">Cotizando…</p>
+                : quoteError
+                  ? <p className="text-sm text-red-400">{quoteError}</p>
+                  : catalogQuote
+                    ? <CostBreakdown subtotal={cartSubtotal} serviceFee={catalogQuote.serviceFee} total={catalogQuote.totalAmount} />
+                    : <p className="text-sm text-orbi-muted">Cotizando…</p>
               : directQuote.loading
                 ? <p className="text-sm text-orbi-muted">Calculando precio…</p>
                 : directQuote.error
@@ -2513,8 +2519,9 @@ export function ServiceRequestFlow() {
             {!isSending ? (
               <button
                 type="button"
+                disabled={isCatalogMission && (!catalogQuote || quoteLoading || Boolean(quoteError))}
                 onClick={() => selectedAgent ? void handleSendMissionToAgent() : void handleCreateWaitingRequest()}
-                className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] ${!selectedAgent ? "sm:col-span-2" : ""}`}
+                className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50 disabled:cursor-not-allowed ${!selectedAgent ? "sm:col-span-2" : ""}`}
               >
                 <Send aria-hidden="true" className="h-5 w-5" />
                 Poner en órbita
