@@ -3281,12 +3281,12 @@ function CatalogSuggestions({
                       <p className="mt-1 text-xs font-semibold text-orbi-cyan">
                         {result.category} · {result.sector}
                       </p>
-                      <p className="mt-1 text-xs text-orbi-muted/70">
-                        A aprox. {formatDistanceKm(result.distanceKm)} de la zona de búsqueda
-                      </p>
                       <span className="mt-1.5 inline-block rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[10px] text-yellow-200/80">
                         Fuera de la zona cercana
                       </span>
+                      <p className="mt-1 text-[10px] text-orbi-muted/60">
+                        La ruta y el costo se calcularán cuando indiques el destino.
+                      </p>
                     </div>
                     <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
                       {already ? "✓ Agregado" : `$${result.price}`}
@@ -3353,8 +3353,8 @@ function CatalogSuggestions({
                   <p className="mt-1 text-xs font-semibold text-orbi-cyan">
                     {result.category} · {result.sector}
                   </p>
-                  <p className="mt-1 text-xs text-orbi-muted/70">
-                    A aprox. {formatDistanceKm(result.distanceKm)} de la zona de búsqueda
+                  <p className="mt-1 text-[10px] text-orbi-muted/60">
+                    Disponible cerca de la zona seleccionada
                   </p>
                   <p className="mt-1.5 text-sm leading-6 text-orbi-muted">{result.description}</p>
                 </div>
