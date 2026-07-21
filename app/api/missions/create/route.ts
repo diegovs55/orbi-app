@@ -44,6 +44,7 @@ import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
 import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams } from "@/lib/pricing/server";
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
+import { getRouteDistanceKm, RoutingError } from "@/lib/routing/server";
 
 const CATALOG_SERVICE_TYPE = "Compra local";
 
@@ -357,9 +358,38 @@ export async function POST(req: NextRequest) {
     bLat = bizLat;
     bLng = bizLng;
 
-    // S2 (G1): Haversine negocio→destino reemplaza la distancia del cliente
+    // S2 (G1.1): Distancia vial autoritativa negocio→destino — misma fuente que /api/pricing/quote
     if (dLat != null && dLng != null) {
-      pricingDistanceKm = haversineKmServer(bLat, bLng, dLat, dLng);
+      try {
+        const routeResult = await getRouteDistanceKm(bLat, bLng, dLat, dLng);
+        pricingDistanceKm = routeResult.distance_km;
+      } catch (err) {
+        const code = err instanceof RoutingError ? err.code : "ROUTING_UNAVAILABLE";
+        const osrmO = err instanceof RoutingError ? err.osrmOutcome : "provider_error";
+        const orsO  = err instanceof RoutingError ? err.orsOutcome  : "provider_error";
+        await logEvent({
+          event_type:   "api.create.error_routing",
+          severity:     "warn",
+          source:       "api_route",
+          entity_type:  "mission",
+          entity_id:    id as string,
+          actor_type:   "system",
+          payload:      { reason: code, osrm: osrmO, ors: orsO },
+          http_status:  code === "NO_ROUTE" ? 422 : 503,
+          duration_ms:  Date.now() - startedAt,
+          request_id:   requestId,
+        });
+        if (err instanceof RoutingError && err.code === "NO_ROUTE") {
+          return NextResponse.json(
+            { error: "No existe ruta vial entre el negocio y el destino indicado.", code: "NO_ROUTE" },
+            { status: 422 }
+          );
+        }
+        return NextResponse.json(
+          { error: "No se pudo calcular la ruta. Intenta de nuevo en unos momentos.", code: "ROUTING_UNAVAILABLE" },
+          { status: 503 }
+        );
+      }
     }
 
     // Motor de pricing autoritativo — una sola fuente de verdad para el split
@@ -379,7 +409,7 @@ export async function POST(req: NextRequest) {
         request_id:   requestId,
       });
       return NextResponse.json(
-        { error: "Distancia fuera de cobertura o no calculable." },
+        { error: "Distancia fuera de cobertura o no calculable.", code: "OUT_OF_RANGE", distance_km: pricingDistanceKm },
         { status: 422 }
       );
     }
@@ -516,8 +546,11 @@ export async function POST(req: NextRequest) {
     pricing_rule:        PRICING_RULE,
     motor_params_version: motorParamsVersionForRow,
 
-    // Metadata de ruta (display — no afectan precios)
-    distance_km:         typeof clientDistanceKm === "number" ? clientDistanceKm : null,
+    // Para misiones de catálogo: distancia vial autoritativa (pricingDistanceKm).
+    // Para misiones directas: hint del cliente (display).
+    distance_km:         isCatalog
+                           ? (typeof pricingDistanceKm === "number" ? pricingDistanceKm : null)
+                           : (typeof clientDistanceKm === "number" ? clientDistanceKm : null),
     duration_min:        typeof duration_min === "number" ? duration_min : null,
     route_geometry:      Array.isArray(route_geometry) ? route_geometry : null,
 

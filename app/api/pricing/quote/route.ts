@@ -3,8 +3,8 @@
  *
  * Para misiones de catálogo (is_catalog === true) — rama autoritativa G1:
  *   Resuelve coords del negocio desde DB (nunca confía en el GPS del cliente),
- *   computa Haversine negocio→destino, consulta precios autoritativos y devuelve
- *   {service_fee, total_amount, products_subtotal, pricing_distance_km}.
+ *   computa distancia vial negocio→destino, consulta precios autoritativos y devuelve
+ *   {service_fee, total_amount, products_subtotal, pricing_distance_km, distance_method}.
  *
  * Para misiones directas (is_catalog !== true):
  *   Rama existente sin cambios — delega a computeQuote.
@@ -13,9 +13,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { computeQuote, haversineKmServer } from "@/lib/pricing/server";
+import { computeQuote } from "@/lib/pricing/server";
 import { calcularMisionCatalogo } from "@/lib/pricing";
 import { getAdmin } from "@/lib/supabase-admin";
+import { getRouteDistanceKm, RoutingError } from "@/lib/routing/server";
 
 const CATALOG_SERVICE_TYPE = "Compra local";
 const CATALOG_MAX_QUANTITY = 99;
@@ -165,17 +166,38 @@ export async function POST(req: NextRequest) {
       }, 0) * 100
     ) / 100;
 
-    // S3: Haversine negocio→destino (el GPS del solicitante no interviene)
-    const pricingDistanceKm = haversineKmServer(bLat, bLng, dLat, dLng);
+    // S3: Distancia vial autoritativa negocio→destino (el GPS del solicitante no interviene)
+    let pricingDistanceKm: number;
+    try {
+      const routeResult = await getRouteDistanceKm(bLat, bLng, dLat, dLng);
+      pricingDistanceKm = routeResult.distance_km;
+    } catch (err) {
+      if (err instanceof RoutingError) {
+        if (err.code === "NO_ROUTE") {
+          return NextResponse.json(
+            { error: "No existe ruta vial entre el negocio y el destino indicado.", code: "NO_ROUTE" },
+            { status: 422 }
+          );
+        }
+        return NextResponse.json(
+          { error: "No se pudo calcular la ruta. Intenta de nuevo en unos momentos.", code: "ROUTING_UNAVAILABLE" },
+          { status: 503 }
+        );
+      }
+      return NextResponse.json({ error: "Error interno al calcular la ruta." }, { status: 500 });
+    }
 
-    // S4: Motor de catálogo
+    // S4: Motor de catálogo — distancia vial aplica cobertura y bracket tarifario
     const catalogResult = calcularMisionCatalogo(
       pricingDistanceKm,
       productsSubtotal,
       CATALOG_SERVICE_TYPE
     );
     if (catalogResult.outOfRange) {
-      return NextResponse.json({ error: "Distancia fuera de cobertura." }, { status: 422 });
+      return NextResponse.json(
+        { error: "Distancia fuera de cobertura.", code: "OUT_OF_RANGE", distance_km: pricingDistanceKm },
+        { status: 422 }
+      );
     }
 
     return NextResponse.json({
@@ -183,6 +205,7 @@ export async function POST(req: NextRequest) {
       total_amount:        catalogResult.totalCliente,
       products_subtotal:   productsSubtotal,
       pricing_distance_km: pricingDistanceKm,
+      distance_method:     "road",
     });
   }
 
