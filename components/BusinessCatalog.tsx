@@ -178,8 +178,8 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
       setProducts((prev) => prev.map((x) =>
         x.id === p.id ? { ...x, status: "descontinuado" as CatalogProductStatus, available: false } : x
       ));
-    } catch {
-      // silent – keep UI unchanged
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo descontinuar el producto. Intenta de nuevo.");
     }
   }
 
@@ -193,8 +193,8 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
       setProducts((prev) => prev.map((x) =>
         x.id === p.id ? { ...x, status: "pausado" as CatalogProductStatus, available: false } : x
       ));
-    } catch {
-      // silent – keep UI unchanged
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo restaurar el producto. Intenta de nuevo.");
     }
   }
 

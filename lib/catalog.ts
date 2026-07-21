@@ -1,5 +1,13 @@
 import { supabase } from "@/lib/supabase";
+import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { assertAuthenticated } from "@/lib/auth";
+
+async function assertBusinessAuthenticated(): Promise<void> {
+  const { data, error } = await supabaseBusiness.auth.getUser();
+  if (error || !data.user?.id) {
+    throw new Error("Sesión de negocio no válida. Inicia sesión para continuar.");
+  }
+}
 
 const businessSelectWithLocation =
   "id,name,category,description,zone,address,phone,lat,lng,status,rating,opening_time,closing_time,created_at,updated_at";
@@ -312,25 +320,33 @@ export async function deleteCatalogProduct(id: string) {
 }
 
 export async function discontinueCatalogProduct(id: string): Promise<void> {
-  await assertAuthenticated();
-  if (!supabase) throw new Error("Supabase no disponible.");
-  const { error } = await supabase
+  await assertBusinessAuthenticated();
+  const { data, error } = await supabaseBusiness
     .from("products")
-    .update({ available: false, status: "descontinuado" })
-    .eq("id", id);
+    .update({ available: false, status: "descontinuado", updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id, business_id, status, available, updated_at")
+    .single();
   if (error) throw new Error(error.message);
+  if (!data || data.status !== "descontinuado" || data.available !== false) {
+    throw new Error("El producto no fue actualizado. Verifica que tengas permisos sobre este producto.");
+  }
 }
 
 export async function restoreCatalogProduct(id: string): Promise<void> {
-  await assertAuthenticated();
-  if (!supabase) throw new Error("Supabase no disponible.");
+  await assertBusinessAuthenticated();
   // Restaura a 'pausado', nunca a 'disponible' directamente.
   // El negocio debe activarlo manualmente después de revisarlo.
-  const { error } = await supabase
+  const { data, error } = await supabaseBusiness
     .from("products")
-    .update({ available: false, status: "pausado" })
-    .eq("id", id);
+    .update({ available: false, status: "pausado", updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id, business_id, status, available, updated_at")
+    .single();
   if (error) throw new Error(error.message);
+  if (!data || data.status !== "pausado") {
+    throw new Error("El producto no fue restaurado. Verifica que tengas permisos sobre este producto.");
+  }
 }
 
 export function searchCatalog(items: CatalogProduct[], query: string) {
