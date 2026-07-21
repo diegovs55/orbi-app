@@ -163,8 +163,8 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
     try {
       await upsertBusinessProduct(updated);
       setProducts((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
-    } catch {
-      // silent – keep UI unchanged
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo actualizar el producto. Intenta de nuevo.");
     }
   }
 

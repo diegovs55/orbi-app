@@ -689,24 +689,36 @@ export async function getBusinessOwnProducts(
 }
 
 export async function upsertBusinessProduct(product: CatalogProduct): Promise<string> {
-  if (!supabase) throw new Error("Supabase no disponible.");
-  const payload = buildProductPayload(product);
+  await assertBusinessAuthenticated();
+  const payload = {
+    ...buildProductPayload(product),
+    updated_at: new Date().toISOString(),
+  };
   const isNew = !product.id || product.id.startsWith("prod_");
+
   if (isNew) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseBusiness
       .from("products")
       .insert(payload)
-      .select("id")
+      .select("id, business_id, status, available, updated_at")
       .single();
     if (error) throw new Error(error.message);
     if (!data?.id) throw new Error("No se recibió el ID del producto.");
     return data.id as string;
   }
-  const { error } = await supabase
+
+  const { data, error } = await supabaseBusiness
     .from("products")
     .update(payload)
-    .eq("id", product.id);
+    .eq("id", product.id)
+    .select("id, business_id, status, available, updated_at")
+    .single();
   if (error) throw new Error(error.message);
-  return product.id;
+  if (!data) throw new Error("El producto no fue actualizado. Verifica que tengas permisos.");
+  const expectedAvailable = product.status === "disponible";
+  if (data.status !== product.status || data.available !== expectedAvailable) {
+    throw new Error("La actualización no se aplicó correctamente. Intenta de nuevo.");
+  }
+  return data.id as string;
 }
 
