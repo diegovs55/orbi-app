@@ -33,7 +33,7 @@ import {
 import { supabase, subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
-import { CatalogProduct, CatalogSearchResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
+import { CatalogProduct, CatalogSearchResult, CatalogSearchSplit, CatalogTerritorialResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
 import {
   getCurrentCustomerSession,
   loginCustomerWithSupabase,
@@ -63,6 +63,12 @@ import {
   type OrderDraft,
 } from "@/lib/order-draft";
 import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
+import {
+  type OrbitCenter,
+  resolveOrbitFromGps,
+  resolveOrbitFromGpsExplicit,
+  getEnvDefaultOrbit,
+} from "@/lib/orbit";
 
 const LocationPickerMap = dynamic(
   async () => {
@@ -278,6 +284,24 @@ export function ServiceRequestFlow() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quoteRetryKey, setQuoteRetryKey] = useState(0);
+
+  // G2 — Centro de búsqueda (órbita). Separado de: GPS del solicitante,
+  // origen operativo del negocio y destino de cumplimiento.
+  // No se envía a ningún endpoint. No se persiste en DB.
+  const [orbitCenter, setOrbitCenter] = useState<OrbitCenter | null>(null);
+  const [orbitLoading, setOrbitLoading] = useState(true);
+  const [orbitGpsLoading, setOrbitGpsLoading] = useState(false);
+  const [showOrbitPicker, setShowOrbitPicker] = useState(false);
+  // B4: false = mostrar solo radio ordinario; true = mostrar también candidatos ampliados.
+  // Se reinicia a false al cambiar órbita o query. Abrir/cerrar picker sin elegir no lo altera.
+  const [catalogSearchExpanded, setCatalogSearchExpanded] = useState(false);
+
+  // B5: cambio de órbita con carrito no vacío.
+  // pendingOrbitCenter: zona elegida que aún no se aplicó (espera confirmación del usuario).
+  // showOrbitChangeConfirmation: controla el diálogo de confirmación.
+  // La nueva órbita nunca reemplaza a orbitCenter hasta que el usuario acepte.
+  const [pendingOrbitCenter, setPendingOrbitCenter] = useState<OrbitCenter | null>(null);
+  const [showOrbitChangeConfirmation, setShowOrbitChangeConfirmation] = useState(false);
 
   const router = useRouter();
   const [isSending, setIsSending] = useState(false);
@@ -615,6 +639,152 @@ export function ServiceRequestFlow() {
     return () => { cancelled = true; };
   }, []);
 
+  // G2 — Resolución inicial de la órbita de búsqueda.
+  //
+  // Política por resultado de resolveOrbitFromGps():
+  //   "resolved"     → setOrbitCenter con coords validadas, source "gps_suggested"
+  //   "prompt"       → null (Permissions API presente; NO se disparó diálogo)
+  //   "unsupported"  → null (sin Permissions API — Safari/iOS — NO se disparó getCurrentPosition)
+  //   "denied"       → null (permiso denegado)
+  //   "unavailable"  → null (sin API de geolocalización)
+  //   "timeout"      → null
+  //   "error"        → null
+  //
+  //   En desarrollo (NODE_ENV !== "production"): si orbitCenter quedaría null y
+  //   hay env_default válida, se usa con source "env_default".
+  //
+  // Garantías:
+  //   - orbitLoading llega a false en TODAS las rutas (bloque finally).
+  //   - setOrbitCenter / setOrbitLoading nunca se llaman después del desmontaje
+  //     (flag `cancelled` verificado antes de cualquier setState).
+  //   - orbitCenter es independiente de details.originLat/Lng, _lastKnownCustomerPos
+  //     y destinationCoordinatePair.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveOrbit() {
+      try {
+        const result = await resolveOrbitFromGps();
+
+        if (cancelled) return;
+
+        if (result.status === "resolved") {
+          setOrbitCenter(result.center);
+          return;
+        }
+
+        // Todos los demás estados: no se pudo determinar la órbita automáticamente.
+        // En desarrollo, intentar env_default antes de quedar null.
+        if (process.env.NODE_ENV !== "production") {
+          const envOrbit = getEnvDefaultOrbit();
+          if (envOrbit) {
+            setOrbitCenter(envOrbit);
+            return;
+          }
+        }
+
+        // En producción (o sin env_default): orbitCenter queda null.
+        // El Bloque 2 mostrará OrbitUnresolvedBanner con "Usar mi ubicación" / "Elegir zona".
+        setOrbitCenter(null);
+      } finally {
+        // Garantiza que orbitLoading llega a false en todas las salidas:
+        // resolved, prompt, unsupported, denied, unavailable, timeout, error, excepción inesperada.
+        // Solo si el componente sigue montado.
+        if (!cancelled) {
+          setOrbitLoading(false);
+        }
+      }
+    }
+
+    void resolveOrbit();
+
+    // Cleanup: marca cancelled para que ningún setState posterior al desmontaje se ejecute.
+    return () => { cancelled = true; };
+  }, []);
+
+  // G2 — Solicitar GPS explícitamente (gesto del usuario: "Usar mi ubicación").
+  // Esta función SÍ puede disparar el diálogo del sistema porque viene de un clic.
+  async function handleRequestOrbitFromGps() {
+    setOrbitGpsLoading(true);
+    try {
+      const result = await resolveOrbitFromGpsExplicit();
+      if (result.status === "resolved") {
+        setShowOrbitPicker(false);
+        applyOrbitChange(result.center);
+      }
+      // denied / timeout / error: la UI permanece con el picker visible para ruta manual.
+    } finally {
+      setOrbitGpsLoading(false);
+    }
+  }
+
+  // G2 — Establecer órbita manualmente (desde el picker de zona).
+  function handleSetOrbit(center: OrbitCenter) {
+    setShowOrbitPicker(false);
+    applyOrbitChange(center);
+  }
+
+  // B5 — Tolerancia para considerar dos órbitas "iguales" (geocoding de la misma zona puede
+  // devolver coords ligeramente distintas). 0.0002° ≈ 22 m — suficiente para absorber ruido
+  // de autocompletado sin enmascarar cambios reales entre municipios.
+  const ORBIT_SAME_DEG = 0.0002;
+  function isSameOrbit(a: OrbitCenter, b: OrbitCenter): boolean {
+    return (
+      Math.abs(a.lat - b.lat) <= ORBIT_SAME_DEG &&
+      Math.abs(a.lng - b.lng) <= ORBIT_SAME_DEG
+    );
+  }
+
+  // B5 — Punto de decisión: ¿la nueva órbita aplica inmediatamente o pide confirmación?
+  // Regla: si el carrito está vacío o la órbita no cambia → inmediato.
+  //        si hay productos en el carrito y la órbita sí cambia → diálogo.
+  function applyOrbitChange(center: OrbitCenter) {
+    // Misma órbita dentro de la tolerancia → solo cierra el picker, no toca el carrito.
+    if (orbitCenter && isSameOrbit(orbitCenter, center)) return;
+
+    if (cartItems.length === 0) {
+      setOrbitCenter(center);
+      setCatalogSearchExpanded(false);
+      return;
+    }
+
+    // Carrito no vacío: guardar la zona pendiente y mostrar diálogo.
+    setPendingOrbitCenter(center);
+    setShowOrbitChangeConfirmation(true);
+  }
+
+  // B5 — Usuario cancela el cambio de órbita: todo permanece intacto.
+  function handleOrbitChangeCancel() {
+    setPendingOrbitCenter(null);
+    setShowOrbitChangeConfirmation(false);
+  }
+
+  // B5 — Usuario acepta el cambio de órbita: vacía carrito y aplica la nueva órbita.
+  function handleOrbitChangeConfirm() {
+    if (!pendingOrbitCenter) return;
+
+    // Limpiar productos y estado derivado del negocio/producto anterior.
+    setCartItems([]);
+    setCartMessage("");
+    setCatalogQuote(null);
+    setQuoteError(null);
+    setDetails((d) => ({
+      ...d,
+      origin: "",
+      originLat: null,
+      originLng: null,
+      detail: "",
+    }));
+
+    // Aplicar nueva órbita y reiniciar ampliación.
+    // searchQuery y selectedService se conservan (no se tocan aquí).
+    setOrbitCenter(pendingOrbitCenter);
+    setCatalogSearchExpanded(false);
+
+    setPendingOrbitCenter(null);
+    setShowOrbitChangeConfirmation(false);
+  }
+
   // Eager draftId — generated the moment the user picks a service, without
   // waiting for the 800 ms auto-save debounce. Reuses any UUID already in
   // localStorage so reload/remount/two-tabs all share the same idempotency key.
@@ -790,10 +960,13 @@ export function ServiceRequestFlow() {
     ).length;
   }, [agents, selectedService]);
 
-  const catalogResults = useMemo(() => searchCatalog(catalogItems, searchQuery), [
-    catalogItems,
-    searchQuery
-  ]);
+  // G2 B4: searchCatalog retorna CatalogSearchSplit (ordinario + ampliable).
+  // Sin orbitCenter → ambas listas vacías. Cambiar orbitCenter o searchQuery recalcula.
+  // El GPS físico del solicitante no afecta este cálculo.
+  const { ordinaryResults, expandedCandidates } = useMemo<CatalogSearchSplit>(
+    () => searchCatalog(catalogItems, searchQuery, orbitCenter),
+    [catalogItems, searchQuery, orbitCenter],
+  );
   const cartSubtotal = useMemo(() => getCartSubtotal(cartItems), [cartItems]);
   const cartBusiness = cartItems[0]?.product ?? null;
   const isCatalogMission = cartItems.length > 0;
@@ -1889,6 +2062,37 @@ export function ServiceRequestFlow() {
 
   return (
     <div className="space-y-5">
+      {/* B5 — Diálogo de confirmación de cambio de órbita con carrito no vacío */}
+      {showOrbitChangeConfirmation ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-xl border border-white/10 bg-orbi-panel p-6 shadow-2xl">
+            <p className="text-base font-bold text-orbi-text">
+              ¿Cambiar la zona de búsqueda?
+            </p>
+            <p className="mt-2 text-sm text-orbi-muted">
+              Tienes productos en tu solicitud actual.
+              Cambiar la zona donde buscamos negocios vaciará esos productos.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={handleOrbitChangeCancel}
+                className="flex-1 rounded-lg border border-white/15 px-4 py-2.5 text-sm font-semibold text-orbi-muted transition hover:border-white/30 hover:text-orbi-text"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleOrbitChangeConfirm}
+                className="flex-1 rounded-lg bg-orbi-cyan px-4 py-2.5 text-sm font-semibold text-orbi-black transition hover:brightness-110"
+              >
+                Cambiar zona
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <StepHeader
         selectedService={selectedService}
         details={details}
@@ -1938,11 +2142,38 @@ export function ServiceRequestFlow() {
       {!networkReconcileError && !isReconcilingMission && !selectedService ? (
         <>
           <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
-            <div className="flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
+            {/* G2 — Zona de búsqueda */}
+            {orbitLoading ? (
+              <p className="mb-3 text-xs text-orbi-muted">Detectando tu zona…</p>
+            ) : orbitCenter ? (
+              <OrbitChip
+                center={orbitCenter}
+                onChangeClick={() => setShowOrbitPicker(true)}
+              />
+            ) : (
+              <OrbitUnresolvedBanner
+                gpsLoading={orbitGpsLoading}
+                showPicker={showOrbitPicker}
+                onRequestGps={handleRequestOrbitFromGps}
+                onShowPicker={() => setShowOrbitPicker(true)}
+                onSetOrbit={handleSetOrbit}
+                onCancelPicker={() => setShowOrbitPicker(false)}
+              />
+            )}
+            {orbitCenter && showOrbitPicker ? (
+              <OrbitZonePicker
+                onSetOrbit={handleSetOrbit}
+                onCancel={() => setShowOrbitPicker(false)}
+              />
+            ) : null}
+            <div className="mt-3 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
               <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
               <input
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  setCatalogSearchExpanded(false);
+                }}
                 placeholder="Dime qué necesitas..."
                 className="min-w-0 flex-1 bg-transparent py-4 text-base font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
               />
@@ -1952,15 +2183,23 @@ export function ServiceRequestFlow() {
                 {catalogError}
               </p>
             ) : null}
-            {searchQuery.trim() ? (
+            {/* G2 B4: sin órbita no mostramos catálogo; con órbita aplicamos filtro territorial */}
+            {searchQuery.trim() && orbitCenter ? (
               <CatalogSuggestions
                 query={searchQuery}
-                results={catalogResults}
+                ordinaryResults={ordinaryResults}
+                expandedCandidates={expandedCandidates}
+                isExpanded={catalogSearchExpanded}
+                onExpand={() => setCatalogSearchExpanded(true)}
                 cartItems={cartItems}
                 message={cartMessage}
                 onSelectProduct={handleSelectProduct}
                 onSelectCustomMission={handleSelectCustomMission}
               />
+            ) : searchQuery.trim() && !orbitCenter ? (
+              <p className="mt-3 text-sm text-orbi-muted">
+                Elige una zona de búsqueda para ver opciones.
+              </p>
             ) : null}
           </section>
 
@@ -1996,25 +2235,49 @@ export function ServiceRequestFlow() {
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
             Agregar otro producto o servicio
           </p>
+          {/* G2 — chip de zona también en la sección de agregar producto */}
+          {orbitCenter ? (
+            <OrbitChip
+              center={orbitCenter}
+              onChangeClick={() => setShowOrbitPicker(true)}
+            />
+          ) : null}
+          {orbitCenter && showOrbitPicker ? (
+            <OrbitZonePicker
+              onSetOrbit={handleSetOrbit}
+              onCancel={() => setShowOrbitPicker(false)}
+            />
+          ) : null}
           <div className="mt-4 flex min-h-12 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4">
             <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
             <input
               ref={searchInputRef}
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setCatalogSearchExpanded(false);
+              }}
               placeholder="Buscar otro producto, servicio o trámite..."
               className="min-w-0 flex-1 bg-transparent py-3 text-sm font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
             />
           </div>
-          {searchQuery.trim() ? (
+          {/* G2 B4: resultados solo con órbita activa */}
+          {searchQuery.trim() && orbitCenter ? (
             <CatalogSuggestions
               query={searchQuery}
-              results={catalogResults}
+              ordinaryResults={ordinaryResults}
+              expandedCandidates={expandedCandidates}
+              isExpanded={catalogSearchExpanded}
+              onExpand={() => setCatalogSearchExpanded(true)}
               cartItems={cartItems}
               message={cartMessage}
               onSelectProduct={handleSelectProduct}
               onSelectCustomMission={handleSelectCustomMission}
             />
+          ) : searchQuery.trim() && !orbitCenter ? (
+            <p className="mt-3 text-sm text-orbi-muted">
+              Elige una zona de búsqueda para ver opciones.
+            </p>
           ) : null}
         </section>
       ) : null}
@@ -2887,16 +3150,27 @@ function detectIntention(query: string): DetectedIntention {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function formatDistanceKm(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1)} km`;
+}
+
 function CatalogSuggestions({
   query,
-  results,
+  ordinaryResults,
+  expandedCandidates,
+  isExpanded,
+  onExpand,
   cartItems,
   message,
   onSelectProduct,
-  onSelectCustomMission
+  onSelectCustomMission,
 }: {
   query: string;
-  results: CatalogSearchResult[];
+  ordinaryResults: CatalogTerritorialResult[];
+  expandedCandidates: CatalogTerritorialResult[];
+  isExpanded: boolean;
+  onExpand: () => void;
   cartItems: CartItem[];
   message: string;
   onSelectProduct: (product: CatalogSearchResult) => void;
@@ -2914,10 +3188,10 @@ function CatalogSuggestions({
   const intentionContext = {
     intencionOrbi:      intention.serviceLabel,
     propuestaMostrada:  intention.proposal,
-    resultadosCatalogo: results.length,
+    resultadosCatalogo: ordinaryResults.length,
   };
 
-  if (!results.length || isNonCatalogService) {
+  if (isNonCatalogService) {
     return (
       <div className="mt-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-5">
         <p className="text-base font-black text-orbi-text">{intention.proposal}</p>
@@ -2942,7 +3216,105 @@ function CatalogSuggestions({
     );
   }
 
-  const firstResult = results[0];
+  // B4 — sin resultados ordinarios
+  if (ordinaryResults.length === 0) {
+    if (expandedCandidates.length > 0 && !isExpanded) {
+      // CTA de ampliación explícita
+      return (
+        <div className="mt-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-5">
+          <p className="text-base font-black text-orbi-text">
+            No encontramos opciones cercanas dentro de esta zona.
+          </p>
+          <p className="mt-1 text-sm text-orbi-muted">
+            Hay alternativas a mayor distancia.
+          </p>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={onExpand}
+              className="inline-flex min-h-10 items-center rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
+            >
+              Buscar en zona más amplia
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (expandedCandidates.length > 0 && isExpanded) {
+      // Mostrar candidatos ampliados
+      const firstExpanded = expandedCandidates[0];
+      return (
+        <div className="mt-4 space-y-3">
+          {message ? (
+            <p className="rounded-md border border-yellow-300/15 bg-yellow-300/10 p-3 text-sm font-semibold text-yellow-100">
+              {message}
+            </p>
+          ) : null}
+          <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-orbi-cyan">
+              Categoría: Compra local
+            </p>
+            <p className="mt-1 text-sm font-semibold text-orbi-muted">
+              Sector: {firstExpanded.sector} · Buscando &ldquo;{query}&rdquo;
+            </p>
+          </div>
+          <div className="grid gap-2">
+            {expandedCandidates.slice(0, 6).map((result) => {
+              const already = cartItems.some((item) => item.product.id === result.id);
+              return (
+                <button
+                  key={result.id}
+                  type="button"
+                  onClick={already ? undefined : () => onSelectProduct(result)}
+                  disabled={already}
+                  aria-disabled={already}
+                  className={`rounded-md border border-white/10 bg-white/[0.04] p-4 text-left transition ${
+                    already ? "opacity-60 cursor-not-allowed" : "hover:border-orbi-cyan/35 hover:bg-orbi-blue/[0.08]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black text-orbi-text">
+                        {result.name} · {result.businessName}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-orbi-cyan">
+                        {result.category} · {result.sector}
+                      </p>
+                      <p className="mt-1 text-xs text-orbi-muted/70">
+                        A aprox. {formatDistanceKm(result.distanceKm)} de la zona de búsqueda
+                      </p>
+                      <span className="mt-1.5 inline-block rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[10px] text-yellow-200/80">
+                        Fuera de la zona cercana
+                      </span>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
+                      {already ? "✓ Agregado" : `$${result.price}`}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // Vacío real — sin candidatos en ningún radio hasta radioAmpliadoMvp
+    return (
+      <div className="mt-4 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-5">
+        <p className="text-base font-black text-orbi-text">
+          No encontramos opciones para esta búsqueda en la zona seleccionada.
+        </p>
+        <p className="mt-1 text-sm text-orbi-muted">
+          Prueba con otro texto o cambia la zona de búsqueda.
+        </p>
+      </div>
+    );
+  }
+
+  // Resultados ordinarios — no mezclar con candidatos ampliados (spec B4 §7)
+  const firstResult = ordinaryResults[0];
 
   return (
     <div className="mt-4 space-y-3">
@@ -2956,11 +3328,11 @@ function CatalogSuggestions({
           Categoría: Compra local
         </p>
         <p className="mt-1 text-sm font-semibold text-orbi-muted">
-          Sector: {firstResult.sector} · Buscando “{query}”
+          Sector: {firstResult.sector} · Buscando &ldquo;{query}&rdquo;
         </p>
       </div>
       <div className="grid gap-2">
-        {results.slice(0, 6).map((result) => {
+        {ordinaryResults.slice(0, 6).map((result) => {
           const already = cartItems.some((item) => item.product.id === result.id);
           return (
             <button
@@ -2973,20 +3345,23 @@ function CatalogSuggestions({
                 already ? "opacity-60 cursor-not-allowed" : "hover:border-orbi-cyan/35 hover:bg-orbi-blue/[0.08]"
               }`}
             >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-black text-orbi-text">
-                  {result.name} · {result.businessName}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-orbi-cyan">
-                  {result.category} · {result.sector}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-orbi-muted">{result.description}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-orbi-text">
+                    {result.name} · {result.businessName}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-orbi-cyan">
+                    {result.category} · {result.sector}
+                  </p>
+                  <p className="mt-1 text-xs text-orbi-muted/70">
+                    A aprox. {formatDistanceKm(result.distanceKm)} de la zona de búsqueda
+                  </p>
+                  <p className="mt-1.5 text-sm leading-6 text-orbi-muted">{result.description}</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
+                  {already ? "✓ Agregado" : `$${result.price}`}
+                </span>
               </div>
-              <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
-                {already ? "✓ Agregado" : `$${result.price}`}
-              </span>
-            </div>
             </button>
           );
         })}
@@ -4685,4 +5060,197 @@ function calculateDistanceKm(latA: number, lngA: number, latB: number, lngB: num
 
 function degreesToRadians(degrees: number) {
   return degrees * (Math.PI / 180);
+}
+
+// ─── G2 — Componentes de órbita ───────────────────────────────────────────────
+
+/**
+ * Chip compacto que muestra la zona de búsqueda activa.
+ * Texto: "Buscando cerca de [label]" — habla de zona de búsqueda, no de entrega.
+ * El aviso "env_default" se muestra cuando la fuente es "env_default".
+ */
+function OrbitChip({
+  center,
+  onChangeClick,
+}: {
+  center: OrbitCenter;
+  onChangeClick: () => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1.5 rounded-full border border-orbi-cyan/30 bg-orbi-cyan/10 px-3 py-1 text-xs font-semibold text-orbi-cyan">
+        <Radar aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span>Buscando cerca de {center.label}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onChangeClick}
+        className="text-xs text-orbi-muted underline underline-offset-2 hover:text-orbi-text"
+      >
+        Cambiar
+      </button>
+      {center.source === "env_default" && (
+        <span className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[10px] text-yellow-200/70">
+          Zona predeterminada — no es tu ubicación detectada
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Banner que aparece cuando orbitCenter === null.
+ * Ofrece dos rutas: GPS explícito y selector manual.
+ * Nunca dispara el diálogo automáticamente.
+ */
+function OrbitUnresolvedBanner({
+  gpsLoading,
+  showPicker,
+  onRequestGps,
+  onShowPicker,
+  onSetOrbit,
+  onCancelPicker,
+}: {
+  gpsLoading: boolean;
+  showPicker: boolean;
+  onRequestGps: () => void;
+  onShowPicker: () => void;
+  onSetOrbit: (center: OrbitCenter) => void;
+  onCancelPicker: () => void;
+}) {
+  return (
+    <div className="mb-3 space-y-2 rounded-md border border-orbi-cyan/20 bg-orbi-cyan/5 p-3">
+      <p className="text-sm font-semibold text-orbi-text">¿Desde dónde buscas?</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={gpsLoading}
+          onClick={onRequestGps}
+          className="inline-flex items-center gap-1.5 rounded-full border border-orbi-cyan/30 bg-orbi-cyan/10 px-3 py-1.5 text-xs font-semibold text-orbi-cyan transition hover:bg-orbi-cyan/20 disabled:opacity-50"
+        >
+          <LocateFixed aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          {gpsLoading ? "Obteniendo ubicación…" : "Usar mi ubicación"}
+        </button>
+        <button
+          type="button"
+          onClick={onShowPicker}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-orbi-text transition hover:bg-white/[0.10]"
+        >
+          <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-orbi-muted" />
+          Elegir zona
+        </button>
+      </div>
+      {showPicker ? (
+        <OrbitZonePicker onSetOrbit={onSetOrbit} onCancel={onCancelPicker} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Selector manual de zona: campo de texto + autocompletado via /api/geocoding/search.
+ * Reutiliza el mismo endpoint que OriginPickerField.
+ * Elección de sugerencia → OrbitCenter con source "manual".
+ */
+function OrbitZonePicker({
+  onSetOrbit,
+  onCancel,
+}: {
+  onSetOrbit: (center: OrbitCenter) => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [noResults, setNoResults] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleChange(value: string) {
+    setQuery(value);
+    setNoResults(false);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    const trimmed = value.trim();
+    if (trimmed.length < 2) {
+      setSuggestions([]);
+      setSearching(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setSearching(true);
+      try {
+        const url = new URL("/api/geocoding/search", window.location.origin);
+        url.searchParams.set("q", trimmed);
+        url.searchParams.set("limit", "5");
+        const res = await fetch(url.toString(), { signal: controller.signal });
+        if (!res.ok) { setSuggestions([]); return; }
+        const data = (await res.json()) as { results: SearchSuggestion[]; status?: string };
+        if (!data.results?.length) { setNoResults(true); setSuggestions([]); }
+        else { setSuggestions(data.results); setNoResults(false); }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setSuggestions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
+  function handleSelect(s: SearchSuggestion) {
+    onSetOrbit({
+      lat: s.lat,
+      lng: s.lon,
+      label: s.displayName,
+      source: "manual",
+    });
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-3 py-2">
+        <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-orbi-cyan/60" />
+        <input
+          autoFocus
+          type="text"
+          value={query}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder="Escribe una zona, colonia o ciudad…"
+          className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
+        />
+        {searching ? (
+          <RefreshCw aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-orbi-muted" />
+        ) : null}
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-orbi-muted hover:text-orbi-text"
+          aria-label="Cancelar selección de zona"
+        >
+          ✕
+        </button>
+      </div>
+      {suggestions.length > 0 ? (
+        <ul className="rounded-md border border-white/10 bg-orbi-panel/90 shadow-lg">
+          {suggestions.map((s) => (
+            <li key={`${s.lat},${s.lon}`}>
+              <button
+                type="button"
+                onClick={() => handleSelect(s)}
+                className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-orbi-cyan/10"
+              >
+                <MapPin aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orbi-muted" />
+                <span className="text-orbi-text">{s.displayName}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : noResults && query.trim().length >= 2 ? (
+        <p className="px-1 text-xs text-orbi-muted">No encontramos esa zona. Intenta con otra búsqueda.</p>
+      ) : null}
+    </div>
+  );
 }

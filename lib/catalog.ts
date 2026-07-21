@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { assertAuthenticated } from "@/lib/auth";
+import type { OrbitCenter } from "@/lib/orbit";
+import { DISCOVERY, haversineKm, getOrdinaryRadiusKm } from "@/lib/discovery";
 
 async function assertBusinessAuthenticated(): Promise<void> {
   const { data, error } = await supabaseBusiness.auth.getUser();
@@ -96,6 +98,26 @@ export type CatalogProduct = {
 
 export type CatalogSearchResult = CatalogProduct & {
   serviceType: "Compra local";
+};
+
+// G2 — Resultado territorial: extiende CatalogSearchResult con datos geográficos.
+// distanceKm: Haversine(negocio → orbitCenter) — distancia en línea recta, no vial.
+// Usado únicamente para prefiltro y ordenamiento de descubrimiento.
+// El precio sigue calculándose Haversine(negocio → destino) en /api/pricing/quote.
+// Ver DEU-G2-ROAD-DISTANCE para la evolución a distancia vial.
+export type CatalogTerritorialResult = CatalogSearchResult & {
+  distanceKm: number;
+  ordinaryRadiusKm: number;
+  isWithinOrdinaryRadius: boolean;
+};
+
+// G2 B4 — Resultado dividido por radio.
+// ordinaryResults:    distanceKm <= ordinaryRadiusKm
+// expandedCandidates: distanceKm > ordinaryRadiusKm && <= DISCOVERY.radioAmpliadoMvp
+// La ampliación nunca se activa sola; la UI requiere acción explícita del usuario.
+export type CatalogSearchSplit = {
+  ordinaryResults: CatalogTerritorialResult[];
+  expandedCandidates: CatalogTerritorialResult[];
 };
 
 type BusinessRow = {
@@ -349,21 +371,100 @@ export async function restoreCatalogProduct(id: string): Promise<void> {
   }
 }
 
-export function searchCatalog(items: CatalogProduct[], query: string) {
-  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+/**
+ * Búsqueda territorial del catálogo — G2.
+ *
+ * Función pura y parametrizada. No lee orbitCenter desde ninguna variable global.
+ *
+ * Reglas (en orden):
+ *  1. Sin orbitCenter → retorna [].
+ *  2. Sin tokens de búsqueda → retorna [].
+ *  3. Excluye productos sin coordenadas de negocio válidas.
+ *  4. Calcula Haversine(negocio → orbitCenter).
+ *  5. Resuelve radio ordinario por sector real del negocio.
+ *  6. Retorna solo productos dentro del radio ordinario.
+ *  7. Ordena: distanceKm ASC → textScore DESC → businessId ASC → productId ASC.
+ *
+ * No filtra por ciclo de vida (eso ya lo hizo getCatalogItems() antes de llamar aquí).
+ * No usa GPS físico del solicitante.
+ *
+ * Retorna CatalogSearchSplit:
+ *   ordinaryResults    — dentro del radio ordinario por sector.
+ *   expandedCandidates — fuera del radio ordinario pero ≤ DISCOVERY.radioAmpliadoMvp.
+ * La UI decide cuándo mostrar los candidatos ampliados (acción explícita del usuario).
+ */
+export function searchCatalog(
+  items: CatalogProduct[],
+  query: string,
+  orbitCenter: OrbitCenter | null,
+): CatalogSearchSplit {
+  const empty: CatalogSearchSplit = { ordinaryResults: [], expandedCandidates: [] };
+  if (!orbitCenter) return empty;
 
-  if (!tokens.length) {
-    return [];
+  const tokens = normalizeSearchText(query).split(" ").filter(Boolean);
+  if (!tokens.length) return empty;
+
+  const oLat = orbitCenter.lat;
+  const oLng = orbitCenter.lng;
+
+  const ordinaryCandidates: Array<{ result: CatalogTerritorialResult; textScore: number }> = [];
+  const expandedCandidates:  Array<{ result: CatalogTerritorialResult; textScore: number }> = [];
+
+  for (const item of items) {
+    // Excluir negocios sin coordenadas válidas.
+    const bLat = item.businessLat;
+    const bLng = item.businessLng;
+    if (
+      bLat == null || bLng == null ||
+      !Number.isFinite(bLat) || !Number.isFinite(bLng)
+    ) {
+      continue;
+    }
+
+    const textScore = scoreCatalogItem(item, tokens);
+    if (textScore === 0) continue;
+
+    const distanceKm = haversineKm(bLat, bLng, oLat, oLng);
+    const ordinaryRadiusKm = getOrdinaryRadiusKm(item.sector);
+    const isWithinOrdinaryRadius = distanceKm <= ordinaryRadiusKm;
+
+    const entry = {
+      result: {
+        ...item,
+        serviceType: "Compra local" as const,
+        distanceKm,
+        ordinaryRadiusKm,
+        isWithinOrdinaryRadius,
+      },
+      textScore,
+    };
+
+    if (isWithinOrdinaryRadius) {
+      ordinaryCandidates.push(entry);
+    } else if (distanceKm <= DISCOVERY.radioAmpliadoMvp) {
+      expandedCandidates.push(entry);
+    }
+    // distanceKm > radioAmpliadoMvp → excluido de ambos conjuntos.
   }
 
-  return items
-    .map((item) => ({
-      item,
-      score: scoreCatalogItem(item, tokens)
-    }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map(({ item }) => ({ ...item, serviceType: "Compra local" as const }));
+  // Orden: distanceKm ASC → textScore DESC → businessId ASC → productId ASC
+  const comparator = (
+    a: { result: CatalogTerritorialResult; textScore: number },
+    b: { result: CatalogTerritorialResult; textScore: number },
+  ) => {
+    if (a.result.distanceKm !== b.result.distanceKm) return a.result.distanceKm - b.result.distanceKm;
+    if (a.textScore !== b.textScore) return b.textScore - a.textScore;
+    if (a.result.businessId !== b.result.businessId) return a.result.businessId < b.result.businessId ? -1 : 1;
+    return a.result.id < b.result.id ? -1 : 1;
+  };
+
+  ordinaryCandidates.sort(comparator);
+  expandedCandidates.sort(comparator);
+
+  return {
+    ordinaryResults:    ordinaryCandidates.map((c) => c.result),
+    expandedCandidates: expandedCandidates.map((c) => c.result),
+  };
 }
 
 function scoreCatalogItem(item: CatalogProduct, tokens: string[]) {
