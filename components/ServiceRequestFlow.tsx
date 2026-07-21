@@ -267,6 +267,18 @@ export function ServiceRequestFlow() {
     getInitialConfirmedDraftSections(null)
   );
 
+  // G1: cotización autoritativa de catálogo (negocio→destino desde servidor)
+  type CatalogQuote = {
+    serviceFee: number;
+    totalAmount: number;
+    productsSubtotal: number;
+    pricingDistanceKm: number;
+  };
+  const [catalogQuote, setCatalogQuote] = useState<CatalogQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteRetryKey, setQuoteRetryKey] = useState(0);
+
   const router = useRouter();
   const [isSending, setIsSending] = useState(false);
   // Ref guard: immune to React stale-closure race when two clicks arrive in the
@@ -793,6 +805,25 @@ export function ServiceRequestFlow() {
     () => getValidCoordinatePair({ lat: details.destinationLat, lng: details.destinationLng }),
     [details.destinationLat, details.destinationLng]
   );
+
+  // G1: clave estable del carrito para el useEffect de cotización
+  const itemsKey = useMemo(
+    () => cartItems.map((i) => `${i.product.id}:${i.quantity}`).join(","),
+    [cartItems]
+  );
+
+  // G1: distancia Haversine negocio→destino (solo para display — no para precio)
+  // Las coords de origin fueron fijadas en handleSelectProduct desde businessPoint.
+  const catalogPricingDistanceKm = useMemo(() => {
+    if (!isCatalogMission) return null;
+    const bLat = details.originLat;
+    const bLng = details.originLng;
+    const dLat = details.destinationLat;
+    const dLng = details.destinationLng;
+    if (bLat == null || bLng == null || dLat == null || dLng == null) return null;
+    return calculateDistanceKm(bLat, bLng, dLat, dLng);
+  }, [isCatalogMission, details.originLat, details.originLng, details.destinationLat, details.destinationLng]);
+
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
   const [routeGeometry, setRouteGeometry] = useState<[number, number][] | null>(null);
@@ -866,11 +897,70 @@ export function ServiceRequestFlow() {
     routeDistance, selectedService,
   ]);
 
-  const serviceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : null;
+  // C7 (G1): Cotización autoritativa de catálogo — negocio→destino desde servidor
+  useEffect(() => {
+    if (!isCatalogMission || !cartBusiness?.businessId || !destinationCoordinatePair) {
+      setCatalogQuote(null);
+      return;
+    }
+    let cancelled = false;
+    setQuoteLoading(true);
+    setQuoteError(null);
+    void fetch("/api/pricing/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        is_catalog:      true,
+        business_id:     cartBusiness.businessId,
+        items:           cartItems.map((i) => ({ product_id: i.product.id, quantity: i.quantity })),
+        destination_lat: destinationCoordinatePair.lat,
+        destination_lng: destinationCoordinatePair.lng,
+      }),
+    })
+      .then(async (r) => {
+        if (cancelled) return;
+        const data = await r.json() as Record<string, unknown>;
+        if (!r.ok) {
+          setQuoteError((data.error as string | undefined) ?? "Error al cotizar.");
+          setCatalogQuote(null);
+          setQuoteLoading(false);
+          return;
+        }
+        if (
+          !Number.isFinite(data.service_fee) ||
+          !Number.isFinite(data.total_amount) ||
+          !Number.isFinite(data.products_subtotal) ||
+          !Number.isFinite(data.pricing_distance_km)
+        ) {
+          setQuoteError("Cotización inválida.");
+          setCatalogQuote(null);
+          setQuoteLoading(false);
+          return;
+        }
+        setCatalogQuote({
+          serviceFee:        data.service_fee as number,
+          totalAmount:       data.total_amount as number,
+          productsSubtotal:  data.products_subtotal as number,
+          pricingDistanceKm: data.pricing_distance_km as number,
+        });
+        setQuoteError(null);
+        setQuoteLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQuoteError("No fue posible cotizar. Verifica tu conexión.");
+          setCatalogQuote(null);
+          setQuoteLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [isCatalogMission, cartBusiness?.businessId, itemsKey, destinationCoordinatePair, quoteRetryKey]);
+
+  const serviceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : null;
   const logisticsStatusMessage = getLogisticsStatusMessage({
     hasCatalogOrigin: Boolean(originCoordinatePair),
     hasDestination: Boolean(destinationCoordinatePair),
-    distance: routeDistance
+    distance: isCatalogMission ? catalogPricingDistanceKm : routeDistance
   });
   const orderIsComplete = isCatalogMission
     ? cartItems.length > 0
@@ -1060,6 +1150,8 @@ export function ServiceRequestFlow() {
   }
 
   function updateLocationText(target: LocationTarget, value: string) {
+    // C2 (G1): el origen de catálogo lo fija el negocio en handleSelectProduct — no editable
+    if (target === "origin" && isCatalogMission) return;
     setDetails((currentDetails) => ({
       ...currentDetails,
       ...(target === "origin"
@@ -1101,6 +1193,8 @@ export function ServiceRequestFlow() {
 
   // PR-05.4 — GPS para origen. ORBI obtiene la ubicación; el usuario confirma con "¿Es aquí?" (ORBI-UX-01).
   function handleOriginGps() {
+    // C1 (G1): en misión de catálogo el origen es el negocio — el GPS del solicitante no aplica
+    if (isCatalogMission) return;
     setOriginGpsError("");
     setOriginPendingConfirm(null);
     setOriginGpsLoading(true);
@@ -1353,7 +1447,7 @@ export function ServiceRequestFlow() {
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
     const estimatedOrbit = getEstimatedOrbit(distance);
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
+    const currentServiceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : directQuote.fee;
     const totalEstimate = cartSubtotal + (currentServiceFee ?? 0);
 
     const message = [
@@ -1418,7 +1512,8 @@ export function ServiceRequestFlow() {
     setSubmitError(null);
 
     const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
+    // C8 (G1): precio de catálogo proviene exclusivamente de la cotización autoritativa
+    const currentServiceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : directQuote.fee;
 
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
@@ -1427,7 +1522,7 @@ export function ServiceRequestFlow() {
       return;
     }
 
-    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : directQuote.fee;
+    const servicePrice = isCatalogMission ? (catalogQuote?.totalAmount ?? 0) : directQuote.fee;
     const agentLocation = getAgentLocation(selectedAgent);
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
@@ -1475,6 +1570,11 @@ export function ServiceRequestFlow() {
       service_fee: currentServiceFee ?? undefined,
       total: servicePrice,
       total_amount: servicePrice,
+      // G1: cotización confirmada — el servidor valida que no cambió desde el quote
+      ...(isCatalogMission && catalogQuote ? {
+        expected_service_fee:  catalogQuote.serviceFee,
+        expected_total_amount: catalogQuote.totalAmount,
+      } : {}),
       distance_km: routeDistance,
       duration_min: routeDuration ?? undefined,
       route_geometry: routeGeometry ?? undefined,
@@ -1529,14 +1629,19 @@ export function ServiceRequestFlow() {
     await new Promise<void>((resolve) => setTimeout(resolve, 1750));
     router.push("/usuarios");
     } catch (err) {
-      // Re-enable the button so the user can retry after a confirmed failure.
       isSendingRef.current = false;
       setIsSending(false);
-      setSubmitError(
-        err instanceof Error
-          ? err.message
-          : "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
-      );
+      const msg = err instanceof Error ? err.message : "";
+      // C10 (G1): si el precio cambió entre quote y create, re-cotizar automáticamente
+      if (isCatalogMission && msg === "QUOTE_CHANGED") {
+        setCatalogQuote(null);
+        setQuoteRetryKey((k) => k + 1);
+        setSubmitError("El precio cambió. Se actualizó la cotización automáticamente.");
+      } else {
+        setSubmitError(
+          msg || "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
+        );
+      }
     }
   }
 
@@ -1561,7 +1666,8 @@ export function ServiceRequestFlow() {
     setIsSending(true);
     setSubmitError(null);
 
-    const currentServiceFee = isCatalogMission ? calculateServiceFee(routeDistance, cartSubtotal) : directQuote.fee;
+    // C8 (G1): precio de catálogo proviene exclusivamente de la cotización autoritativa
+    const currentServiceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : directQuote.fee;
 
     if (isCatalogMission && currentServiceFee === null) {
       isSendingRef.current = false;
@@ -1570,7 +1676,7 @@ export function ServiceRequestFlow() {
       return;
     }
 
-    const servicePrice = isCatalogMission ? cartSubtotal + (currentServiceFee ?? 0) : directQuote.fee;
+    const servicePrice = isCatalogMission ? (catalogQuote?.totalAmount ?? 0) : directQuote.fee;
     const ticketDetail = isCatalogMission
       ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
       : details.detail;
@@ -1615,6 +1721,11 @@ export function ServiceRequestFlow() {
       service_fee: currentServiceFee ?? undefined,
       total: servicePrice,
       total_amount: servicePrice,
+      // G1: cotización confirmada — el servidor valida que no cambió desde el quote
+      ...(isCatalogMission && catalogQuote ? {
+        expected_service_fee:  catalogQuote.serviceFee,
+        expected_total_amount: catalogQuote.totalAmount,
+      } : {}),
       distance_km: routeDistance,
       duration_min: routeDuration ?? undefined,
       route_geometry: routeGeometry ?? undefined,
@@ -1654,11 +1765,17 @@ export function ServiceRequestFlow() {
       // so the retry uses the same idempotency key and the server deduplicates.
       isSendingRef.current = false;
       setIsSending(false);
-      setSubmitError(
-        err instanceof Error
-          ? err.message
-          : "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
-      );
+      const msg = err instanceof Error ? err.message : "";
+      // C10 (G1): si el precio cambió entre quote y create, re-cotizar automáticamente
+      if (isCatalogMission && msg === "QUOTE_CHANGED") {
+        setCatalogQuote(null);
+        setQuoteRetryKey((k) => k + 1);
+        setSubmitError("El precio cambió. Se actualizó la cotización automáticamente.");
+      } else {
+        setSubmitError(
+          msg || "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
+        );
+      }
     }
     // No finally: on success isSendingRef stays true. The button remains disabled
     // until React re-renders with activeMission set, at which point the activeMission
@@ -2127,9 +2244,10 @@ export function ServiceRequestFlow() {
               />
               <button
                 type="submit"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] sm:col-span-2"
+                disabled={isCatalogMission && (!catalogQuote || quoteLoading || Boolean(quoteError))}
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50 disabled:cursor-not-allowed sm:col-span-2"
               >
-                Continuar
+                {isCatalogMission && quoteLoading ? "Cotizando…" : "Continuar"}
               </button>
             </FormSection>
           ) : null}

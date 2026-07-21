@@ -130,6 +130,8 @@ type CreateMissionInput = Omit<ActiveMission, "id" | "last_updated_at" | "update
   id?: string;             // idempotency key — same draft → same mission, never duplicated
   status?: MissionStatus;
   mission_status?: MissionStatus | string;
+  expected_service_fee?: number;   // G1: cotización confirmada por el cliente antes de crear
+  expected_total_amount?: number;  // G1: cotización confirmada por el cliente antes de crear
 };
 
 export const missionProgressStatuses: MissionStatus[] = [

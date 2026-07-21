@@ -45,6 +45,8 @@ import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams
 import { logEvent } from "@/lib/event-log";
 import { getAdmin } from "@/lib/supabase-admin";
 
+const CATALOG_SERVICE_TYPE = "Compra local";
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -152,8 +154,12 @@ export async function POST(req: NextRequest) {
 
   const oLat = typeof origin_lat === "number" ? origin_lat : null;
   const oLng = typeof origin_lng === "number" ? origin_lng : null;
-  const dLat = typeof destination_lat === "number" ? destination_lat : null;
-  const dLng = typeof destination_lng === "number" ? destination_lng : null;
+  const dLat = Number.isFinite(destination_lat) ? destination_lat as number : null;
+  const dLng = Number.isFinite(destination_lng) ? destination_lng as number : null;
+
+  // bLat/bLng: coordenadas autoritativas del negocio (G1 — resueltas desde DB para catálogo)
+  let bLat: number | null = null;
+  let bLng: number | null = null;
 
   let pricingDistanceKm: number | null = null;
   if (oLat != null && oLng != null && dLat != null && dLng != null) {
@@ -204,7 +210,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // V6: no duplicate product_ids — viola regla de negocio → 422
     const productIds = clientLineItems.map((i) => i.product_id);
+    if (new Set(productIds).size !== productIds.length) {
+      return NextResponse.json(
+        { error: "El carrito contiene productos duplicados." },
+        { status: 422 }
+      );
+    }
 
     // Consultar precios y metadata desde public.products — fuente autoritativa
     const { data: catalogRows, error: catalogError } = await admin
@@ -324,8 +337,33 @@ export async function POST(req: NextRequest) {
       authoritativeItems.reduce((sum, item) => sum + item.subtotal, 0) * 100
     ) / 100;
 
+    // S1 (G1): Resolver coordenadas del negocio desde DB — nunca confiar en GPS del cliente
+    const { data: bizRow, error: bizError } = await admin
+      .from("businesses")
+      .select("latitude, longitude")
+      .eq("id", declaredBusinessId)
+      .single();
+    if (bizError || !bizRow) {
+      return NextResponse.json({ error: "Negocio no encontrado." }, { status: 404 });
+    }
+    const bizLat = Number(bizRow.latitude);
+    const bizLng = Number(bizRow.longitude);
+    if (!Number.isFinite(bizLat) || !Number.isFinite(bizLng)) {
+      return NextResponse.json(
+        { error: "El negocio no tiene coordenadas geográficas válidas." },
+        { status: 422 }
+      );
+    }
+    bLat = bizLat;
+    bLng = bizLng;
+
+    // S2 (G1): Haversine negocio→destino reemplaza la distancia del cliente
+    if (dLat != null && dLng != null) {
+      pricingDistanceKm = haversineKmServer(bLat, bLng, dLat, dLng);
+    }
+
     // Motor de pricing autoritativo — una sola fuente de verdad para el split
-    const catalogResult = calcularMisionCatalogo(pricingDistanceKm, subtotalProductos, service_type as string);
+    const catalogResult = calcularMisionCatalogo(pricingDistanceKm, subtotalProductos, CATALOG_SERVICE_TYPE);
 
     if (catalogResult.outOfRange) {
       await logEvent({
@@ -350,6 +388,22 @@ export async function POST(req: NextRequest) {
     totalAmount  = catalogResult.totalCliente;
     costoAgente  = catalogResult.costoAgente;
     gananciaOrbi = catalogResult.gananciaOrbi;
+
+    // S5 (G1): Validar cotización esperada — el cliente debe confirmar el precio antes de crear
+    const expectedFee   = body.expected_service_fee;
+    const expectedTotal = body.expected_total_amount;
+    if (!Number.isFinite(expectedFee) || !Number.isFinite(expectedTotal)) {
+      return NextResponse.json(
+        { error: "QUOTE_REQUIRED" },
+        { status: 422 }
+      );
+    }
+    if (expectedFee !== serviceFee || expectedTotal !== totalAmount) {
+      return NextResponse.json(
+        { error: "QUOTE_CHANGED", service_fee: serviceFee, total_amount: totalAmount },
+        { status: 409 }
+      );
+    }
 
   } else {
     // Misión directa — delegado a computeQuote (motor_params DB, origin→destination)
@@ -419,7 +473,7 @@ export async function POST(req: NextRequest) {
     // El servidor determina el estado inicial desde el tipo de misión
     status:             isCatalog ? "esperando_negocio" : "por_tomar",
     mission_type:       isCatalog ? "compra_negocio" : "directa",
-    service_type:       service_type as string,
+    service_type:       isCatalog ? CATALOG_SERVICE_TYPE : service_type as string,
     detail:             (detail as string) ?? "",
     estimated_orbit:    (estimated_orbit as string) ?? "",
 
@@ -427,8 +481,8 @@ export async function POST(req: NextRequest) {
     requester_phone:    requester_phone as string,
 
     origin_text:        (origin_text as string) ?? "",
-    origin_lat:         oLat,
-    origin_lng:         oLng,
+    origin_lat:         isCatalog ? bLat : oLat,
+    origin_lng:         isCatalog ? bLng : oLng,
     destination_text:   (destination_text as string) ?? "",
     destination_lat:    dLat,
     destination_lng:    dLng,
