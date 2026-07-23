@@ -25,12 +25,9 @@ import {
   AgentTrustLevel,
   agentLevels,
   agentServiceTypes,
-  getAgentOperatingEligibility,
-  getAgentLocation,
-  getAgents,
   OrbiAgent
 } from "@/lib/agents";
-import { supabase, subscribeToAgents, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
+import { supabase, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, CatalogSearchSplit, CatalogTerritorialResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
@@ -53,7 +50,6 @@ import {
   updateActiveMissionById,
 } from "@/lib/missions";
 import { fetchRoute } from "@/lib/routing";
-import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import {
   clearDraft,
   isDraftMeaningful,
@@ -181,7 +177,7 @@ const statusStyles: Record<OrbiAgent["status"], string> = {
 
 type LocationTarget = "origin" | "destination";
 type DraftSection = "pedido" | "destino" | "solicitante" | "resumen";
-type WizardStep = "servicio" | "pedido" | "destino" | "solicitante" | "agente" | "confirmacion";
+type WizardStep = "servicio" | "pedido" | "destino" | "solicitante" | "confirmacion";
 type ConfirmedDraftSections = Record<"pedido" | "destino" | "solicitante", boolean>;
 
 type MapPoint = {
@@ -244,10 +240,6 @@ export function ServiceRequestFlow() {
   const [catalogError, setCatalogError] = useState("");
   const [details, setDetails] = useState<RequestDetails>(emptyDetails);
   const [isRequestReady, setIsRequestReady] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<OrbiAgent | null>(null);
-  const [agents, setAgents] = useState<OrbiAgent[]>([]);
-  const [isLoadingAgents, setIsLoadingAgents] = useState(true);
-  const [agentError, setAgentError] = useState("");
   const [locationError, setLocationError] = useState("");
   const [mapTarget, setMapTarget] = useState<LocationTarget | null>(null);
   const [mapPoint, setMapPoint] = useState<MapPoint>(zumpahuacanCenter);
@@ -320,7 +312,6 @@ export function ServiceRequestFlow() {
   // When true, the auto-save timer must not write to localStorage — the draft
   // has been intentionally consumed (mission sent) or discarded by the user.
   const draftSuppressedRef = useRef(false);
-  const pendingDraftAgentId = useRef<string | null>(null);
 
   // PR-05 — LocationPicker para origen (ORBI-UX-01)
   const [originPendingConfirm, setOriginPendingConfirm] = useState<DestPendingConfirm | null>(null);
@@ -344,7 +335,6 @@ export function ServiceRequestFlow() {
   const isPedidoStage = selectedStep === "pedido";
   const isDestinoStage = selectedStep === "destino";
   const isSolicitanteStage = selectedStep === "solicitante";
-  const isAgentStage = selectedStep === "agente";
   const isConfirmStage = selectedStep === "confirmacion";
 
   function goToStep(step: WizardStep) {
@@ -373,13 +363,6 @@ export function ServiceRequestFlow() {
       setSelectedStep("solicitante");
       setIsRequestReady(false);
       setExpandedDraftSection("solicitante");
-      return;
-    }
-
-    if (step === "agente") {
-      setSelectedStep("agente");
-      setIsRequestReady(true);
-      setExpandedDraftSection(null);
       return;
     }
 
@@ -418,98 +401,11 @@ export function ServiceRequestFlow() {
       goToStep("destino");
       return;
     }
-    if (selectedStep === "agente") {
-      goToStep("solicitante");
-      return;
-    }
     if (selectedStep === "confirmacion") {
       goToStep("solicitante");
       return;
     }
   }
-
-  useEffect(() => {
-    let isActive = true;
-    const timeoutId = window.setTimeout(() => {
-      if (!isActive) {
-        return;
-      }
-
-      setAgentError("La consulta de agentes tardó demasiado. Revisa la conexión con Supabase.");
-      setIsLoadingAgents(false);
-    }, 8000);
-
-    getAgents()
-      .then((nextAgents) => {
-        if (!isActive) {
-          return;
-        }
-
-        window.clearTimeout(timeoutId);
-        setAgents(nextAgents);
-        setAgentError("");
-      })
-      .catch((caughtError: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        window.clearTimeout(timeoutId);
-        setAgents([]);
-        setAgentError(
-          caughtError instanceof Error
-            ? caughtError.message
-            : "No fue posible cargar agentes compatibles."
-        );
-      })
-      .finally(() => {
-        if (isActive) {
-          window.clearTimeout(timeoutId);
-          setIsLoadingAgents(false);
-        }
-      });
-
-    return () => {
-      isActive = false;
-      window.clearTimeout(timeoutId);
-    };
-  }, []);
-
-  // Restore agent from draft once the agents list is available.
-  useEffect(() => {
-    if (!pendingDraftAgentId.current || agents.length === 0) return;
-    const match = agents.find((a) => a.id === pendingDraftAgentId.current);
-    if (match) {
-      setSelectedAgent(match);
-      pendingDraftAgentId.current = null;
-    }
-  }, [agents]);
-
-  useEffect(() => {
-    let isActive = true;
-    const unsubscribe = subscribeToAgents(async () => {
-      if (!isActive) {
-        return;
-      }
-
-      try {
-        const nextAgents = await getAgents();
-        if (!isActive) {
-          return;
-        }
-
-        setAgents(nextAgents);
-        setAgentError("");
-      } catch {
-        // Keep the current agent list if realtime refresh fails.
-      }
-    });
-
-    return () => {
-      isActive = false;
-      unsubscribe();
-    };
-  }, []);
 
   // Mission reconciliation on mount: Supabase is the source of truth.
   // We do NOT render any mission card until we have verified the local entry against
@@ -591,9 +487,7 @@ export function ServiceRequestFlow() {
 
   // Waiting-request acceptance: navigate to /orbita when the mission becomes "aceptada".
   // Covers the case where no agent was available at creation time and the user stayed on
-  // /pedir watching the WaitingRequestCard. The direct-agent flow (handleSendMissionToAgent)
-  // manages its own navigation via setOrbitExperienceActive + router.push after 1750ms,
-  // so orbitExperienceActive guards against double-navigation.
+  // /pedir watching the WaitingRequestCard. orbitExperienceActive guards against double-navigation.
   useEffect(() => {
     if (isReconcilingMission) return;
     if (!activeMission || activeMission.status !== "aceptada") return;
@@ -802,9 +696,7 @@ export function ServiceRequestFlow() {
           product: ci.product as Record<string, unknown>,
           quantity: ci.quantity,
         })),
-        selectedAgent: selectedAgent
-          ? { id: selectedAgent.id, name: selectedAgent.name }
-          : null,
+        selectedAgent: null,
         paymentStatus,
         paymentMethod,
         confirmedDraftSections,
@@ -832,20 +724,7 @@ export function ServiceRequestFlow() {
             product: ci.product as Record<string, unknown>,
             quantity: ci.quantity,
           })),
-          selectedAgent: selectedAgent
-            ? {
-                id: selectedAgent.id,
-                name: selectedAgent.name,
-                zone: selectedAgent.zone,
-                vehicle: selectedAgent.vehicle,
-                trustLevel: selectedAgent.trustLevel,
-                lat: selectedAgent.lat,
-                lng: selectedAgent.lng,
-                status: selectedAgent.status,
-                serviceType: selectedAgent.serviceType,
-                isOnOrbit: selectedAgent.isOnOrbit,
-              }
-            : null,
+          selectedAgent: null,
           paymentStatus,
           paymentMethod,
           confirmedDraftSections,
@@ -858,7 +737,7 @@ export function ServiceRequestFlow() {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedService, selectedStep, details, cartItems, selectedAgent, paymentStatus, paymentMethod, confirmedDraftSections]);
+  }, [selectedService, selectedStep, details, cartItems, paymentStatus, paymentMethod, confirmedDraftSections]);
 
   useEffect(() => {
     let isActive = true;
@@ -901,64 +780,6 @@ export function ServiceRequestFlow() {
       unsubscribeProducts();
     };
   }, []);
-
-  const compatibleAgents = useMemo(() => {
-    if (!selectedService) {
-      return [];
-    }
-
-    return agents
-      .map((agent) => {
-        const userHasOrigin = getValidCoordinatePair({
-          lat: details.originLat,
-          lng: details.originLng
-        });
-        const eligibility = getAgentOperatingEligibility(
-          agent,
-          selectedService.compatibleType as AgentServiceType,
-          userHasOrigin
-        );
-        const distance = eligibility.distanceKm;
-        const exclusionReason = eligibility.eligible ? "" : eligibility.reason;
-
-        if (exclusionReason) {
-          return { agent, distance, included: false };
-        }
-
-        return { agent, distance, included: true };
-      })
-      .filter((result) => result.included)
-      .sort((a, b) => {
-        if (a.distance === null && b.distance === null) {
-          return a.agent.name.localeCompare(b.agent.name);
-        }
-
-        if (a.distance === null) {
-          return 1;
-        }
-
-        if (b.distance === null) {
-          return -1;
-        }
-
-        return a.distance - b.distance;
-      })
-      .map((result) => result.agent);
-  }, [agents, details.originLat, details.originLng, selectedService]);
-
-  const invalidOperationalLocationCount = useMemo(() => {
-    if (!selectedService) {
-      return 0;
-    }
-
-    return agents.filter(
-      (agent) =>
-        isServiceCompatible(agent.serviceType, selectedService.compatibleType as AgentServiceType) &&
-        agent.status === activeAgentStatus &&
-        agent.isOnOrbit &&
-        !getValidCoordinatePair(getAgentLocation(agent) ?? {})
-    ).length;
-  }, [agents, selectedService]);
 
   // G2 B4: searchCatalog retorna CatalogSearchSplit (ordinario + ampliable).
   // Sin orbitCenter → ambas listas vacías. Cambiar orbitCenter o searchQuery recalcula.
@@ -1038,7 +859,6 @@ export function ServiceRequestFlow() {
       setDirectQuote({ fee: 0, loading: false, error: false });
       return;
     }
-    const agentLocation = selectedAgent ? getAgentLocation(selectedAgent) : null;
     let cancelled = false;
     setDirectQuote((q) => ({ ...q, loading: true, error: false }));
     void fetch("/api/pricing/quote", {
@@ -1046,7 +866,6 @@ export function ServiceRequestFlow() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         is_catalog:      false,
-        ...(agentLocation ? { agent_lat: agentLocation.lat, agent_lng: agentLocation.lng } : {}),
         origin_lat:      details.originLat,
         origin_lng:      details.originLng,
         destination_lat: details.destinationLat,
@@ -1064,7 +883,7 @@ export function ServiceRequestFlow() {
       });
     return () => { cancelled = true; };
   }, [
-    isCatalogMission, selectedAgent,
+    isCatalogMission,
     details.originLat, details.originLng,
     details.destinationLat, details.destinationLng,
     routeDistance, selectedService,
@@ -1159,7 +978,6 @@ export function ServiceRequestFlow() {
     setCartMessage("");
     setDetails(emptyDetails);
     setIsRequestReady(false);
-    setSelectedAgent(null);
     setPaymentStatus("Pago al finalizar la misión");
     setPaymentMethod("Efectivo");
     setRequestStatusMessage("");
@@ -1233,7 +1051,6 @@ export function ServiceRequestFlow() {
       detail: buildCartTicket(nextCart, null, "Define destino para calcular servicio.")
     }));
     setIsRequestReady(false);
-    setSelectedAgent(null);
   }
 
   function handleSelectCustomMission(
@@ -1613,211 +1430,6 @@ export function ServiceRequestFlow() {
     }
   }
 
-  function sendWhatsApp() {
-    if (!selectedService || !selectedAgent) {
-      return;
-    }
-
-    const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
-    const estimatedOrbit = getEstimatedOrbit(distance);
-    const currentServiceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : directQuote.fee;
-    const totalEstimate = cartSubtotal + (currentServiceFee ?? 0);
-
-    const message = [
-      "Solicitud Orbi",
-      `Servicio: ${selectedService.label}`,
-      ...(isCatalogMission && cartBusiness
-        ? [
-            `Negocio: ${cartBusiness.businessName}`,
-            `Productos:`,
-            ...cartItems.map((item) => `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`),
-            `Subtotal productos: $${cartSubtotal}`,
-            `Servicio/logística: ${currentServiceFee === null ? logisticsStatusMessage : `$${currentServiceFee}`}`,
-            `Total a pagar: ${currentServiceFee === null ? logisticsStatusMessage : `$${totalEstimate}`}`,
-            `Sector: ${cartBusiness.sector}`
-          ]
-        : []),
-      `Origen texto: ${details.origin}`,
-      ...(originCoordinatePair
-        ? [`Origen coordenadas: ${formatCoordinates(originCoordinatePair.lat, originCoordinatePair.lng)}`]
-        : []),
-      `Destino texto: ${details.destination}`,
-      ...(destinationCoordinatePair
-        ? [`Destino coordenadas: ${formatCoordinates(destinationCoordinatePair.lat, destinationCoordinatePair.lng)}`]
-        : []),
-      `Detalle: ${details.detail}`,
-      `Horario: ${getDesiredTimeLabel(details)}`,
-      `Solicitante: ${details.requesterName}`,
-      `Teléfono: ${details.requesterPhone}`,
-      `Agente: ${selectedAgent.name}`,
-      `Zona del agente: ${selectedAgent.zone}`,
-      `Vehículo: ${selectedAgent.vehicle || "No especificado"}`,
-      `Nivel del agente: ${selectedAgent.trustLevel}`,
-      `Estado de pago: ${paymentStatus}`,
-      `Método de pago: ${paymentMethod}`,
-      `Órbita estimada: ${estimatedOrbit}`,
-      ...(routeDistance === null ? [] : [`Distancia origen-destino: ${routeDistance.toFixed(1)} km`]),
-      ...(routeDistance !== null && routeDistance > 50
-        ? ["La distancia parece fuera de zona. Revisa origen y destino."]
-        : [])
-    ].join("\n");
-
-    window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
-  }
-
-  async function handleSendMissionToAgent(overrideUserId?: string, requester?: { name: string; phone: string }) {
-    if (!selectedService || !selectedAgent || isSendingRef.current) {
-      return;
-    }
-
-    const userId = overrideUserId ?? authUserId;
-
-    // Auth gate: show login/register inline before creating the mission.
-    if (!userId) {
-      setShowAuthGate(true);
-      return;
-    }
-
-    // Lock immediately — ref is checked above and must be set before any await
-    // so that a second click arriving in the same event-loop tick is blocked.
-    isSendingRef.current = true;
-    setIsSending(true);
-    setSubmitError(null);
-
-    const distance = getAgentDistance(details.originLat, details.originLng, selectedAgent);
-    // C8 (G1): precio de catálogo proviene exclusivamente de la cotización autoritativa
-    const currentServiceFee = isCatalogMission ? (catalogQuote?.serviceFee ?? null) : directQuote.fee;
-
-    if (isCatalogMission && currentServiceFee === null) {
-      isSendingRef.current = false;
-      setIsSending(false);
-      setSubmitError("Cotización no disponible. Espera un momento o recarga la página.");
-      return;
-    }
-
-    const servicePrice = isCatalogMission ? (catalogQuote?.totalAmount ?? 0) : directQuote.fee;
-    const agentLocation = getAgentLocation(selectedAgent);
-    const ticketDetail = isCatalogMission
-      ? buildCartTicket(cartItems, currentServiceFee, logisticsStatusMessage)
-      : details.detail;
-    // Use requester override when available (from auth gate, where state may be stale).
-    const requesterName = requester?.name || details.requesterName;
-    const requesterPhone = requester?.phone || details.requesterPhone;
-
-    try {
-    const mission = await createMission({
-      id: draftId ?? undefined,
-      user_id: userId,
-      service_type: selectedService.label,
-      origin_text: details.origin,
-      origin_lat: details.originLat,
-      origin_lng: details.originLng,
-      destination_text: details.destination,
-      destination_lat: details.destinationLat,
-      destination_lng: details.destinationLng,
-      requester_name: requesterName,
-      requester_phone: requesterPhone,
-      customer_name: requesterName,
-      customer_phone: requesterPhone,
-      guest_name: requesterName,
-      guest_phone: requesterPhone,
-      detail: ticketDetail,
-      business_id: cartBusiness?.businessId,
-      product_id: cartItems[0]?.product.id,
-      business_lat: cartBusiness?.businessLat,
-      business_lng: cartBusiness?.businessLng,
-      product_name: cartItems.map((item) => item.product.name).join(", ") || undefined,
-      business_name: cartBusiness?.businessName,
-      product_price: cartSubtotal || undefined,
-      items: cartItems.map((item) => ({
-        product_id:   item.product.id,
-        product_name: item.product.name,
-        business_id:  item.product.businessId,
-        business_name: item.product.businessName,
-        quantity:     item.quantity,
-        price:        item.product.price,
-        subtotal:     item.product.price * item.quantity,
-        category:     item.product.category ?? "",
-      })),
-      subtotal_productos: cartSubtotal || undefined,
-      service_fee: currentServiceFee ?? undefined,
-      total: servicePrice,
-      total_amount: servicePrice,
-      // G1: cotización confirmada — el servidor valida que no cambió desde el quote
-      ...(isCatalogMission && catalogQuote ? {
-        expected_service_fee:  catalogQuote.serviceFee,
-        expected_total_amount: catalogQuote.totalAmount,
-      } : {}),
-      distance_km: routeDistance,
-      duration_min: routeDuration ?? undefined,
-      route_geometry: routeGeometry ?? undefined,
-      pricing_rule: isCatalogMission ? pricingRule : undefined,
-      product_ids: cartItems.map((item) => item.product.id),
-      sector: cartBusiness?.sector,
-      categoria_producto: cartItems[0]?.product.category,
-      selected_agent_id: selectedAgent.id,
-      selected_agent_name: selectedAgent.name,
-      selected_agent_zone: selectedAgent.zone,
-      selected_agent_vehicle: selectedAgent.vehicle,
-      selected_agent_trust: selectedAgent.trustLevel,
-      selected_agent_lat: agentLocation?.lat ?? selectedAgent.lat,
-      selected_agent_lng: agentLocation?.lng ?? selectedAgent.lng,
-      payment_status: paymentStatus,
-      payment_method: paymentMethod,
-      precio_servicio: servicePrice,
-      costo_agente: isCatalogMission ? Math.round((currentServiceFee ?? 0) * CATALOG.comisionAgente * 100) / 100 : Math.round(directQuote.fee * 0.70),
-      ganancia_orbi: isCatalogMission ? Math.round((currentServiceFee ?? 0) * (1 - CATALOG.comisionAgente) * 100) / 100 : directQuote.fee - Math.round(directQuote.fee * 0.70),
-      estimated_orbit: getEstimatedOrbit(distance),
-      mission_type: isCatalogMission ? "compra_negocio" : "directa",
-      status: isCatalogMission ? "esperando_negocio" : "por_tomar"
-    });
-
-    draftSuppressedRef.current = true;
-    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
-    clearDraft();
-    setDraftId(null);
-    setActiveMission(mission);
-    setSentMission(mission);
-    // Persist missionId so /orbita always shows THIS customer's mission.
-    sessionStorage.setItem("orbi_active_mission_id", mission.id);
-    // Auditoría de interpretación: completar el log si esta misión vino de texto libre.
-    if (intentionLogIdRef.current) {
-      const logId = intentionLogIdRef.current;
-      intentionLogIdRef.current = null;
-      void fetch(`/api/intention-logs/${logId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          resultado_final: mission.service_type,
-          mission_id:      mission.id,
-        }),
-      }).catch(() => { /* fire-and-forget */ });
-    }
-    setRequestStatusMessage(
-      isCatalogMission
-        ? "Ya lo tenemos. En unos momentos el negocio lo confirma."
-        : "Ya lo tenemos. Buscando quién te ayude."
-    );
-    setOrbitExperienceActive(true);
-    await new Promise<void>((resolve) => setTimeout(resolve, 1750));
-    router.push("/usuarios");
-    } catch (err) {
-      isSendingRef.current = false;
-      setIsSending(false);
-      const msg = err instanceof Error ? err.message : "";
-      // C10 (G1): si el precio cambió entre quote y create, re-cotizar automáticamente
-      if (isCatalogMission && msg === "QUOTE_CHANGED") {
-        setCatalogQuote(null);
-        setQuoteRetryKey((k) => k + 1);
-        setSubmitError("El precio cambió. Se actualizó la cotización automáticamente.");
-      } else {
-        setSubmitError(
-          msg || "No fue posible enviar la misión. Verifica tu conexión e intenta de nuevo."
-        );
-      }
-    }
-  }
-
   async function handleCreateWaitingRequest(overrideUserId?: string, requester?: { name: string; phone: string }) {
     if (!selectedService || isSendingRef.current) {
       return;
@@ -1975,16 +1587,14 @@ export function ServiceRequestFlow() {
       const match = services.find((s) => s.label === draft.selectedService!.label) ?? null;
       setSelectedService(match);
     }
-    setSelectedStep(draft.selectedStep as WizardStep);
+    const restoredStep = draft.selectedStep === "agente" ? "confirmacion" : draft.selectedStep;
+    setSelectedStep(restoredStep as WizardStep);
     setDetails((prev) => ({ ...prev, ...draft.details }));
     setPaymentStatus(draft.paymentStatus as PaymentStatus);
     setPaymentMethod(draft.paymentMethod as PaymentMethod);
     setConfirmedDraftSections(draft.confirmedDraftSections as ConfirmedDraftSections);
     if (draft.cartItems.length > 0) {
       setCartItems(draft.cartItems as typeof cartItems);
-    }
-    if (draft.selectedAgent) {
-      pendingDraftAgentId.current = draft.selectedAgent.id;
     }
     setDraftId(draft.draftId);
     setShowDraftChoice(false);
@@ -2013,7 +1623,6 @@ export function ServiceRequestFlow() {
 
   function handleModifyWaitingRequest() {
     setIsRequestReady(false);
-    setSelectedAgent(null);
     setExpandedDraftSection(null);
     setConfirmedDraftSections(getInitialConfirmedDraftSections(activeMission));
     setWaitingRequestMessage("");
@@ -2099,7 +1708,6 @@ export function ServiceRequestFlow() {
         cartItems={cartItems}
         confirmedSections={confirmedDraftSections}
         isRequestReady={isRequestReady}
-        selectedAgent={selectedAgent}
         selectedStep={selectedStep}
         onStepClick={goToStep}
       />
@@ -2230,7 +1838,7 @@ export function ServiceRequestFlow() {
         </>
       ) : null}
 
-      {isCatalogMission && !selectedAgent ? (
+      {isCatalogMission ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
             Agregar otro producto o servicio
@@ -2542,105 +2150,6 @@ export function ServiceRequestFlow() {
         </form>
       ) : null}
 
-      {!isReconcilingMission && !networkReconcileError && selectedService && isAgentStage && !isOrbitExperienceActive ? (
-        <section className="space-y-4">
-          <SelectedService
-            service={selectedService}
-            onReset={() => {
-              setIsRequestReady(false);
-              setSelectedAgent(null);
-            }}
-            actionLabel="Editar solicitud"
-          />
-
-          {!destinationCoordinatePair ? (
-            <StateCard
-              title="Define el destino para calcular servicio y buscar agentes."
-              body="El destino permite calcular la misión y encontrar agentes dentro de radio operativo."
-              actionLabel="Agregar destino"
-              onAction={() => setIsRequestReady(false)}
-            />
-          ) : isLoadingAgents ? (
-            <StateCard title="Buscando agentes compatibles..." body="Estamos revisando disponibilidad en Red Orbi." />
-          ) : agentError ? (
-            <StateCard title="No pudimos cargar agentes." body={agentError} tone="error" />
-          ) : compatibleAgents.length ? (
-            <>
-              <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
-                  Agente disponible
-                </p>
-                <h2 className="mt-1 text-lg font-black text-orbi-text">
-                  Elige quién te ayudará
-                </h2>
-              </div>
-              {details.originLat === null || details.originLng === null ? (
-                <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
-                  Sin ubicación precisa, mostramos agentes disponibles por servicio.
-                </p>
-              ) : null}
-              {invalidOperationalLocationCount ? (
-                <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 text-sm leading-6 text-orbi-muted">
-                  {invalidOperationalLocationCount} agente(s) operativo(s) fueron excluidos porque no tienen lat/lng válidos registrados.
-                </p>
-              ) : null}
-              <div className="grid gap-4 sm:grid-cols-2">
-                {compatibleAgents.map((agent) => (
-                  <AgentOptionCard
-                    key={agent.id}
-                    agent={agent}
-                    originLat={details.originLat}
-                    originLng={details.originLng}
-                    onSelect={() => { setSelectedAgent(agent); goToStep("confirmacion"); }}
-                  />
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              {activeMission?.status === "cumplida" || activeMission?.status === "archivada" ? (
-                <StateCard
-                  title="Misión cumplida"
-                  body="Tu pedido fue entregado. Puedes iniciar uno nuevo cuando quieras."
-                  actionLabel="Nuevo pedido"
-                  onAction={handleModifyWaitingRequest}
-                />
-              ) : activeMission?.status === "cancelada" ? (
-                <StateCard
-                  title="Pedido cancelado"
-                  body="Cancelado. No había ningún cargo pendiente."
-                  actionLabel="Nuevo pedido"
-                  onAction={handleModifyWaitingRequest}
-                />
-              ) : (
-                <>
-                  <WaitingRequestCard
-                    message={waitingRequestMessage || missionWaitingMessage(activeMission)}
-                    canCancel={isCancellableByCustomer(activeMission)}
-                    showCancelConfirm={showWaitingCancelConfirm}
-                    onWait={handleCreateWaitingRequest}
-                    onModify={handleModifyWaitingRequest}
-                    onCancel={() => setShowWaitingCancelConfirm(true)}
-                    onConfirmCancel={handleCancelWaitingRequest}
-                    onKeepWaiting={() => setShowWaitingCancelConfirm(false)}
-                  />
-                  {showAuthGate ? (
-                    <div className="mt-3">
-                      <AuthGatePanel
-                        prefillName={details.requesterName}
-                        prefillPhone={details.requesterPhone}
-                        onAuthSuccess={handleAuthGateSuccess}
-                        onDismiss={() => setShowAuthGate(false)}
-                      />
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </>
-          )}
-        </section>
-      ) : null}
-
       {!isReconcilingMission && !networkReconcileError && !isOrbitExperienceActive && activeMission?.status === "por_tomar" && activeMission.selected_agent_id ? (
         <PendingMissionCard mission={activeMission} />
       ) : null}
@@ -2659,45 +2168,24 @@ export function ServiceRequestFlow() {
           </p>
           <h2 className="mt-2 text-2xl font-black text-orbi-text">¿Lo pedimos así?</h2>
 
-          {/* ORBI-P-13: Bloque de asignación de agente */}
-          {selectedAgent ? (
-            <div className="mt-4">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">Agente seleccionado</p>
-              <p className="mt-1 text-2xl font-black text-orbi-text">{selectedAgent.name}</p>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
-                  <Radar aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-orbi-text">ORBI asignará el mejor agente disponible para tu misión</p>
-                  <p className="mt-1 text-xs leading-5 text-orbi-muted">
-                    Seleccionamos según ubicación, disponibilidad y tiempo de respuesta.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => goToStep("agente")}
-                    className="mt-2 text-xs text-orbi-muted underline underline-offset-2 transition hover:text-orbi-text"
-                  >
-                    Prefiero elegir yo →
-                  </button>
-                </div>
+          <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
+                <Radar aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-orbi-text">ORBI asignará el mejor agente disponible para tu misión</p>
+                <p className="mt-1 text-xs leading-5 text-orbi-muted">
+                  Seleccionamos según ubicación, disponibilidad y tiempo de respuesta.
+                </p>
               </div>
             </div>
-          )}
+          </div>
 
           <div className="mt-4 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
             <SummaryItem label="Servicio" value={selectedService.label} />
             {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-            {selectedAgent ? (
-              <SummaryItem
-                label="Tiempo estimado"
-                value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))}
-              />
-            ) : null}
             <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem label="Estado de pago" value={paymentStatus} />
           </div>
@@ -2734,9 +2222,6 @@ export function ServiceRequestFlow() {
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
                 {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
-                {selectedAgent ? (
-                  <SummaryItem label="Tiempo estimado" value={getEstimatedOrbit(getAgentDistance(details.originLat, details.originLng, selectedAgent))} />
-                ) : null}
                 <SummaryItem label="Estado de pago" value={paymentStatus} />
                 <SummaryItem label="Método de pago" value={paymentMethod} />
               </div>
@@ -2779,33 +2264,15 @@ export function ServiceRequestFlow() {
                 {submitError}
               </p>
             ) : null}
-            {!isSending && selectedAgent ? (
-              <button
-                type="button"
-                onClick={() => setSelectedAgent(null)}
-                className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-orbi-text transition hover:bg-white/10"
-              >
-                Cambiar agente
-              </button>
-            ) : null}
             {!isSending ? (
               <button
                 type="button"
                 disabled={isCatalogMission && (!catalogQuote || quoteLoading || Boolean(quoteError))}
-                onClick={() => selectedAgent ? void handleSendMissionToAgent() : void handleCreateWaitingRequest()}
-                className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50 disabled:cursor-not-allowed ${!selectedAgent ? "sm:col-span-2" : ""}`}
+                onClick={() => void handleCreateWaitingRequest()}
+                className="sm:col-span-2 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send aria-hidden="true" className="h-5 w-5" />
                 Poner en órbita
-              </button>
-            ) : null}
-            {selectedAgent ? (
-              <button
-                type="button"
-                onClick={sendWhatsApp}
-                className="inline-flex min-h-12 w-full items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 sm:col-span-2"
-              >
-                Enviar respaldo por WhatsApp
               </button>
             ) : null}
           </div>
@@ -2832,7 +2299,6 @@ function StepHeader({
   cartItems,
   confirmedSections,
   isRequestReady,
-  selectedAgent,
   selectedStep,
   onStepClick
 }: {
@@ -2841,7 +2307,6 @@ function StepHeader({
   cartItems: CartItem[];
   confirmedSections: ConfirmedDraftSections;
   isRequestReady: boolean;
-  selectedAgent: OrbiAgent | null;
   selectedStep: WizardStep;
   onStepClick: (step: WizardStep) => void;
 }) {
@@ -3506,60 +2971,6 @@ function LocalCart({
         Subtotal productos: ${subtotal}
       </p>
     </div>
-  );
-}
-
-function AgentOptionCard({
-  agent,
-  originLat,
-  originLng,
-  onSelect
-}: {
-  agent: OrbiAgent;
-  originLat: number | null;
-  originLng: number | null;
-  onSelect: () => void;
-}) {
-  const distance = getAgentDistance(originLat, originLng, agent);
-
-  return (
-    <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)]">
-      <div className="flex items-start gap-4">
-        <AgentAvatar agent={agent} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-black leading-tight text-orbi-text">{agent.name}</h2>
-            <span
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusStyles[agent.status]}`}
-            >
-              {agent.status}
-            </span>
-          </div>
-          <p className="mt-1 text-sm font-semibold text-orbi-cyan">{agent.serviceType}</p>
-          <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-        <InfoTile label="Zona" value={agent.zone} />
-        <InfoTile label="Nivel" value={agent.trustLevel} />
-        <InfoTile label="Radio" value={`${agent.radiusKm || 20} km`} />
-        <InfoTile
-          label="Distancia"
-          value={
-            distance === null
-              ? "Sin ubicación operativa registrada."
-              : `A ${distance.toFixed(1)} km de tu punto de origen`
-          }
-        />
-      </div>
-      <button
-        type="button"
-        onClick={onSelect}
-        className="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0]"
-      >
-        Elegir agente
-      </button>
-    </article>
   );
 }
 
@@ -4903,27 +4314,6 @@ function shortenText(value: string, maxLength: number) {
   return `${normalizedValue.slice(0, maxLength - 1).trim()}…`;
 }
 
-function getEstimatedOrbit(distance: number | null) {
-  if (distance === null) {
-    return "Por confirmar con el agente";
-  }
-
-  if (distance <= 2) {
-    return "5-10 min";
-  }
-
-  if (distance <= 5) {
-    return "10-20 min";
-  }
-
-  if (distance <= 10) {
-    return "20-35 min";
-  }
-
-  return "35-60 min";
-}
-
-
 function getCartSubtotal(items: CartItem[]) {
   return items.reduce((total, item) => total + item.product.price * item.quantity, 0);
 }
@@ -5012,22 +4402,6 @@ function getLogisticsStatusMessage({
   }
 
   return "Define destino para calcular servicio.";
-}
-
-function getAgentDistance(originLat: number | null, originLng: number | null, agent: OrbiAgent) {
-  const point = getAgentLocation(agent);
-  const originPoint = getValidCoordinatePair({ lat: originLat, lng: originLng });
-  const agentPoint = point ? getValidCoordinatePair(point) : null;
-
-  if (!originPoint || !agentPoint) {
-    return null;
-  }
-
-  return calculateDistanceKm(originPoint.lat, originPoint.lng, agentPoint.lat, agentPoint.lng);
-}
-
-function isServiceCompatible(agentService: AgentServiceType, requestedService: AgentServiceType) {
-  return agentService === "Todos los servicios" || agentService === requestedService;
 }
 
 // Proxy a /api/geocoding/reverse — nunca llama a Nominatim directamente (INV-017).

@@ -18,16 +18,17 @@ import {
   AgentServiceType,
   OrbiAgent,
   agentServiceTypes,
+  calcHaversineKm,
   getAgentById,
   getAgentCurrentLocation,
   getAgentInitials,
   getAgentOperatingEligibility,
   getAgentOperationalLabel,
+  getAgentOperationalLocation,
   updateAgent,
   updateAgentOrbit
 } from "@/lib/agents";
 import {
-  acceptMission,
   ActiveMission,
   cancelMissionByAgent,
   completeMissionWithLedger,
@@ -50,9 +51,16 @@ import {
 } from "@/lib/notificationSound";
 import { CostBreakdown } from "@/components/CostBreakdown";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type MotorParamsData = {
+  radioAsignacionAutomaticaKm: number;
+  radioAsignacionMaximaKm: number;
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const radiusOptions = [5, 10, 20, 30, 50];
+const RADIUS_CANDIDATES = [3, 5, 8] as const;
 
 const selectableServiceTypes = agentServiceTypes;
 
@@ -89,6 +97,29 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   const [orbitError, setOrbitError] = useState("");
   const [orbitMsg, setOrbitMsg] = useState("");
   const [isEnteringOrbit, setIsEnteringOrbit] = useState(false);
+
+  // ── Motor params — fetched from /api/config/motor-params on mount ────────
+  const [motorParams, setMotorParams] = useState<MotorParamsData | null>(null);
+  const [motorParamsLoading, setMotorParamsLoading] = useState(true);
+  const [motorParamsError, setMotorParamsError] = useState(false);
+
+  const loadMotorParamsData = useCallback(async () => {
+    setMotorParamsLoading(true);
+    setMotorParamsError(false);
+    try {
+      const res = await fetch("/api/config/motor-params");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as MotorParamsData;
+      setMotorParams(data);
+    } catch {
+      setMotorParamsError(true);
+      setMotorParams(null);
+    } finally {
+      setMotorParamsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadMotorParamsData(); }, [loadMotorParamsData]);
 
   // ── Missions ─────────────────────────────────────────────────────────────
   const [missions, setMissions] = useState<ActiveMission[]>([]);
@@ -282,7 +313,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
       lng: agent.lng,
       currentLat: agent.currentLat,
       currentLng: agent.currentLng,
-      radiusKm: Number(radiusKm),
+      radiusKm: Number(displayRadius),
       email: agent.email,
       authUserId: agent.authUserId
     };
@@ -305,25 +336,55 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   async function handleAcceptMission(mission: ActiveMission) {
     if (!agent) return;
     setMissionError("");
-    // Guarda de seguridad: rechazar si la misión ya tiene otro agente asignado
-    if (mission.selected_agent_id && mission.selected_agent_id !== realAgentId) {
-      setMissionError("Esta misión ya fue asignada a otro agente.");
+    setMissionMessage("");
+
+    const { data: sessionData } = await supabaseAgent.auth.getSession();
+    const token = sessionData.session?.access_token ?? "";
+    if (!token) {
+      setMissionError("Tu sesión expiró. Recarga la página.");
       return;
     }
-    const currentLoc = getAgentCurrentLocation(agent);
-    const result = await acceptMission(mission.id, agent.id, agent.name, {
-      zone: agent.zone,
-      vehicle: agent.vehicle ?? undefined,
-      trust: agent.trustLevel,
-      lat: currentLoc?.lat ?? agent.currentLat ?? agent.lat,
-      lng: currentLoc?.lng ?? agent.currentLng ?? agent.lng,
-    });
-    if (!result) {
+
+    let res: Response;
+    try {
+      res = await fetch("/api/missions/accept", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mission_id: mission.id }),
+      });
+    } catch {
       setMissionError("No se pudo aceptar la misión. Intenta de nuevo.");
       return;
     }
-    setMissions(await fetchActiveMissions());
-    setMissionMessage("Misión aceptada. Dirígete al origen.");
+
+    if (res.ok) {
+      setMissions(await fetchActiveMissions());
+      setMissionMessage("Misión aceptada. Dirígete al origen.");
+      return;
+    }
+
+    let code = "";
+    try {
+      const body = (await res.json()) as { code?: string };
+      code = body.code ?? "";
+    } catch { /* body no parseable */ }
+
+    if (res.status === 409 && code === "MISSION_TAKEN") {
+      setMissionError("Esta misión ya fue tomada por otro agente.");
+    } else if (res.status === 422 && code === "OUTSIDE_RADIUS") {
+      setMissionError("Esta misión está fuera de tu distancia para ir al punto de inicio.");
+    } else if (res.status === 422 && code === "SERVICE_INCOMPATIBLE") {
+      setMissionError("Esta misión no corresponde a tu tipo de servicio.");
+    } else if (res.status === 422 && code === "AGENT_NOT_ELIGIBLE") {
+      setMissionError("No puedes aceptar esta misión en este momento.");
+    } else if (res.status === 401) {
+      setMissionError("Tu sesión expiró. Recarga la página.");
+    } else {
+      setMissionError("No se pudo aceptar la misión. Intenta de nuevo.");
+    }
   }
 
   async function handleCancelMission(mission: ActiveMission) {
@@ -403,8 +464,10 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   // ── Derived UI ───────────────────────────────────────────────────────────
   const realAgentId = agent?.id ?? agentId;
 
+  // motorParams must be loaded before classifying missions — guards against
+  // applying agent.radiusKm || 20 without the motor cap.
   const myMissions = useMemo(() => {
-    if (!agent) return [];
+    if (!agent || !motorParams) return [];
     return missions.filter((m) => {
       if (isMissionClosed(m)) return false;
       if (releasedIds.has(m.id)) return false;
@@ -418,15 +481,24 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           ? { lat: m.origin_lat, lng: m.origin_lng }
           : null;
       const serviceType = compatibleServiceType(m.service_type);
-      const eligibility = getAgentOperatingEligibility(agent, serviceType, origin, availabilityRefreshAt);
+      const eligibility = getAgentOperatingEligibility(agent, serviceType, origin, availabilityRefreshAt, motorParams);
       if (!eligibility.eligible) return false;
       return true;
     });
-  }, [agent, missions, realAgentId, availabilityRefreshAt, releasedIds]);
+  }, [agent, missions, realAgentId, availabilityRefreshAt, releasedIds, motorParams]);
 
   const operationalLabel = agent ? getAgentOperationalLabel(agent, availabilityRefreshAt) : "";
   const currentGps = agent ? getAgentCurrentLocation(agent) : null;
   const timeOptions = buildTimeOptions();
+
+  // ── Radius selector derivations ──────────────────────────────────────────
+  // Values > radioAsignacionMaximaKm are capped at display time; DB is not touched.
+  const displayRadiusOptions = motorParams
+    ? RADIUS_CANDIDATES.filter((v) => v <= motorParams.radioAsignacionMaximaKm)
+    : [];
+  const displayRadius = motorParams
+    ? String(Math.min(Number(radiusKm), motorParams.radioAsignacionMaximaKm))
+    : radiusKm;
 
   // ── Render ───────────────────────────────────────────────────────────────
   if (isLoadingAgent) {
@@ -470,7 +542,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           </div>
           <button
             type="button"
-            onClick={() => void loadAgent()}
+            onClick={() => { void loadAgent(); void loadMotorParamsData(); }}
             className="inline-flex items-center gap-1.5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.06] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/12"
           >
             <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
@@ -561,7 +633,15 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           </div>
         ) : null}
 
-        {myMissions.length === 0 ? (
+        {motorParamsLoading ? (
+          <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+            Cargando oportunidades…
+          </p>
+        ) : motorParamsError ? (
+          <p className="rounded-md border border-yellow-300/20 bg-yellow-400/10 p-3 text-sm text-yellow-100">
+            No pudimos actualizar tus oportunidades. Pulsa Actualizar para intentar de nuevo.
+          </p>
+        ) : myMissions.length === 0 ? (
           <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
             Sin misiones activas. Para recibir misiones debes estar en órbita con GPS, dentro de tu horario y radio operativo.
           </p>
@@ -569,6 +649,25 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           <div className="space-y-4">
             {myMissions.map((m) => {
               const isAssigned = isMissionActive(m) && m.selected_agent_id === realAgentId;
+
+              // Chip de distancia — Haversine agente → origen operativo.
+              // Solo informativo: no es vial, no determina precio ni pago.
+              const agentLoc = agent ? getAgentOperationalLocation(agent) : null;
+              const mOrigin =
+                m.origin_lat != null && m.origin_lng != null
+                  ? { lat: m.origin_lat, lng: m.origin_lng }
+                  : null;
+              const distKm =
+                agentLoc && mOrigin
+                  ? calcHaversineKm(agentLoc.lat, agentLoc.lng, mOrigin.lat, mOrigin.lng)
+                  : null;
+              const waveLabel =
+                distKm !== null && motorParams
+                  ? distKm <= motorParams.radioAsignacionAutomaticaKm
+                    ? `Cerca · aprox. ${distKm.toFixed(1)} km del punto de inicio`
+                    : `Radio ampliado · aprox. ${distKm.toFixed(1)} km del punto de inicio`
+                  : null;
+
               return (
                 <article
                   key={m.id}
@@ -581,6 +680,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
                       </p>
                       <h3 className="mt-1 text-xl font-black text-orbi-text">{m.service_type}</h3>
                       <p className="mt-0.5 font-mono text-[10px] text-orbi-muted/60">Folio: #{m.id.slice(-8).toUpperCase()}</p>
+                      {waveLabel ? (
+                        <p className="mt-1 text-xs text-orbi-muted">{waveLabel}</p>
+                      ) : null}
                       <p className="mt-2 text-sm leading-6 text-orbi-muted">{m.detail}</p>
                     </div>
                     <span className="w-fit rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
@@ -709,16 +811,20 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           </label>
 
           <label className="block text-sm font-semibold text-orbi-text">
-            Radio operativo
+            Distancia máxima para ir al punto de inicio
             <select
-              value={radiusKm}
+              value={displayRadius}
               onChange={(e) => setRadiusKm(e.target.value)}
-              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+              disabled={!motorParams}
+              className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15 disabled:opacity-50"
             >
-              {radiusOptions.map((r) => (
+              {displayRadiusOptions.map((r) => (
                 <option key={r} value={r}>{r} km</option>
               ))}
             </select>
+            <p className="mt-1.5 text-xs font-normal text-orbi-muted">
+              Este límite se mueve contigo mientras estás en órbita. No es la distancia total de la misión.
+            </p>
           </label>
 
           <TimeSelect label="Hora inicio" value={availabilityStart} onChange={setAvailabilityStart} options={timeOptions} />

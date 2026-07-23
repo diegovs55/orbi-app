@@ -475,12 +475,17 @@ export function getAgentOperatingEligibility(
   agent: OrbiAgent,
   serviceType: AgentServiceType,
   origin?: { lat: number; lng: number } | null,
-  now = new Date()
+  now = new Date(),
+  motorParams?: { radioAsignacionMaximaKm: number }
 ) {
   const location = getAgentLocation(agent);
   const distanceKm =
-    origin && location ? calcDistKm(origin.lat, origin.lng, location.lat, location.lng) : null;
-  const radiusKm = agent.radiusKm || 20;
+    origin && location ? calcHaversineKm(origin.lat, origin.lng, location.lat, location.lng) : null;
+  // Con motorParams (flujos G3): la autoridad del máximo es motorParams — nunca un hardcode.
+  // Sin motorParams (callers históricos G2 UI): comportamiento previo sin cambio.
+  const radiusKm = motorParams
+    ? Math.min(agent.radiusKm ?? motorParams.radioAsignacionMaximaKm, motorParams.radioAsignacionMaximaKm)
+    : (agent.radiusKm || 20);
 
   if (agent.status !== AGENT_STATUS.ONLINE)
     return { eligible: false, reason: `fuera de servicio: ${agent.status}`, location, distanceKm };
@@ -511,15 +516,15 @@ export function getAgentOperationalLabel(
   const location = getAgentLocation(agent);
   if (!location) return "Fuera de órbita";
   if (origin) {
-    const d = calcDistKm(origin.lat, origin.lng, location.lat, location.lng);
+    const d = calcHaversineKm(origin.lat, origin.lng, location.lat, location.lng);
     if (d > (agent.radiusKm || 20)) return "Fuera de zona";
   }
   return "En órbita";
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+// ── Geometry ──────────────────────────────────────────────────────────────────
 
-function calcDistKm(latA: number, lngA: number, latB: number, lngB: number): number {
+export function calcHaversineKm(latA: number, lngA: number, latB: number, lngB: number): number {
   const R = 6371;
   const dLat = ((latB - latA) * Math.PI) / 180;
   const dLng = ((lngB - lngA) * Math.PI) / 180;
@@ -528,6 +533,50 @@ function calcDistKm(latA: number, lngA: number, latB: number, lngB: number): num
     Math.cos((latA * Math.PI) / 180) * Math.cos((latB * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+
+// ── Mission origin resolution ─────────────────────────────────────────────────
+
+export type MissionOrigin = { lat: number; lng: number; source: string } | null;
+
+/**
+ * Devuelve el punto geográfico que representa el "origen operativo" de una misión
+ * según su tipo de servicio. La distancia agente→origen se usa únicamente para
+ * elegibilidad (radio Haversine); la distancia vial para pricing es responsabilidad de G1.
+ *
+ * Tipos de servicio reales en missions.service_type y su semántica de origen:
+ *   "Compra local"   → "business_db"  — el negocio es el punto de recogida
+ *   "Entrega"        → "user_pickup"  — punto de recogida del usuario
+ *   "Recolección"    → "user_pickup"  — punto de recogida del usuario
+ *   "Traslado"       → "user_start"   — punto de inicio del traslado
+ *   "Mandado"        → "user_origin"  — origen del encargo
+ *   "Pago o trámite" → "user_origin"  — origen del trámite
+ *   Desconocido      → "user_origin"  — fallback seguro
+ *
+ * Todos leen mission.origin_lat / mission.origin_lng. El source es semántico
+ * y de auditoría; no afecta pricing ni requiere cambios de schema.
+ */
+export function resolveOperationalOrigin(mission: {
+  service_type?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  business_id?: string | null;
+}): MissionOrigin {
+  const lat = typeof mission.origin_lat === "number" ? mission.origin_lat : null;
+  const lng = typeof mission.origin_lng === "number" ? mission.origin_lng : null;
+  if (lat === null || lng === null) return null;
+
+  const svc = (mission.service_type ?? "").trim();
+
+  if (svc === "Compra local")   return { lat, lng, source: "business_db" };
+  if (svc === "Entrega")        return { lat, lng, source: "user_pickup" };
+  if (svc === "Recolección")    return { lat, lng, source: "user_pickup" };
+  if (svc === "Traslado")       return { lat, lng, source: "user_start" };
+  if (svc === "Mandado")        return { lat, lng, source: "user_origin" };
+  if (svc === "Pago o trámite") return { lat, lng, source: "user_origin" };
+  return { lat, lng, source: "user_origin" };
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
 
 function markDeletedLocally(id: string) {
   if (typeof window === "undefined") return;
