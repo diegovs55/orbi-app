@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Copy, Loader2, Trash2 } from "lucide-react";
 import { PendingRequest, RequestStatus, mapRequestRow } from "@/lib/pendingRequests";
-import { AgentStatus, createAgent, getAgentInitials } from "@/lib/agents";
 import { adminFetch } from "@/lib/admin-fetch";
 
 const POLL_INTERVAL_MS = 8_000;
@@ -132,53 +131,34 @@ export function AdminPendingRequests() {
       await apiUpdateRequest(r.id, "approved");
     } else if (r.type === "agent") {
       setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
-      let supabaseAgentId: string | undefined;
-      try {
-        const newAgent = await createAgent({
-          name: r.name,
-          email: r.email,
-          photoUrl: "",
-          initials: getAgentInitials(r.name),
-          serviceType: "Todos los servicios",
-          zone: "Por definir",
-          status: "Disponible" as AgentStatus,
-          isOnOrbit: false,
-          trustLevel: "Aprendiz",
-          phone: r.phone,
-          description: r.message || "",
-          vehicle: "",
-          availability: "",
-          lat: null, lng: null,
-          currentLat: null, currentLng: null,
-          radiusKm: 20,
-          authUserId: undefined,
-        });
-        supabaseAgentId = newAgent.id;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error desconocido al crear ficha en Supabase.";
-        console.error("[agents] createAgent failed:", err);
-        setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
-        setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
-        return;
-      }
-      let tempPassword: string | undefined;
       try {
         const activateRes = await adminFetch("/api/agents/activate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agentId: supabaseAgentId }),
+          body: JSON.stringify({ requestId: r.id }),
         });
-        const activateData = (await activateRes.json()) as { tempPassword?: string; error?: string; alreadyActivated?: boolean };
-        if (!activateRes.ok) throw new Error(activateData.error ?? "Error al activar agente en Auth");
-        tempPassword = activateData.alreadyActivated ? undefined : activateData.tempPassword;
+        const activateData = (await activateRes.json()) as {
+          agentId?: string;
+          authUserId?: string;
+          tempPassword?: string;
+          error?: string;
+          alreadyActivated?: boolean;
+        };
+        if (!activateRes.ok) throw new Error(activateData.error ?? "Error al activar agente.");
+        setCredResults((prev) => ({
+          ...prev,
+          [r.id]: {
+            email: r.email,
+            password: activateData.tempPassword,       // undefined si el usuario ya existía en Auth
+            supabaseAgentId: activateData.agentId,
+          },
+        }));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Error al activar en Supabase Auth.";
         setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
         setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
         return;
       }
-      setCredResults((prev) => ({ ...prev, [r.id]: { email: r.email, password: tempPassword, supabaseAgentId } }));
-      await apiUpdateRequest(r.id, "approved");
     } else {
       await apiUpdateRequest(r.id, "approved");
     }
