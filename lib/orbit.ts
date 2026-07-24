@@ -31,7 +31,10 @@ export type OrbitResolutionResult =
   | { status: "timeout" }      // GPS no respondió a tiempo
   | { status: "error"; message: string };
 
-const GPS_TIMEOUT_MS = 5000;
+const GPS_TIMEOUT_MS = 5_000;
+// Función explícita: el timer externo arranca ANTES del diálogo de permiso, por lo
+// que debe absorber el tiempo de decisión del usuario + la adquisición real del GPS.
+const GPS_EXPLICIT_TIMEOUT_MS = 20_000;
 
 /**
  * Valida que las coordenadas sean utilizables como centro de órbita.
@@ -179,7 +182,7 @@ export async function resolveOrbitFromGpsExplicit(): Promise<OrbitResolutionResu
       if (settled) return;
       settled = true;
       resolve({ status: "timeout" });
-    }, GPS_TIMEOUT_MS);
+    }, GPS_EXPLICIT_TIMEOUT_MS);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -213,7 +216,7 @@ export async function resolveOrbitFromGpsExplicit(): Promise<OrbitResolutionResu
           resolve({ status: "error", message: err.message });
         }
       },
-      { timeout: GPS_TIMEOUT_MS, maximumAge: 60_000 }
+      { timeout: GPS_EXPLICIT_TIMEOUT_MS, maximumAge: 60_000 }
     );
   });
 }

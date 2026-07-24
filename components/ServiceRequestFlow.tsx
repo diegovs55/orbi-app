@@ -283,6 +283,7 @@ export function ServiceRequestFlow() {
   const [orbitCenter, setOrbitCenter] = useState<OrbitCenter | null>(null);
   const [orbitLoading, setOrbitLoading] = useState(true);
   const [orbitGpsLoading, setOrbitGpsLoading] = useState(false);
+  const [orbitGpsError, setOrbitGpsError] = useState<"denied" | "recoverable" | null>(null);
   const [showOrbitPicker, setShowOrbitPicker] = useState(false);
   // B4: false = mostrar solo radio ordinario; true = mostrar también candidatos ampliados.
   // Se reinicia a false al cambiar órbita o query. Abrir/cerrar picker sin elegir no lo altera.
@@ -600,13 +601,25 @@ export function ServiceRequestFlow() {
   // Esta función SÍ puede disparar el diálogo del sistema porque viene de un clic.
   async function handleRequestOrbitFromGps() {
     setOrbitGpsLoading(true);
+    setOrbitGpsError(null);
     try {
       const result = await resolveOrbitFromGpsExplicit();
       if (result.status === "resolved") {
         setShowOrbitPicker(false);
         applyOrbitChange(result.center);
+        return;
       }
-      // denied / timeout / error: la UI permanece con el picker visible para ruta manual.
+      // Feedback visible para cada resultado no exitoso.
+      if (result.status === "denied") {
+        setOrbitGpsError("denied");
+      } else if (
+        result.status === "timeout" ||
+        result.status === "unavailable" ||
+        result.status === "error"
+      ) {
+        setOrbitGpsError("recoverable");
+      }
+      // "prompt" / "unsupported": sin mensaje — el diálogo sigue visible para ruta manual.
     } finally {
       setOrbitGpsLoading(false);
     }
@@ -1761,6 +1774,7 @@ export function ServiceRequestFlow() {
             ) : (
               <OrbitUnresolvedBanner
                 gpsLoading={orbitGpsLoading}
+                gpsError={orbitGpsError}
                 showPicker={showOrbitPicker}
                 onRequestGps={handleRequestOrbitFromGps}
                 onShowPicker={() => setShowOrbitPicker(true)}
@@ -4479,6 +4493,7 @@ function OrbitChip({
  */
 function OrbitUnresolvedBanner({
   gpsLoading,
+  gpsError,
   showPicker,
   onRequestGps,
   onShowPicker,
@@ -4486,15 +4501,26 @@ function OrbitUnresolvedBanner({
   onCancelPicker,
 }: {
   gpsLoading: boolean;
+  gpsError: "denied" | "recoverable" | null;
   showPicker: boolean;
   onRequestGps: () => void;
   onShowPicker: () => void;
   onSetOrbit: (center: OrbitCenter) => void;
   onCancelPicker: () => void;
 }) {
+  const errorMsg =
+    gpsError === "denied"
+      ? "No pudimos acceder a tu ubicación. Puedes habilitar el permiso e intentarlo nuevamente, o buscar en otra zona."
+      : gpsError === "recoverable"
+        ? "No pudimos obtener tu ubicación. Puedes intentarlo nuevamente o buscar en otra zona."
+        : null;
+
   return (
     <div className="mb-3 space-y-2 rounded-md border border-orbi-cyan/20 bg-orbi-cyan/5 p-3">
       <p className="text-sm font-semibold text-orbi-text">¿Desde dónde buscas?</p>
+      {errorMsg && !gpsLoading ? (
+        <p className="text-xs text-yellow-300/90">{errorMsg}</p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -4503,7 +4529,7 @@ function OrbitUnresolvedBanner({
           className="inline-flex items-center gap-1.5 rounded-full border border-orbi-cyan/30 bg-orbi-cyan/10 px-3 py-1.5 text-xs font-semibold text-orbi-cyan transition hover:bg-orbi-cyan/20 disabled:opacity-50"
         >
           <LocateFixed aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-          {gpsLoading ? "Obteniendo ubicación…" : "Usar mi ubicación"}
+          {gpsLoading ? "Obteniendo ubicación…" : gpsError ? "Intentar nuevamente" : "Usar mi ubicación"}
         </button>
         <button
           type="button"
@@ -4511,7 +4537,7 @@ function OrbitUnresolvedBanner({
           className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-orbi-text transition hover:bg-white/[0.10]"
         >
           <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-orbi-muted" />
-          Elegir zona
+          {gpsError ? "Buscar en otra zona" : "Elegir zona"}
         </button>
       </div>
       {showPicker ? (
