@@ -20,29 +20,40 @@ export default function AdminPage() {
       description=""
     >
       <AdminAccessGate>
+
+        {/* ── SECCIÓN 1 — ¿Qué está pasando ahora? ─────────────────────── */}
         <AdminLiveOperations />
+
+        {/* ── SECCIÓN 2 — ¿Cómo va el negocio? ────────────────────────── */}
         <AdminNetworkEconomy />
         <AdminDistribution />
         <AdminConversion />
-        <AdminLeaders />
-        <AdminHistory />
 
+        {/* ── SECCIÓN 4 — ¿Quién mueve la red? ────────────────────────── */}
+        <AdminLeaders />
+
+        {/* ── SECCIÓN 5 — ¿Quiénes son los actores? ───────────────────── */}
         <div className="space-y-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
-              G — Administración
+              Administración
             </p>
             <h2 className="mt-1 text-xl font-black text-orbi-text">
-              Solicitudes, agentes y negocios
+              Solicitudes, agentes, negocios y clientes
             </h2>
           </div>
         </div>
-
         <AdminPendingRequests />
         <AdminAgentsPanel />
         <AdminBusinessesPanel />
         <AdminCustomers />
+
+        {/* ── SECCIÓN 6 — ¿Qué pasó antes? ────────────────────────────── */}
+        <AdminHistory />
+
+        {/* ── SECCIÓN 7 — ¿Cómo está el motor? ────────────────────────── */}
         <AdminMotorParams />
+
       </AdminAccessGate>
     </PageShell>
   );
