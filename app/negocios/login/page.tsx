@@ -82,6 +82,9 @@ export default function NegociosLoginPage() {
             <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-5xl">
               Bienvenido a tu panel de negocio.
             </h1>
+            <p className="max-w-lg text-base leading-7 text-orbi-muted sm:text-lg">
+              Si es tu primer acceso, utiliza el correo y la contraseña temporal que te proporcionó el equipo ORBI.
+            </p>
           </section>
 
           <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">

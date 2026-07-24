@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Building2, X } from "lucide-react";
 import { addPendingRequest } from "@/lib/pendingRequests";
 
-type Panel = "closed" | "login" | "request";
+type Panel = "closed" | "login" | "request" | "confirmed";
 
 export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
   const router = useRouter();
@@ -14,16 +14,21 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
   const [regName, setRegName] = useState("");
   const [regPhone, setRegPhone] = useState("");
   const [reqMessage, setReqMessage] = useState("");
+  const [confirmedPhone, setConfirmedPhone] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
   // onLogin prop kept for interface compatibility; actual login redirects to /negocios/login
   void onLogin;
 
   function reset() {
-    setError(""); setSuccess(""); setIdentifier("");
+    setError(""); setIdentifier("");
     setRegName(""); setRegPhone(""); setReqMessage("");
+  }
+
+  function handleClose() {
+    setPanel("closed");
+    reset();
   }
 
   function handleLogin(e: FormEvent) {
@@ -50,35 +55,52 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
       setError("No fue posible enviar la solicitud. Intenta de nuevo.");
       return;
     }
-    setSuccess("Solicitud enviada. El equipo Orbi revisará tu alta pronto.");
+    setConfirmedPhone(regPhone.trim());
     reset();
+    setPanel("confirmed");
   }
 
   if (panel === "closed") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-wrap gap-2 justify-end">
+        <button type="button" onClick={() => setPanel("request")}
+          className="inline-flex items-center gap-2 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]">
+          <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
+          Solicitar alta
+        </button>
         <button type="button" onClick={() => setPanel("login")}
           className="inline-flex items-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20">
-          <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
-          Entrar como negocio
+          Ya tengo acceso
         </button>
       </div>
     );
   }
 
-  const panelTitle = panel === "login" ? "Acceso de negocio" : "Solicitar alta de negocio";
+  const panelTitle =
+    panel === "login" ? "Acceso de negocio" :
+    panel === "confirmed" ? "¡Solicitud recibida!" :
+    "Solicitar alta de negocio";
 
   return (
     <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.06] p-5">
       <div className="flex items-center justify-between">
         <p className="text-sm font-black text-orbi-text">{panelTitle}</p>
-        <button type="button" onClick={() => { setPanel("closed"); reset(); }} className="text-orbi-muted transition hover:text-orbi-text">
+        <button type="button" onClick={handleClose} className="text-orbi-muted transition hover:text-orbi-text">
           <X aria-hidden="true" className="h-4 w-4" />
         </button>
       </div>
 
-      {success ? (
-        <p className="mt-3 rounded-md border border-orbi-cyan/15 bg-orbi-blue/10 px-3 py-2 text-xs font-semibold text-orbi-cyan">{success}</p>
+      {panel === "confirmed" ? (
+        <div className="mt-4 space-y-3">
+          <p className="text-sm leading-6 text-orbi-muted">
+            Tu negocio está a un paso de entrar en órbita. Revisaremos tu información y nos comunicaremos contigo al teléfono o WhatsApp registrado
+            {confirmedPhone ? <> (<span className="font-semibold text-orbi-text">{confirmedPhone}</span>)</> : null} para continuar con tu acceso.
+          </p>
+          <p className="text-xs text-orbi-muted/70">No necesitas enviar otra solicitud.</p>
+          <div className="pt-1">
+            <SecondaryBtn label="Entendido" onClick={handleClose} />
+          </div>
+        </div>
       ) : panel === "login" ? (
         <form onSubmit={handleLogin} className="mt-4 space-y-3" noValidate>
           <p className="text-sm text-orbi-muted">
@@ -92,6 +114,9 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
         </form>
       ) : (
         <form onSubmit={handleRequest} className="mt-4 space-y-3" noValidate>
+          <p className="text-sm text-orbi-muted">
+            Cuéntanos sobre tu negocio. Revisaremos la información y nos comunicaremos contigo al teléfono o WhatsApp registrado para continuar con tu incorporación.
+          </p>
           <FieldInput label="Nombre del negocio" type="text" value={regName} onChange={setRegName} placeholder="Mi negocio" autoComplete="organization" />
           <FieldInput label="Correo electrónico" type="email" value={identifier} onChange={setIdentifier} placeholder="correo@negocio.com" autoComplete="email" />
           <FieldInput label="Teléfono / WhatsApp" type="tel" value={regPhone} onChange={setRegPhone} placeholder="7771234567" autoComplete="tel" />

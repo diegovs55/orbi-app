@@ -98,6 +98,9 @@ export default function NegociosCambiarContrasenaPage() {
             <p className="max-w-lg text-base leading-7 text-orbi-muted sm:text-lg">
               El equipo Orbi te entregó una contraseña temporal. Por seguridad debes cambiarla antes de acceder al panel de tu negocio. Esta contraseña solo la conocerás tú.
             </p>
+            <p className="max-w-lg text-base leading-7 text-orbi-muted sm:text-lg">
+              Después de crear tu contraseña entrarás al panel para completar la información y el catálogo de tu negocio.
+            </p>
           </section>
 
           <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">

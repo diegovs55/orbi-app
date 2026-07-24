@@ -301,7 +301,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
       if (found) {
         setMyBusiness(found);
         setShowProfile(false);
-        setFmsg("Perfil guardado. Tus productos ya pueden aparecer en el catálogo.");
+        setFmsg("✅ Perfil guardado. Ahora agrega tus productos o servicios para que los clientes puedan encontrarlos y pedirlos.");
       }
     } catch (err) {
       setPfError(err instanceof Error ? err.message : "Error al guardar perfil.");
@@ -385,8 +385,8 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
           </div>
 
           {myBusiness?.lat === null ? (
-            <p className="rounded-md border border-yellow-300/20 bg-yellow-300/[0.06] px-3 py-2 text-xs font-semibold text-yellow-200">
-              Completa tu perfil para que tus productos aparezcan en el catálogo público.
+            <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
+              Primer paso: completa los datos de tu negocio para que pueda aparecer correctamente en el catálogo.
             </p>
           ) : null}
 
@@ -521,7 +521,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
           </p>
         ) : products.length === 0 && !showForm ? (
           <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
-            Aún no tienes productos. Agrega tu primer producto.
+            Tu catálogo todavía está vacío. Agrega tu primer producto o servicio para comenzar.
           </p>
         ) : null}
 
