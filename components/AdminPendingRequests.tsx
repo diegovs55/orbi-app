@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Copy, Loader2, Trash2 } from "lucide-react";
 import { PendingRequest, RequestStatus, mapRequestRow } from "@/lib/pendingRequests";
-import { createCatalogBusiness } from "@/lib/catalog";
 import { AgentStatus, createAgent, getAgentInitials } from "@/lib/agents";
 import { adminFetch } from "@/lib/admin-fetch";
 
@@ -79,22 +78,28 @@ export function AdminPendingRequests() {
       setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
       let supabaseBusinessId: string | undefined;
       try {
-        const biz = await createCatalogBusiness({
-          name: r.name,
-          category: "Otro",
-          zone: "",
-          baseText: r.message || r.name,
-          phone: r.phone,
-          lat: null,
-          lng: null,
-          status: "activo",
-          availability: "",
-          availabilityStart: "",
-          availabilityEnd: "",
-          estimatedTime: "Dinámico",
-          rating: null
+        const createRes = await adminFetch("/api/businesses/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: r.name,
+            category: "Otro",
+            zone: "",
+            baseText: r.message || r.name,
+            phone: r.phone,
+            lat: null,
+            lng: null,
+            status: "activo",
+            availability: "",
+            availabilityStart: "",
+            availabilityEnd: "",
+            estimatedTime: "Dinámico",
+            rating: null,
+          }),
         });
-        supabaseBusinessId = biz.id;
+        if (!createRes.ok) throw new Error("No se pudo crear la ficha del negocio.");
+        const createData = (await createRes.json()) as { id?: string };
+        supabaseBusinessId = createData.id;
       } catch {
         supabaseBusinessId = undefined;
       }
