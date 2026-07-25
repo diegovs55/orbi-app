@@ -28,6 +28,8 @@ export type AgentTrustLevel = (typeof agentLevels)[number];
 
 // ── Public type ───────────────────────────────────────────────────────────────
 
+export type AgentAdminStatus = "activo" | "desactivado";
+
 export type OrbiAgent = {
   id: string;
   authUserId?: string;
@@ -38,6 +40,7 @@ export type OrbiAgent = {
   serviceType: AgentServiceType;
   zone: string;
   status: AgentStatus;
+  adminStatus: AgentAdminStatus;
   isOnOrbit: boolean;
   trustLevel: AgentTrustLevel;
   phone: string;
@@ -52,7 +55,7 @@ export type OrbiAgent = {
   isDemo?: boolean;
 };
 
-export type CreateAgentInput = Omit<OrbiAgent, "id">;
+export type CreateAgentInput = Omit<OrbiAgent, "id" | "adminStatus">;
 
 // ── Internal DB types ─────────────────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ type AgentRow = {
   service_type: string;
   zone: string;
   status: string;
+  admin_status: string | null;
   trust_level: string;
   phone: string;
   description: string;
@@ -81,7 +85,7 @@ type AgentRow = {
 
 // Exact columns present in public.agents — never add columns that don't exist.
 const SELECT =
-  "id,name,email,photo_url,initials,service_type,zone,status,trust_level," +
+  "id,name,email,photo_url,initials,service_type,zone,status,admin_status,trust_level," +
   "phone,description,vehicle,availability,lat,lng,radius_km," +
   "is_on_orbit,current_lat,current_lng,auth_user_id";
 
@@ -118,6 +122,10 @@ function normalizeServiceType(s: string): AgentServiceType {
     : "Todos los servicios";
 }
 
+function normalizeAdminStatus(s: string | null | undefined): AgentAdminStatus {
+  return s === "desactivado" ? "desactivado" : "activo";
+}
+
 function fromRow(row: AgentRow): OrbiAgent {
   return {
     id: row.id,
@@ -129,6 +137,7 @@ function fromRow(row: AgentRow): OrbiAgent {
     serviceType: normalizeServiceType(row.service_type),
     zone: row.zone,
     status: normalizeStatus(row.status),
+    adminStatus: normalizeAdminStatus(row.admin_status),
     isOnOrbit: row.is_on_orbit ?? false,
     trustLevel: normalizeLevel(row.trust_level),
     phone: row.phone,
@@ -165,6 +174,33 @@ export async function getAgents(): Promise<OrbiAgent[]> {
   return ((data ?? []) as unknown as AgentRow[])
     .filter((r) => !deletedIds.includes(r.id))
     .map(fromRow);
+}
+
+export async function getActiveAgents(): Promise<OrbiAgent[]> {
+  const { data, error } = await client()
+    .from("agents")
+    .select(SELECT)
+    .eq("admin_status", "activo")
+    .order("status", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  const deletedIds = getLocallyDeletedAgentIds();
+  return ((data ?? []) as unknown as AgentRow[])
+    .filter((r) => !deletedIds.includes(r.id))
+    .map(fromRow);
+}
+
+export async function getSuspendedAgents(): Promise<OrbiAgent[]> {
+  const { data, error } = await client()
+    .from("agents")
+    .select(SELECT)
+    .eq("admin_status", "desactivado")
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as AgentRow[]).map(fromRow);
 }
 
 export async function getAgentById(id: string): Promise<OrbiAgent | null> {
