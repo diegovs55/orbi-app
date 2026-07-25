@@ -11,7 +11,7 @@ export const businessCategories = [
 
 export type BusinessCategory = (typeof businessCategories)[number];
 
-export type BusinessStatus = "activo" | "inactivo";
+export type BusinessStatus = "activo" | "inactivo" | "eliminado";
 
 export type AffiliateBusiness = {
   id: string;
@@ -60,6 +60,20 @@ export async function getBusinesses() {
   }
 
   return (data ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
+}
+
+export async function getAdminBusinesses() {
+  const client = getSupabaseClient();
+
+  const { data, error } = await client
+    .from("businesses")
+    .select("id,name,category,description,status,rating,email,auth_user_id")
+    .in("status", ["activo", "inactivo"])
+    .order("category", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapBusinessRow);
 }
 
 export async function getBusinessByAuthUserId(authUserId: string): Promise<AffiliateBusiness | null> {
@@ -135,7 +149,7 @@ function mapBusinessRow(row: BusinessRow): AffiliateBusiness {
     category: row.category,
     description: row.description,
     estimatedTime: "",
-    status: row.status === "activo" ? "activo" : "inactivo",
+    status: (["activo", "inactivo", "eliminado"].includes(row.status) ? row.status : "inactivo") as BusinessStatus,
     rating: String(row.rating),
     email: row.email ?? null,
     authUserId: row.auth_user_id ?? null,
