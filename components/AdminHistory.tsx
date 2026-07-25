@@ -87,6 +87,9 @@ export function AdminHistory() {
   const [serviceType, setServiceType] = useState("Todos");
   const [status, setStatus] = useState("Todos");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("Todos");
   const [auditMissionId, setAuditMissionId] = useState<string | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,21 +128,30 @@ export function AdminHistory() {
   const tNorm = textNorm(rawSearch);    // lowercase only → for name/service match
   const isFolioSearch = rawSearch !== "" && /^[0-9a-f]{4,12}$/.test(fNorm);
 
-  const visibleMissions = rawSearch
-    ? missions.filter((m) => {
-        if (isFolioSearch) {
-          // Match the 8-char folio displayed in the table, or anywhere in the full UUID.
-          const displayFolio = m.id.slice(-8).toLowerCase();
-          return displayFolio.includes(fNorm) || m.id.toLowerCase().includes(fNorm);
-        }
-        // Text search: preserve spaces so "jorge g" correctly matches "jorge garcía".
-        return (
-          textNorm(m.requester_name).includes(tNorm) ||
-          textNorm(m.selected_agent_name).includes(tNorm) ||
-          textNorm(m.service_type).includes(tNorm)
-        );
-      })
-    : missions;
+  const fromMs = dateFrom ? new Date(dateFrom).getTime() : null;
+  const toMs = dateTo ? new Date(dateTo + "T23:59:59").getTime() : null;
+
+  const visibleMissions = missions.filter((m) => {
+    if (rawSearch) {
+      if (isFolioSearch) {
+        const displayFolio = m.id.slice(-8).toLowerCase();
+        if (!displayFolio.includes(fNorm) && !m.id.toLowerCase().includes(fNorm)) return false;
+      } else {
+        if (
+          !textNorm(m.requester_name).includes(tNorm) &&
+          !textNorm(m.selected_agent_name).includes(tNorm) &&
+          !textNorm(m.service_type).includes(tNorm)
+        ) return false;
+      }
+    }
+    if (paymentMethod !== "Todos" && m.payment_method !== paymentMethod) return false;
+    if (fromMs !== null || toMs !== null) {
+      const mMs = new Date(m.created_at || m.updated_at).getTime();
+      if (fromMs !== null && mMs < fromMs) return false;
+      if (toMs !== null && mMs > toMs) return false;
+    }
+    return true;
+  });
 
   return (
     <section className="space-y-4">
@@ -152,8 +164,8 @@ export function AdminHistory() {
         </h2>
       </div>
 
-      {/* Filters — 3 columns */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/* Filters */}
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <label className="block text-xs font-semibold text-orbi-muted">
           Servicio
           <select
@@ -181,16 +193,48 @@ export function AdminHistory() {
         </label>
 
         <label className="block text-xs font-semibold text-orbi-muted">
-          Buscar
+          Método de pago
+          <select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            className="mt-1.5 w-full rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs font-semibold text-orbi-text outline-none focus:border-orbi-cyan/40"
+          >
+            <option value="Todos">Todos</option>
+            <option value="Efectivo">Efectivo</option>
+            <option value="Transferencia">Transferencia</option>
+            <option value="Tarjeta">Tarjeta</option>
+          </select>
+        </label>
+
+        <label className="block text-xs font-semibold text-orbi-muted">
+          Desde
           <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Nombre, agente, servicio o #folio…"
-            className="mt-1.5 w-full rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs text-orbi-text placeholder:text-orbi-muted/50 outline-none focus:border-orbi-cyan/40"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="mt-1.5 w-full rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+          />
+        </label>
+
+        <label className="block text-xs font-semibold text-orbi-muted">
+          Hasta
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="mt-1.5 w-full rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
           />
         </label>
       </div>
+
+      {/* Búsqueda libre */}
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => handleSearch(e.target.value)}
+        placeholder="Buscar por nombre, agente, servicio o #folio…"
+        className="w-full rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs text-orbi-text placeholder:text-orbi-muted/50 outline-none focus:border-orbi-cyan/40"
+      />
 
       {/* Table — 7 columns, no horizontal scroll on desktop */}
       <div className="overflow-hidden rounded-md border border-white/10">

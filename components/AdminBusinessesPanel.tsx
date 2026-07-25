@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { Copy, KeyRound, RotateCcw, Store, Trash2 } from "lucide-react";
-import { AffiliateBusiness, getBusinesses, setBusinessStatus } from "@/lib/businesses";
+import { AffiliateBusiness, getAdminBusinesses } from "@/lib/businesses";
 import { subscribeToBusinesses } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
 
@@ -17,10 +17,12 @@ export function AdminBusinessesPanel() {
   const [credResults, setCredResults] = useState<Record<string, CredResult>>({});
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
   const [savingEmail, setSavingEmail] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("Todas");
 
   async function load() {
     try {
-      setBusinesses(await getBusinesses());
+      setBusinesses(await getAdminBusinesses());
     } catch {
       // silent
     } finally {
@@ -33,9 +35,33 @@ export function AdminBusinessesPanel() {
     return subscribeToBusinesses(() => void load());
   }, []);
 
-  async function handleToggle(b: AffiliateBusiness) {
+  async function handleReactivate(b: AffiliateBusiness) {
+    setErrors((p) => { const n = { ...p }; delete n[b.id]; return n; });
     try {
-      await setBusinessStatus(b.id, b.status === "activo" ? "inactivo" : "activo");
+      const res = await adminFetch("/api/businesses/deactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: b.id, action: "activar" }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Error al reactivar el negocio.");
+      await load();
+    } catch (err) {
+      setErrors((p) => ({ ...p, [b.id]: err instanceof Error ? err.message : "Error al reactivar" }));
+    }
+  }
+
+  async function handleToggle(b: AffiliateBusiness) {
+    setErrors((p) => { const n = { ...p }; delete n[b.id]; return n; });
+    const action = b.status === "activo" ? "desactivar" : "activar";
+    try {
+      const res = await adminFetch("/api/businesses/deactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: b.id, action }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Error al cambiar estado del negocio.");
       await load();
     } catch (err) {
       setErrors((p) => ({ ...p, [b.id]: err instanceof Error ? err.message : "Error" }));
@@ -43,8 +69,20 @@ export function AdminBusinessesPanel() {
   }
 
   async function handleDelete(b: AffiliateBusiness) {
+    const confirmed = window.confirm(
+      `¿Eliminar permanentemente a "${b.name}"?\n\nEsta acción es irreversible. El negocio perderá acceso definitivamente, pero sus misiones e historial quedarán intactos.`
+    );
+    if (!confirmed) return;
+
+    setErrors((p) => { const n = { ...p }; delete n[b.id]; return n; });
     try {
-      await setBusinessStatus(b.id, "inactivo");
+      const res = await adminFetch("/api/businesses/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: b.id }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Error al eliminar negocio.");
       await load();
     } catch (err) {
       setErrors((p) => ({
@@ -134,6 +172,17 @@ export function AdminBusinessesPanel() {
     }
   }
 
+  const categories = ["Todas", ...Array.from(new Set(businesses.map((b) => b.category).filter(Boolean))).sort()];
+  const q = search.trim().toLowerCase();
+  function matchBusiness(b: AffiliateBusiness) {
+    const matchesSearch = !q ||
+      b.name.toLowerCase().includes(q) ||
+      (b.email ?? "").toLowerCase().includes(q) ||
+      (b.category ?? "").toLowerCase().includes(q);
+    const matchesCategory = categoryFilter === "Todas" || b.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  }
+
   return (
     <section className="mt-10 space-y-4">
       <div className="flex items-center gap-3">
@@ -144,162 +193,220 @@ export function AdminBusinessesPanel() {
         </div>
       </div>
 
+      {/* ── Filtros ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nombre, correo o categoría…"
+          className="w-full max-w-xs rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs text-orbi-text placeholder:text-orbi-muted/50 outline-none focus:border-orbi-cyan/40"
+        />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-2 text-xs font-semibold text-orbi-text outline-none focus:border-orbi-cyan/40"
+        >
+          {categories.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        {(q || categoryFilter !== "Todas") && (
+          <button
+            type="button"
+            onClick={() => { setSearch(""); setCategoryFilter("Todas"); }}
+            className="text-xs text-orbi-muted hover:text-orbi-text"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
       {isLoading ? (
         <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
           Cargando negocios...
         </p>
-      ) : businesses.length === 0 ? (
-        <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
-          Sin negocios activos en Supabase.
-        </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-white/10">
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-white/10 bg-white/[0.03]">
-                <th className="w-[20%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Nombre</th>
-                <th className="w-[18%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Correo</th>
-                <th className="w-[14%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Categoría</th>
-                <th className="w-[16%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Descripción</th>
-                <th className="w-[8%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Estado</th>
-                <th className="w-[8%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Auth</th>
-                <th className="w-[16%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {businesses.map((b) => (
-                <Fragment key={b.id}>
-                  <tr className="border-b border-white/[0.06]">
-                    <td className="break-words px-3 py-3 font-semibold text-orbi-text">{b.name}</td>
-                    <td className="px-3 py-3 text-xs text-orbi-muted">
-                      {b.email ? (
-                        <span className="break-all">{b.email}</span>
-                      ) : editingEmail[b.id] !== undefined ? (
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); void handleSaveEmail(b); }}
-                          className="flex items-center gap-1"
-                        >
-                          <input
-                            type="email"
-                            autoFocus
-                            value={editingEmail[b.id]}
-                            onChange={(e) => setEditingEmail((p) => ({ ...p, [b.id]: e.target.value }))}
-                            placeholder="correo@negocio.com"
-                            className="w-36 rounded border border-white/15 bg-orbi-black/60 px-2 py-1 text-xs text-orbi-text outline-none focus:border-orbi-cyan/50"
-                          />
-                          <button
-                            type="submit"
-                            disabled={savingEmail.has(b.id)}
-                            className="rounded bg-orbi-blue px-2 py-1 text-[11px] font-bold text-white disabled:opacity-50"
-                          >
-                            {savingEmail.has(b.id) ? "…" : "Guardar"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingEmail((p) => { const n = { ...p }; delete n[b.id]; return n; })}
-                            className="text-orbi-muted hover:text-orbi-text text-[11px]"
-                          >
-                            ✕
-                          </button>
-                        </form>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setEditingEmail((p) => ({ ...p, [b.id]: "" }))}
-                          className="text-yellow-300 underline text-[11px] hover:text-yellow-100"
-                        >
-                          + Agregar correo
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-orbi-muted">{b.category}</td>
-                    <td className="truncate px-3 py-3 text-xs text-orbi-muted">{b.description || "—"}</td>
-                    <td className="px-3 py-3">
-                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold text-emerald-200">
-                        {b.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {b.authUserId ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-                          Activo
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[10px] font-bold text-yellow-200">
-                          Sin Auth
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {!b.authUserId ? (
-                          <button
-                            type="button"
-                            disabled={activating.has(b.id)}
-                            onClick={() => void handleActivate(b)}
-                            className="inline-flex min-h-7 items-center gap-1 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-2.5 py-1 text-xs font-bold text-orbi-cyan disabled:opacity-50"
-                          >
-                            <KeyRound className="h-3 w-3" aria-hidden="true" />
-                            {activating.has(b.id) ? "Activando…" : "Activar acceso"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={resetting.has(b.id)}
-                            onClick={() => void handleReset(b)}
-                            className="inline-flex min-h-7 items-center gap-1 rounded-md border border-orange-400/30 bg-orange-400/10 px-2.5 py-1 text-xs font-bold text-orange-300 disabled:opacity-50"
-                          >
-                            <RotateCcw className="h-3 w-3" aria-hidden="true" />
-                            {resetting.has(b.id) ? "Restableciendo…" : "Restablecer acceso"}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void handleToggle(b)}
-                          className="inline-flex min-h-7 items-center rounded-md border border-yellow-300/30 bg-yellow-300/10 px-2.5 py-1 text-xs font-bold text-yellow-200"
-                        >
-                          {b.status === "activo" ? "Desactivar" : "Activar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(b)}
-                          className="inline-flex min-h-7 items-center gap-1 rounded-md border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-xs font-bold text-red-300"
-                        >
-                          <Trash2 className="h-3 w-3" aria-hidden="true" />
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  {errors[b.id] ? (
-                    <tr className="border-b border-red-400/20 bg-red-400/[0.05]">
-                      <td colSpan={7} className="px-4 py-2 text-xs font-semibold text-red-300">
-                        {errors[b.id]}
-                      </td>
-                    </tr>
-                  ) : null}
-                  {credResults[b.id] ? (
-                    <tr className="border-b border-orbi-cyan/10 bg-orbi-blue/[0.04]">
-                      <td colSpan={7} className="px-4 py-3">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                            <span className="font-bold text-orbi-cyan">
-                              {credResults[b.id].action === "reset" ? "Acceso restablecido →" : "Acceso activado →"}
-                            </span>
-                            <CredChip label="Correo" value={credResults[b.id].email} />
-                            <CredChip label="Contraseña temporal" value={credResults[b.id].tempPassword} />
-                          </div>
-                          <p className="text-[11px] font-bold text-yellow-200">
-                            ⚠ Esta contraseña solo se muestra una vez. Compártela únicamente con el negocio por WhatsApp.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-8">
+          {/* ── Negocios operativos ── */}
+          {(() => {
+            const active = businesses.filter((b) => b.status === "activo" && matchBusiness(b));
+            return (
+              <div className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+                  Negocios operativos{active.length > 0 ? ` · ${active.length}` : ""}
+                </p>
+                {active.length === 0 ? (
+                  <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
+                    Sin negocios activos.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border border-white/10">
+                    <table className="w-full table-fixed text-sm">
+                      <thead>
+                        <tr className="border-b border-white/10 bg-white/[0.03]">
+                          <th className="w-[20%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Nombre</th>
+                          <th className="w-[18%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Correo</th>
+                          <th className="w-[14%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Categoría</th>
+                          <th className="w-[16%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Descripción</th>
+                          <th className="w-[8%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Auth</th>
+                          <th className="w-[24%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {active.map((b) => (
+                          <Fragment key={b.id}>
+                            <tr className="border-b border-white/[0.06]">
+                              <td className="break-words px-3 py-3 font-semibold text-orbi-text">{b.name}</td>
+                              <td className="px-3 py-3 text-xs text-orbi-muted">
+                                {b.email ? (
+                                  <span className="break-all">{b.email}</span>
+                                ) : editingEmail[b.id] !== undefined ? (
+                                  <form
+                                    onSubmit={(e) => { e.preventDefault(); void handleSaveEmail(b); }}
+                                    className="flex items-center gap-1"
+                                  >
+                                    <input
+                                      type="email"
+                                      autoFocus
+                                      value={editingEmail[b.id]}
+                                      onChange={(e) => setEditingEmail((p) => ({ ...p, [b.id]: e.target.value }))}
+                                      placeholder="correo@negocio.com"
+                                      className="w-36 rounded border border-white/15 bg-orbi-black/60 px-2 py-1 text-xs text-orbi-text outline-none focus:border-orbi-cyan/50"
+                                    />
+                                    <button type="submit" disabled={savingEmail.has(b.id)} className="rounded bg-orbi-blue px-2 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                      {savingEmail.has(b.id) ? "…" : "Guardar"}
+                                    </button>
+                                    <button type="button" onClick={() => setEditingEmail((p) => { const n = { ...p }; delete n[b.id]; return n; })} className="text-orbi-muted hover:text-orbi-text text-[11px]">✕</button>
+                                  </form>
+                                ) : (
+                                  <button type="button" onClick={() => setEditingEmail((p) => ({ ...p, [b.id]: "" }))} className="text-yellow-300 underline text-[11px] hover:text-yellow-100">
+                                    + Agregar correo
+                                  </button>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-xs text-orbi-muted">{b.category}</td>
+                              <td className="truncate px-3 py-3 text-xs text-orbi-muted">{b.description || "—"}</td>
+                              <td className="px-3 py-3">
+                                {b.authUserId ? (
+                                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-300">Activo</span>
+                                ) : (
+                                  <span className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[10px] font-bold text-yellow-200">Sin Auth</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {!b.authUserId ? (
+                                    <button type="button" disabled={activating.has(b.id)} onClick={() => void handleActivate(b)} className="inline-flex min-h-7 items-center gap-1 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-2.5 py-1 text-xs font-bold text-orbi-cyan disabled:opacity-50">
+                                      <KeyRound className="h-3 w-3" aria-hidden="true" />
+                                      {activating.has(b.id) ? "Activando…" : "Activar acceso"}
+                                    </button>
+                                  ) : (
+                                    <button type="button" disabled={resetting.has(b.id)} onClick={() => void handleReset(b)} className="inline-flex min-h-7 items-center gap-1 rounded-md border border-orange-400/30 bg-orange-400/10 px-2.5 py-1 text-xs font-bold text-orange-300 disabled:opacity-50">
+                                      <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                                      {resetting.has(b.id) ? "Restableciendo…" : "Restablecer acceso"}
+                                    </button>
+                                  )}
+                                  <button type="button" onClick={() => void handleToggle(b)} className="inline-flex min-h-7 items-center rounded-md border border-yellow-300/30 bg-yellow-300/10 px-2.5 py-1 text-xs font-bold text-yellow-200">
+                                    Desactivar
+                                  </button>
+                                  <button type="button" onClick={() => void handleDelete(b)} className="inline-flex min-h-7 items-center gap-1 rounded-md border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-xs font-bold text-red-300">
+                                    <Trash2 className="h-3 w-3" aria-hidden="true" />
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {errors[b.id] ? (
+                              <tr className="border-b border-red-400/20 bg-red-400/[0.05]">
+                                <td colSpan={6} className="px-4 py-2 text-xs font-semibold text-red-300">{errors[b.id]}</td>
+                              </tr>
+                            ) : null}
+                            {credResults[b.id] ? (
+                              <tr className="border-b border-orbi-cyan/10 bg-orbi-blue/[0.04]">
+                                <td colSpan={6} className="px-4 py-3">
+                                  <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                                      <span className="font-bold text-orbi-cyan">
+                                        {credResults[b.id].action === "reset" ? "Acceso restablecido →" : "Acceso activado →"}
+                                      </span>
+                                      <CredChip label="Correo" value={credResults[b.id].email} />
+                                      <CredChip label="Contraseña temporal" value={credResults[b.id].tempPassword} />
+                                    </div>
+                                    <p className="text-[11px] font-bold text-yellow-200">
+                                      ⚠ Esta contraseña solo se muestra una vez. Compártela únicamente con el negocio por WhatsApp.
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── Negocios inactivos ── */}
+          {(() => {
+            const inactive = businesses.filter((b) => b.status === "inactivo" && matchBusiness(b));
+            if (inactive.length === 0) return null;
+            return (
+              <div className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+                  Negocios inactivos · {inactive.length}
+                </p>
+                <div className="overflow-x-auto rounded-md border border-white/10">
+                  <table className="w-full table-fixed text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 bg-white/[0.03]">
+                        <th className="w-[22%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Nombre</th>
+                        <th className="w-[20%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Correo</th>
+                        <th className="w-[15%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Categoría</th>
+                        <th className="w-[20%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Descripción</th>
+                        <th className="w-[10%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Estado</th>
+                        <th className="w-[13%] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.14em] text-orbi-muted">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inactive.map((b) => (
+                        <Fragment key={b.id}>
+                          <tr className="border-b border-white/[0.06]">
+                            <td className="break-words px-3 py-3 font-semibold text-orbi-text">{b.name}</td>
+                            <td className="px-3 py-3 text-xs text-orbi-muted break-all">{b.email || "—"}</td>
+                            <td className="px-3 py-3 text-xs text-orbi-muted">{b.category}</td>
+                            <td className="truncate px-3 py-3 text-xs text-orbi-muted">{b.description || "—"}</td>
+                            <td className="px-3 py-3">
+                              <span className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2 py-0.5 text-[11px] font-bold text-yellow-200">
+                                Inactivo
+                              </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <button
+                                type="button"
+                                onClick={() => void handleReactivate(b)}
+                                className="inline-flex min-h-7 items-center rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-bold text-emerald-300"
+                              >
+                                Reactivar
+                              </button>
+                            </td>
+                          </tr>
+                          {errors[b.id] ? (
+                            <tr className="border-b border-red-400/20 bg-red-400/[0.05]">
+                              <td colSpan={6} className="px-4 py-2 text-xs font-semibold text-red-300">{errors[b.id]}</td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </section>
