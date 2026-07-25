@@ -27,7 +27,14 @@ const statusStyle: Record<RequestStatus, string> = {
   rejected: "border-red-400/20 bg-red-400/10 text-red-300"
 };
 
-type ApprovedCredentials = { email: string; password?: string; supabaseBusinessId?: string; supabaseAgentId?: string };
+type ApprovedCredentials = {
+  email: string;
+  password?: string;
+  supabaseBusinessId?: string;
+  supabaseAgentId?: string;
+  requestName?: string;
+  requestType?: "agent" | "business";
+};
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -75,60 +82,39 @@ export function AdminPendingRequests() {
 
     if (r.type === "business") {
       setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
-      let supabaseBusinessId: string | undefined;
       try {
-        const createRes = await adminFetch("/api/businesses/create", {
+        const approveRes = await adminFetch("/api/businesses/approve", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: r.name,
-            category: "Otro",
-            zone: "",
-            baseText: r.message || r.name,
-            phone: r.phone,
-            lat: null,
-            lng: null,
-            status: "activo",
-            availability: "",
-            availabilityStart: "",
-            availabilityEnd: "",
-            estimatedTime: "Dinámico",
-            rating: null,
-          }),
+          body: JSON.stringify({ requestId: r.id }),
         });
-        if (!createRes.ok) throw new Error("No se pudo crear la ficha del negocio.");
-        const createData = (await createRes.json()) as { id?: string };
-        supabaseBusinessId = createData.id;
-      } catch {
-        supabaseBusinessId = undefined;
+        const approveData = (await approveRes.json()) as {
+          businessId?: string;
+          authUserId?: string;
+          tempPassword?: string;
+          error?: string;
+          alreadyActivated?: boolean;
+        };
+        if (!approveRes.ok) throw new Error(approveData.error ?? "Error al aprobar negocio.");
+        setCredResults((prev) => ({
+          ...prev,
+          [r.id]: {
+            email: r.email,
+            password: approveData.tempPassword,
+            supabaseBusinessId: approveData.businessId,
+            requestName: r.name,
+            requestType: "business",
+          },
+        }));
+        setRequests((prev) =>
+          prev.map((req) => req.id === r.id ? { ...req, status: "approved" as RequestStatus } : req)
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Error al aprobar negocio.";
+        setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
+        setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
+        return;
       }
-      let tempPassword: string | undefined;
-      if (supabaseBusinessId) {
-        try {
-          const emailRes = await adminFetch("/api/businesses/set-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ businessId: supabaseBusinessId, email: r.email }),
-          });
-          if (!emailRes.ok) throw new Error("No se pudo guardar el correo del negocio.");
-
-          const activateRes = await adminFetch("/api/businesses/activate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ businessId: supabaseBusinessId }),
-          });
-          const activateData = (await activateRes.json()) as { tempPassword?: string; error?: string; alreadyActivated?: boolean };
-          if (!activateRes.ok) throw new Error(activateData.error ?? "Error al activar negocio en Auth");
-          tempPassword = activateData.alreadyActivated ? undefined : activateData.tempPassword;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Error al activar en Supabase Auth.";
-          setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
-          setApproving((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
-          return;
-        }
-      }
-      setCredResults((prev) => ({ ...prev, [r.id]: { email: r.email, password: tempPassword, supabaseBusinessId } }));
-      await apiUpdateRequest(r.id, "approved");
     } else if (r.type === "agent") {
       setApproveErrors((prev) => { const next = { ...prev }; delete next[r.id]; return next; });
       try {
@@ -149,10 +135,15 @@ export function AdminPendingRequests() {
           ...prev,
           [r.id]: {
             email: r.email,
-            password: activateData.tempPassword,       // undefined si el usuario ya existía en Auth
+            password: activateData.tempPassword,
             supabaseAgentId: activateData.agentId,
+            requestName: r.name,
+            requestType: "agent",
           },
         }));
+        setRequests((prev) =>
+          prev.map((req) => req.id === r.id ? { ...req, status: "approved" as RequestStatus } : req)
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Error al activar en Supabase Auth.";
         setApproveErrors((prev) => ({ ...prev, [r.id]: msg }));
@@ -191,6 +182,42 @@ export function AdminPendingRequests() {
         </p>
       </div>
 
+      {Object.keys(credResults).length > 0 && (
+        <div className="rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.06] p-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+            Aprobaciones de esta sesión
+          </p>
+          {Object.entries(credResults).map(([reqId, creds]) => (
+            <div key={reqId} className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="font-bold text-orbi-text">{creds.requestName ?? creds.email}</span>
+              <CredentialChip label="Correo" value={creds.email} />
+              {creds.password ? (
+                <CredentialChip label="Contraseña temporal" value={creds.password} />
+              ) : null}
+              {creds.requestType === "agent" ? (
+                creds.supabaseAgentId ? (
+                  <span className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] font-bold text-emerald-200">
+                    Agente activado · El agente entra en /agentes con correo y contraseña
+                  </span>
+                ) : (
+                  <span className="rounded-md border border-yellow-300/20 bg-yellow-300/10 px-2 py-1 text-[11px] font-bold text-yellow-200">
+                    Sin ficha en Supabase · Reintenta aprobar
+                  </span>
+                )
+              ) : creds.supabaseBusinessId ? (
+                <span className="rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] font-bold text-emerald-200">
+                  Negocio aprobado · El negocio entra en /negocios con correo y contraseña
+                </span>
+              ) : (
+                <span className="rounded-md border border-yellow-300/20 bg-yellow-300/10 px-2 py-1 text-[11px] font-bold text-yellow-200">
+                  Sin ficha en Supabase · Reintenta aprobar
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {agentReqs.length === 0 && businessReqs.length === 0 ? (
         <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
           No hay solicitudes pendientes.
@@ -214,7 +241,7 @@ export function AdminPendingRequests() {
               title="Negocios"
               items={businessReqs}
               approving={approving}
-              approveErrors={{}}
+              approveErrors={approveErrors}
               credResults={credResults}
               onApprove={handleApprove}
               onDeactivate={handleDeactivate}

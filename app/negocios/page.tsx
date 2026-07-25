@@ -40,7 +40,7 @@ export default function NegociosPage() {
         return;
       }
       const business = await getBusinessByAuthUserId(data.user.id);
-      if (business) {
+      if (business && business.status === "activo") {
         const s = {
           id: business.id,
           name: business.name,
@@ -49,6 +49,8 @@ export default function NegociosPage() {
         };
         saveBusinessSession(s);
         setSession(s);
+      } else if (business && business.status !== "activo") {
+        await supabase.auth.signOut();
       }
     }
     setMounted(true);

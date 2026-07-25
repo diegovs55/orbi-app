@@ -12,7 +12,17 @@ async function assertBusinessAuthenticated(): Promise<void> {
 }
 
 const businessSelectWithLocation =
+  "id,name,category,description,zone,address,phone,lat,lng,status,rating,opening_time,closing_time,schedule,created_at,updated_at";
+
+// Fallback cuando la columna schedule aún no existe (migración pendiente)
+const businessSelectWithoutSchedule =
   "id,name,category,description,zone,address,phone,lat,lng,status,rating,opening_time,closing_time,created_at,updated_at";
+
+export type DaySchedule = { isOpen: boolean; opensAt: string | null; closesAt: string | null };
+export type WeeklySchedule = Record<
+  "lunes" | "martes" | "miercoles" | "jueves" | "viernes" | "sabado" | "domingo",
+  DaySchedule
+>;
 
 export const businessSectors = [
   "Alimentos y bebidas",
@@ -74,6 +84,7 @@ export type CatalogBusiness = {
   availability: string;
   availabilityStart: string;
   availabilityEnd: string;
+  schedule?: WeeklySchedule | null;
 };
 
 export type CatalogProduct = {
@@ -134,6 +145,7 @@ type BusinessRow = {
   rating?: string | number | null;
   opening_time?: string | null;
   closing_time?: string | null;
+  schedule?: unknown | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -530,12 +542,22 @@ async function getRemoteCatalogBusinesses() {
       .order("name", { ascending: true });
 
     if (error) {
+      // Columna schedule aún no existe (migración pendiente): reintento sin ella.
+      if ((error as { code?: string }).code === "42703") {
+        console.warn("[catalog] columna 'schedule' no existe. Aplica la migración 20260725_businesses_schedule_v1.sql. Usando SELECT de respaldo.");
+        const { data: d2, error: e2 } = await supabase
+          .from("businesses")
+          .select(businessSelectWithoutSchedule)
+          .order("name", { ascending: true });
+        if (e2) throw new Error(e2.message);
+        return (d2 ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
+      }
       throw new Error(error.message);
     }
 
     return (data ?? []).filter(isActiveBusinessRow).map(mapBusinessRow);
   } catch (error) {
-    console.error("Error fetching businesses:", error);
+    console.error("[catalog] Error fetching businesses:", error);
     return [];
   }
 }
@@ -584,7 +606,8 @@ function mapBusinessRow(row: BusinessRow): CatalogBusiness {
     })(),
     availability: buildAvailability(row.opening_time, row.closing_time),
     availabilityStart: normalizeTimeToHHmm(row.opening_time) || "",
-    availabilityEnd: normalizeTimeToHHmm(row.closing_time) || ""
+    availabilityEnd: normalizeTimeToHHmm(row.closing_time) || "",
+    schedule: isWeeklySchedule(row.schedule) ? row.schedule : null
   };
 }
 
@@ -642,6 +665,16 @@ function normalizeProductStatus(value: string | null | undefined): CatalogProduc
     return value;
   }
   return "disponible";
+}
+
+const WEEK_DAYS = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"] as const;
+
+function isWeeklySchedule(value: unknown): value is WeeklySchedule {
+  if (!value || typeof value !== "object") return false;
+  return WEEK_DAYS.every((day) => {
+    const d = (value as Record<string, unknown>)[day];
+    return d && typeof d === "object" && typeof (d as Record<string, unknown>).isOpen === "boolean";
+  });
 }
 
 function buildAvailability(start?: string | null, end?: string | null) {
@@ -759,6 +792,7 @@ export async function updateBusinessProfile(
     lng: number;
     availabilityStart: string;
     availabilityEnd: string;
+    schedule?: WeeklySchedule | null;
   }
 ): Promise<void> {
   const res = await fetch("/api/businesses/update-profile", {

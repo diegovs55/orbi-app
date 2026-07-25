@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     bizRow.auth_user_id,
     {
       password: tempPassword,
+      email_confirm: true,
       user_metadata: { must_change_password: true },
     }
   );

@@ -8,6 +8,7 @@ import {
   CatalogProduct,
   CatalogProductStatus,
   ProductCategory,
+  WeeklySchedule,
   businessSectors,
   getCatalogBusinessesWithOptions,
   getBusinessOwnProducts,
@@ -57,6 +58,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
   const [session, setSession] = useState<BusinessSession | null>(null);
   const [myBusiness, setMyBusiness] = useState<CatalogBusiness | null>(null);
   const [noMatch, setNoMatch] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
 
@@ -81,8 +83,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
   const [pfDesc, setPfDesc] = useState("");
   const [pfCat, setPfCat] = useState("");
   const [pfZone, setPfZone] = useState("");
-  const [pfStart, setPfStart] = useState("");
-  const [pfEnd, setPfEnd] = useState("");
+  const [pfSchedule, setPfSchedule] = useState<WeeklySchedule>(makeDefaultSchedule("", ""));
   const [pfLoc, setPfLoc] = useState<{ lat: number; lng: number }>({ lat: 19.4326, lng: -99.1332 });
   const [pfLocSet, setPfLocSet] = useState(false);
   const [pfSaving, setPfSaving] = useState(false);
@@ -101,7 +102,11 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
         if (found) setMyBusiness(found);
         else setNoMatch(true);
       })
-      .catch(() => setNoMatch(true));
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[BusinessCatalog] error cargando catálogo:", msg);
+        setLoadError("No pudimos cargar la información del negocio. Intenta nuevamente o contacta a ORBI.");
+      });
   }, []);
 
   // Init profile fields when business loads — sanitize time values
@@ -111,9 +116,13 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
     setPfDesc(myBusiness.baseText || "");
     setPfCat(myBusiness.category || "");
     setPfZone(myBusiness.zone || "");
-    // normalizeTimeToHHmm converts "10:00 p.m." → "22:00", "08:00 a.m." → "08:00"
-    setPfStart(normalizeTimeToHHmm(myBusiness.availabilityStart) || "");
-    setPfEnd(normalizeTimeToHHmm(myBusiness.availabilityEnd) || "");
+    if (myBusiness.schedule) {
+      setPfSchedule(myBusiness.schedule);
+    } else {
+      const start = normalizeTimeToHHmm(myBusiness.availabilityStart) || "";
+      const end   = normalizeTimeToHHmm(myBusiness.availabilityEnd) || "";
+      setPfSchedule(makeDefaultSchedule(start, end));
+    }
     if (myBusiness.lat !== null && myBusiness.lng !== null) {
       setPfLoc({ lat: myBusiness.lat, lng: myBusiness.lng });
       setPfLocSet(true);
@@ -275,13 +284,28 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
     if (!pfName.trim()) missing.push("nombre");
     if (!pfCat.trim()) missing.push("categoría");
     if (!pfZone.trim()) missing.push("zona");
-    if (!pfStart) missing.push("hora de apertura");
-    if (!pfEnd) missing.push("hora de cierre");
     if (!pfLocSet) missing.push("ubicación en el mapa");
     if (missing.length) {
       setPfError(`Faltan datos: ${missing.join(", ")}.`);
       return;
     }
+
+    const atLeastOneOpen = SCHEDULE_DAYS.some((d) => pfSchedule[d.key].isOpen);
+    if (!atLeastOneOpen) {
+      setPfError("Configura al menos un día abierto en el horario.");
+      return;
+    }
+    const incompleteOpen = SCHEDULE_DAYS.filter(
+      (d) => pfSchedule[d.key].isOpen && (!pfSchedule[d.key].opensAt || !pfSchedule[d.key].closesAt)
+    );
+    if (incompleteOpen.length) {
+      setPfError(`Completa el horario de: ${incompleteOpen.map((d) => d.name).join(", ")}.`);
+      return;
+    }
+
+    const firstOpen = SCHEDULE_DAYS.find((d) => pfSchedule[d.key].isOpen);
+    const derivedStart = firstOpen ? (pfSchedule[firstOpen.key].opensAt ?? "") : "";
+    const derivedEnd   = firstOpen ? (pfSchedule[firstOpen.key].closesAt ?? "") : "";
 
     setPfSaving(true);
     setPfError("");
@@ -293,8 +317,9 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
         baseText: pfDesc.trim() || pfZone.trim(),
         lat: pfLoc.lat,
         lng: pfLoc.lng,
-        availabilityStart: pfStart,
-        availabilityEnd: pfEnd
+        availabilityStart: derivedStart,
+        availabilityEnd: derivedEnd,
+        schedule: pfSchedule
       });
       const all = await getCatalogBusinessesWithOptions({ includeDemo: false });
       const found = all.find((b) => b.id === session.supabaseBusinessId);
@@ -331,6 +356,18 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
       </button>
     </div>
   );
+
+  // ── Error de infraestructura ──────────────────────────────────────────────────
+  if (loadError) {
+    return (
+      <section className="space-y-4">
+        {header}
+        <p className="rounded-md border border-red-400/20 bg-red-400/[0.06] px-4 py-3 text-xs font-semibold text-red-300">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
 
   // ── No match ─────────────────────────────────────────────────────────────────
   if (noMatch) {
@@ -428,11 +465,11 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
               className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none" />
           </FormField>
 
-          {/* Horario — select con opciones HH:mm cada 30 min, sin "Valor no válido" */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <ProfileTimeSelect label="Apertura *" value={pfStart} onChange={setPfStart} />
-            <ProfileTimeSelect label="Cierre *" value={pfEnd} onChange={setPfEnd} />
-          </div>
+          {/* Horario semanal */}
+          <WeeklyScheduleEditor
+            schedule={pfSchedule}
+            onChange={setPfSchedule}
+          />
 
           {/* Mapa + ubicación actual */}
           <div>
@@ -783,6 +820,134 @@ function buildProfileTimeOptions(): string[] {
 }
 
 const profileTimeOptions = buildProfileTimeOptions();
+
+const SCHEDULE_DAYS: { key: keyof WeeklySchedule; name: string }[] = [
+  { key: "lunes",     name: "Lunes" },
+  { key: "martes",    name: "Martes" },
+  { key: "miercoles", name: "Miércoles" },
+  { key: "jueves",    name: "Jueves" },
+  { key: "viernes",   name: "Viernes" },
+  { key: "sabado",    name: "Sábado" },
+  { key: "domingo",   name: "Domingo" },
+];
+
+function makeDefaultSchedule(start: string, end: string): WeeklySchedule {
+  const hasTime = Boolean(start && end);
+  const openDay = { isOpen: hasTime, opensAt: start || null, closesAt: end || null };
+  const closedDay = { isOpen: false, opensAt: null, closesAt: null };
+  return {
+    lunes:     { ...openDay },
+    martes:    { ...openDay },
+    miercoles: { ...openDay },
+    jueves:    { ...openDay },
+    viernes:   { ...openDay },
+    sabado:    { ...openDay },
+    domingo:   closedDay,
+  };
+}
+
+function WeeklyScheduleEditor({
+  schedule,
+  onChange,
+}: {
+  schedule: WeeklySchedule;
+  onChange: (s: WeeklySchedule) => void;
+}) {
+  function setDay(key: keyof WeeklySchedule, patch: Partial<WeeklySchedule[typeof key]>) {
+    onChange({ ...schedule, [key]: { ...schedule[key], ...patch } });
+  }
+
+  function applyToAll() {
+    const ref = SCHEDULE_DAYS.find((d) => schedule[d.key].isOpen);
+    if (!ref) return;
+    const { opensAt, closesAt } = schedule[ref.key];
+    const next = { ...schedule };
+    SCHEDULE_DAYS.forEach((d) => {
+      if (schedule[d.key].isOpen) {
+        next[d.key] = { isOpen: true, opensAt, closesAt };
+      }
+    });
+    onChange(next);
+  }
+
+  const anyOpen = SCHEDULE_DAYS.some((d) => schedule[d.key].isOpen);
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-orbi-muted">Horario semanal *</span>
+        {anyOpen && (
+          <button
+            type="button"
+            onClick={applyToAll}
+            className="text-[10px] font-bold text-orbi-cyan hover:underline"
+          >
+            Aplicar mismo horario a días abiertos
+          </button>
+        )}
+      </div>
+      <div className="divide-y divide-white/[0.06] rounded-md border border-white/15 bg-orbi-black/60">
+        {SCHEDULE_DAYS.map(({ key, name }) => {
+          const day = schedule[key];
+          return (
+            <div key={key} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+              <button
+                type="button"
+                onClick={() =>
+                  setDay(key, {
+                    isOpen: !day.isOpen,
+                    opensAt: day.isOpen ? null : (day.opensAt ?? "09:00"),
+                    closesAt: day.isOpen ? null : (day.closesAt ?? "18:00"),
+                  })
+                }
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold transition ${
+                  day.isOpen
+                    ? "border-orbi-cyan/60 bg-orbi-cyan/20 text-orbi-cyan"
+                    : "border-white/20 bg-transparent text-orbi-muted"
+                }`}
+                aria-label={day.isOpen ? `Cerrar ${name}` : `Abrir ${name}`}
+              >
+                {day.isOpen ? "✓" : "—"}
+              </button>
+
+              <span className={`w-20 shrink-0 text-xs font-semibold ${day.isOpen ? "text-orbi-text" : "text-orbi-muted/60"}`}>
+                {name}
+              </span>
+
+              {day.isOpen ? (
+                <>
+                  <select
+                    value={day.opensAt ?? ""}
+                    onChange={(e) => setDay(key, { opensAt: e.target.value || null })}
+                    className="rounded border border-white/15 bg-orbi-black/80 px-2 py-1 text-xs text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                  >
+                    <option value="">Apertura</option>
+                    {profileTimeOptions.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-orbi-muted">–</span>
+                  <select
+                    value={day.closesAt ?? ""}
+                    onChange={(e) => setDay(key, { closesAt: e.target.value || null })}
+                    className="rounded border border-white/15 bg-orbi-black/80 px-2 py-1 text-xs text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                  >
+                    <option value="">Cierre</option>
+                    {profileTimeOptions.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <span className="text-xs text-orbi-muted/50">Cerrado</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // Proxy a /api/geocoding/reverse — nunca llama a Nominatim directamente (INV-017).
 // El campo zone usa el fallback porque el endpoint no expone subcampos estructurados

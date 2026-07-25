@@ -9,6 +9,7 @@ import {
   CatalogProduct,
   CatalogProductStatus,
   ProductCategory,
+  WeeklySchedule,
   businessSectors,
   createCatalogBusiness,
   createCatalogProduct,
@@ -675,7 +676,7 @@ export function AdminCatalog() {
             id: business.id,
             title: business.name,
             meta: `${business.category} · ${business.zone}`,
-            detail: `${business.status} · ${business.availability || "Sin horario"} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`,
+            detail: `${business.status} · ${formatBusinessSchedule(business)} · ${business.baseText || "Sin ubicación registrada"} · ${business.rating}`,
             onEdit: () => handleEditBusiness(business),
             onDelete: () => handleDeleteBusiness(business)
           }))}
@@ -1093,6 +1094,41 @@ function normalizeSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+const SCHED_ABBREV: Record<keyof WeeklySchedule, string> = {
+  lunes: "L", martes: "M", miercoles: "X", jueves: "J", viernes: "V", sabado: "S", domingo: "D",
+};
+const SCHED_ORDER: (keyof WeeklySchedule)[] = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
+
+function formatBusinessSchedule(business: CatalogBusiness): string {
+  if (!business.schedule) return business.availability || "Sin horario";
+  const s = business.schedule;
+  // Group consecutive days with identical hours
+  type Group = { abbrevs: string[]; opensAt: string | null; closesAt: string | null };
+  const groups: Group[] = [];
+  SCHED_ORDER.forEach((key) => {
+    const day = s[key];
+    if (!day.isOpen) return;
+    const last = groups[groups.length - 1];
+    if (last && last.opensAt === day.opensAt && last.closesAt === day.closesAt) {
+      last.abbrevs.push(SCHED_ABBREV[key]);
+    } else {
+      groups.push({ abbrevs: [SCHED_ABBREV[key]], opensAt: day.opensAt, closesAt: day.closesAt });
+    }
+  });
+  if (groups.length === 0) return "Cerrado todos los días";
+  const openPart = groups
+    .map((g) => {
+      const range = g.abbrevs.length > 1 ? `${g.abbrevs[0]}–${g.abbrevs[g.abbrevs.length - 1]}` : g.abbrevs[0];
+      return `${range} ${g.opensAt}–${g.closesAt}`;
+    })
+    .join(" · ");
+  const closedDays = SCHED_ORDER.filter((k) => !s[k].isOpen).map((k) => SCHED_ABBREV[k]);
+  const closedPart = closedDays.length > 0 && closedDays.length < 7
+    ? ` · ${closedDays.length === 1 ? closedDays[0] : `${closedDays[0]}–${closedDays[closedDays.length - 1]}`} cerrado`
+    : "";
+  return openPart + closedPart;
 }
 
 function readAdminSession() {

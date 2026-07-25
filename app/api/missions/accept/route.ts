@@ -90,12 +90,17 @@ export async function POST(req: NextRequest) {
   // 3. Resolver agente desde auth_user_id — sin confiar en agent_id del cliente
   const { data: agentRow, error: agentError } = await admin
     .from("agents")
-    .select("id,name,zone,status,is_on_orbit,availability,service_type,radius_km,lat,lng,current_lat,current_lng")
+    .select("id,name,zone,status,admin_status,is_on_orbit,availability,service_type,radius_km,lat,lng,current_lat,current_lng")
     .eq("auth_user_id", callerUid)
     .maybeSingle();
 
   if (agentError || !agentRow) return err("NO_AGENT_ACCOUNT");
   const agentId = agentRow.id as string;
+
+  // 3b. Guardia administrativa — independiente de todos los checks operativos
+  if ((agentRow.admin_status as string | null) === "desactivado") {
+    return err("AGENT_NOT_ELIGIBLE", "agente administrativamente desactivado");
+  }
 
   // 4. Cargar misión
   const { data: missionRow, error: missionError } = await admin

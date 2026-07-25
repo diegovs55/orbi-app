@@ -35,7 +35,13 @@ export default function NegociosLoginPage() {
     });
 
     if (authError || !data.user) {
-      setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
+      const code = (authError as { code?: string } | null)?.code ?? "";
+      const msg  = (authError?.message ?? "").toLowerCase();
+      if (code === "email_not_confirmed" || msg.includes("not confirmed")) {
+        setError("Tu cuenta aún no está habilitada. Solicita al administrador que restablezca tu acceso.");
+      } else {
+        setError("Credenciales incorrectas. Verifica tu correo y contraseña.");
+      }
       setIsSubmitting(false);
       return;
     }
@@ -50,6 +56,13 @@ export default function NegociosLoginPage() {
     const business = await getBusinessByAuthUserId(user.id);
     if (!business) {
       setError("Tu cuenta no está vinculada a ningún negocio Orbi. Contacta al administrador.");
+      await supabase.auth.signOut();
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (business.status !== "activo") {
+      setError("Tu cuenta está suspendida. Contacta a Red ORBI para más información.");
       await supabase.auth.signOut();
       setIsSubmitting(false);
       return;
