@@ -16,13 +16,15 @@ type LeadersFilter =
   | "Hoy"
   | "Últimos 7 días"
   | "Este mes"
-  | "Todo el tiempo";
+  | "Todo el tiempo"
+  | "Rango personalizado";
 
 const LEADERS_FILTERS: LeadersFilter[] = [
   "Hoy",
   "Últimos 7 días",
   "Este mes",
   "Todo el tiempo",
+  "Rango personalizado",
 ];
 
 function readAdminSession() {
@@ -38,9 +40,12 @@ function subscribeToAdminSession(callback: () => void) {
   };
 }
 
-function getFilterStart(filter: LeadersFilter): Date | null {
+function getFilterStart(filter: LeadersFilter, customFrom?: string): Date | null {
   const now = new Date();
-  if (filter === "Todo el tiempo") return null;
+  if (filter === "Todo el tiempo" || filter === "Rango personalizado") {
+    if (filter === "Rango personalizado" && customFrom) return new Date(customFrom);
+    return null;
+  }
   if (filter === "Hoy")
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (filter === "Últimos 7 días") {
@@ -157,6 +162,8 @@ export function AdminLeaders() {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [customers, setCustomers] = useState<OrbiCustomer[]>([]);
   const [timeFilter, setTimeFilter] = useState<LeadersFilter>("Todo el tiempo");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
     if (!isUnlocked) return;
@@ -190,12 +197,17 @@ export function AdminLeaders() {
   }, [isUnlocked]);
 
   const filteredMissions = useMemo(() => {
-    const start = getFilterStart(timeFilter);
-    if (!start) return missions;
-    return missions.filter(
-      (m) => new Date(m.created_at || m.updated_at) >= start
-    );
-  }, [missions, timeFilter]);
+    const start = getFilterStart(timeFilter, customFrom);
+    const endMs = timeFilter === "Rango personalizado" && customTo
+      ? new Date(customTo + "T23:59:59").getTime()
+      : null;
+    return missions.filter((m) => {
+      const mMs = new Date(m.created_at || m.updated_at).getTime();
+      if (start && mMs < start.getTime()) return false;
+      if (endMs !== null && mMs > endMs) return false;
+      return true;
+    });
+  }, [missions, timeFilter, customFrom, customTo]);
 
   const agentRanking = useMemo(
     () => buildAgentRanking(filteredMissions, agents),
@@ -241,6 +253,29 @@ export function AdminLeaders() {
           </button>
         ))}
       </div>
+
+      {timeFilter === "Rango personalizado" && (
+        <div className="flex flex-wrap gap-3">
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Desde
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Hasta
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Agentes */}

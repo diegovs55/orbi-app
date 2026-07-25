@@ -12,7 +12,8 @@ type EconomyFilter =
   | "Últimos 7 días"
   | "Este mes"
   | "Este año"
-  | "Todo el tiempo";
+  | "Todo el tiempo"
+  | "Rango personalizado";
 
 const ECONOMY_FILTERS: EconomyFilter[] = [
   "Hoy",
@@ -20,6 +21,7 @@ const ECONOMY_FILTERS: EconomyFilter[] = [
   "Este mes",
   "Este año",
   "Todo el tiempo",
+  "Rango personalizado",
 ];
 
 function readAdminSession() {
@@ -35,9 +37,12 @@ function subscribeToAdminSession(callback: () => void) {
   };
 }
 
-function getFilterStart(filter: EconomyFilter): Date | null {
+function getFilterStart(filter: EconomyFilter, customFrom?: string): Date | null {
   const now = new Date();
-  if (filter === "Todo el tiempo") return null;
+  if (filter === "Todo el tiempo" || filter === "Rango personalizado") {
+    if (filter === "Rango personalizado" && customFrom) return new Date(customFrom);
+    return null;
+  }
   if (filter === "Hoy")
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (filter === "Últimos 7 días") {
@@ -58,6 +63,8 @@ export function AdminNetworkEconomy() {
   );
   const [missions, setMissions] = useState<ActiveMission[]>([]);
   const [timeFilter, setTimeFilter] = useState<EconomyFilter>("Este mes");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [ledger, setLedger] = useState<{
     facturacionCliente: number;
     gananciaOrbi: number;
@@ -82,10 +89,13 @@ export function AdminNetworkEconomy() {
   useEffect(() => {
     if (!isUnlocked) return;
     const fetchLedger = async () => {
-      const start = getFilterStart(timeFilter);
-      const url = start
-        ? `/api/ledger/summary?from=${encodeURIComponent(start.toISOString())}`
-        : "/api/ledger/summary";
+      const start = getFilterStart(timeFilter, customFrom);
+      const params = new URLSearchParams();
+      if (start) params.set("from", start.toISOString());
+      if (timeFilter === "Rango personalizado" && customTo) {
+        params.set("to", new Date(customTo + "T23:59:59").toISOString());
+      }
+      const url = params.size > 0 ? `/api/ledger/summary?${params}` : "/api/ledger/summary";
       try {
         const res = await adminFetch(url);
         if (res.ok) setLedger(await res.json() as typeof ledger);
@@ -95,13 +105,20 @@ export function AdminNetworkEconomy() {
     };
     void fetchLedger();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isUnlocked, timeFilter]);
+  }, [isUnlocked, timeFilter, customFrom, customTo]);
 
   const filtered = useMemo(() => {
-    const start = getFilterStart(timeFilter);
-    if (!start) return missions;
-    return missions.filter((m) => new Date(m.created_at || m.updated_at) >= start);
-  }, [missions, timeFilter]);
+    const start = getFilterStart(timeFilter, customFrom);
+    const endMs = timeFilter === "Rango personalizado" && customTo
+      ? new Date(customTo + "T23:59:59").getTime()
+      : null;
+    return missions.filter((m) => {
+      const mMs = new Date(m.created_at || m.updated_at).getTime();
+      if (start && mMs < start.getTime()) return false;
+      if (endMs !== null && mMs > endMs) return false;
+      return true;
+    });
+  }, [missions, timeFilter, customFrom, customTo]);
 
   const stats = useMemo(() => {
     const cumplidas = filtered.filter((m) => m.status === "cumplida");
@@ -151,6 +168,29 @@ export function AdminNetworkEconomy() {
           </button>
         ))}
       </div>
+
+      {timeFilter === "Rango personalizado" && (
+        <div className="flex flex-wrap gap-3">
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Desde
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Hasta
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <EcoCard

@@ -11,7 +11,8 @@ type DistributionFilter =
   | "Últimos 7 días"
   | "Este mes"
   | "Este año"
-  | "Todo el tiempo";
+  | "Todo el tiempo"
+  | "Rango personalizado";
 
 const DISTRIBUTION_FILTERS: DistributionFilter[] = [
   "Hoy",
@@ -19,6 +20,7 @@ const DISTRIBUTION_FILTERS: DistributionFilter[] = [
   "Este mes",
   "Este año",
   "Todo el tiempo",
+  "Rango personalizado",
 ];
 
 const SERVICE_LABELS = [
@@ -44,9 +46,12 @@ function subscribeToAdminSession(callback: () => void) {
   };
 }
 
-function getFilterStart(filter: DistributionFilter): Date | null {
+function getFilterStart(filter: DistributionFilter, customFrom?: string): Date | null {
   const now = new Date();
-  if (filter === "Todo el tiempo") return null;
+  if (filter === "Todo el tiempo" || filter === "Rango personalizado") {
+    if (filter === "Rango personalizado" && customFrom) return new Date(customFrom);
+    return null;
+  }
   if (filter === "Hoy")
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (filter === "Últimos 7 días") {
@@ -92,6 +97,8 @@ export function AdminDistribution() {
   const [timeFilter, setTimeFilter] = useState<DistributionFilter>(
     "Todo el tiempo"
   );
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   useEffect(() => {
     if (!isUnlocked) return;
@@ -105,12 +112,17 @@ export function AdminDistribution() {
   }, [isUnlocked]);
 
   const filtered = useMemo(() => {
-    const start = getFilterStart(timeFilter);
-    if (!start) return missions;
-    return missions.filter(
-      (m) => new Date(m.created_at || m.updated_at) >= start
-    );
-  }, [missions, timeFilter]);
+    const start = getFilterStart(timeFilter, customFrom);
+    const endMs = timeFilter === "Rango personalizado" && customTo
+      ? new Date(customTo + "T23:59:59").getTime()
+      : null;
+    return missions.filter((m) => {
+      const mMs = new Date(m.created_at || m.updated_at).getTime();
+      if (start && mMs < start.getTime()) return false;
+      if (endMs !== null && mMs > endMs) return false;
+      return true;
+    });
+  }, [missions, timeFilter, customFrom, customTo]);
 
   const serviceBars = useMemo(
     () => buildBars(filtered, SERVICE_LABELS, (m) => m.service_type),
@@ -154,6 +166,29 @@ export function AdminDistribution() {
           </button>
         ))}
       </div>
+
+      {timeFilter === "Rango personalizado" && (
+        <div className="flex flex-wrap gap-3">
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Desde
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+          <label className="block text-xs font-semibold text-orbi-muted">
+            Hasta
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="ml-2 rounded-md border border-white/10 bg-orbi-panel/80 px-3 py-1.5 text-xs text-orbi-text outline-none focus:border-orbi-cyan/40"
+            />
+          </label>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <BarGroup

@@ -1,5 +1,5 @@
 /**
- * GET /api/ledger/summary?from=ISO_DATE
+ * GET /api/ledger/summary?from=ISO_DATE&to=ISO_DATE
  *
  * Resumen financiero de la plataforma para AdminNetworkEconomy.
  * Solo accesible server-side con SERVICE_ROLE_KEY.
@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from"); // ISO date string, optional
+  const to   = searchParams.get("to");   // ISO date string, optional
 
   // Construir query base
   let query = admin
@@ -60,6 +61,9 @@ export async function GET(req: NextRequest) {
 
   if (from) {
     query = query.gte("created_at", from);
+  }
+  if (to) {
+    query = query.lte("created_at", to);
   }
 
   const { data, error } = await query;
