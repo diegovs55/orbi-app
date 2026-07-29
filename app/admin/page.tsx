@@ -11,6 +11,7 @@ import { AdminBusinessesPanel } from "@/components/AdminBusinessesPanel";
 import { AdminCustomers } from "@/components/AdminCustomers";
 import { AdminPendingRequests } from "@/components/AdminPendingRequests";
 import { AdminMotorParams } from "@/components/AdminMotorParams";
+import { AdminIntelligence } from "@/components/AdminIntelligence";
 
 export default function AdminPage() {
   return (
@@ -53,6 +54,9 @@ export default function AdminPage() {
 
         {/* ── SECCIÓN 7 — ¿Cómo está el motor? ────────────────────────── */}
         <AdminMotorParams />
+
+        {/* ── SECCIÓN 8 — Inteligencia de la red ───────────────────────── */}
+        <AdminIntelligence />
 
       </AdminAccessGate>
     </PageShell>
