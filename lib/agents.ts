@@ -2,8 +2,6 @@ import { supabase } from "@/lib/supabase";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DELETED_AGENTS_KEY = "orbi_deleted_agent_ids";
-
 export const agentServiceTypes = [
   "Todos los servicios",
   "Mandados",
@@ -170,10 +168,7 @@ export async function getAgents(): Promise<OrbiAgent[]> {
 
   if (error) throw new Error(error.message);
 
-  const deletedIds = getLocallyDeletedAgentIds();
-  return ((data ?? []) as unknown as AgentRow[])
-    .filter((r) => !deletedIds.includes(r.id))
-    .map(fromRow);
+  return ((data ?? []) as unknown as AgentRow[]).map(fromRow);
 }
 
 export async function getActiveAgents(): Promise<OrbiAgent[]> {
@@ -186,10 +181,7 @@ export async function getActiveAgents(): Promise<OrbiAgent[]> {
 
   if (error) throw new Error(error.message);
 
-  const deletedIds = getLocallyDeletedAgentIds();
-  return ((data ?? []) as unknown as AgentRow[])
-    .filter((r) => !deletedIds.includes(r.id))
-    .map(fromRow);
+  return ((data ?? []) as unknown as AgentRow[]).map(fromRow);
 }
 
 export async function getSuspendedAgents(): Promise<OrbiAgent[]> {
@@ -368,7 +360,6 @@ export async function updateAgentOrbit(
 
 export async function deleteAgent(id: string): Promise<void> {
   if (!hasValidAgentId({ id })) throw new Error("ID de agente inválido.");
-  markDeletedLocally(id);
 
   // Reset active missions assigned to this agent back to pending.
   await client()
@@ -612,21 +603,3 @@ export function resolveOperationalOrigin(mission: {
   return { lat, lng, source: "user_origin" };
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
-
-function markDeletedLocally(id: string) {
-  if (typeof window === "undefined") return;
-  const ids = new Set(getLocallyDeletedAgentIds());
-  ids.add(id);
-  window.localStorage.setItem(DELETED_AGENTS_KEY, JSON.stringify(Array.from(ids)));
-}
-
-function getLocallyDeletedAgentIds(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const v = JSON.parse(window.localStorage.getItem(DELETED_AGENTS_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
