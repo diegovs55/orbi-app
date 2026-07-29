@@ -648,11 +648,18 @@ function isActiveProductRow(row: ProductRow) {
 }
 
 function normalizeSector(value: string | null | undefined): BusinessSector {
-  if (value === "Abarrotes") return "Mandados";
-  if (value === "Trámites") return "Servicios";
-  if (businessSectors.includes(value as BusinessSector)) return value as BusinessSector;
-  // Preserve custom category strings instead of collapsing to "Otro"
-  return (value && value.trim()) ? (value as BusinessSector) : "Otro";
+  if (!value || !value.trim()) return "Otro";
+  const trimmed = value.trim();
+  // Legacy aliases
+  if (trimmed === "Abarrotes") return "Mandados";
+  if (trimmed === "Trámites") return "Servicios";
+  // Case-insensitive match → return canonical enum value
+  const canonical = businessSectors.find(
+    (s) => s.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (canonical) return canonical;
+  // Unknown value: preserve as-is (display-only, won't break radius lookup which uses fallback)
+  return trimmed as BusinessSector;
 }
 
 function normalizeProductCategory(value: string | null | undefined): ProductCategory {

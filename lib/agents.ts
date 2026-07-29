@@ -162,6 +162,7 @@ export async function getAgents(): Promise<OrbiAgent[]> {
   const { data, error } = await client()
     .from("agents")
     .select(SELECT)
+    .eq("admin_status", "activo")
     .neq("status", AGENT_STATUS.OFFLINE)
     .order("status", { ascending: true })
     .order("name", { ascending: true });
@@ -361,20 +362,16 @@ export async function updateAgentOrbit(
 export async function deleteAgent(id: string): Promise<void> {
   if (!hasValidAgentId({ id })) throw new Error("ID de agente inválido.");
 
-  // Reset active missions assigned to this agent back to pending.
-  await client()
-    .from("missions")
-    .update({
-      status: "por_tomar",
-      selected_agent_id: null,
-      selected_agent_name: null,
-      active_agent_id: null,
-    })
-    .eq("active_agent_id", id)
-    .not("status", "in", "(cumplida,cancelada,archivada)");
+  const res = await fetch("/api/agents/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
 
-  const { error } = await client().from("agents").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "Error al desactivar agente.");
+  }
 }
 
 export async function setAgentTrustLevel(id: string, trustLevel: AgentTrustLevel): Promise<void> {

@@ -118,19 +118,23 @@ export function AdminAgents() {
     }
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, name: string) {
     clearActionError(id);
     if (!hasValidAgentId({ id })) {
       setActionErrors((prev) => ({ ...prev, [id]: "ID de agente inválido." }));
       return;
     }
+    const confirmed = window.confirm(
+      `¿Retirar definitivamente a ${name} de la operación?\n\nEl agente perderá acceso operativo, pero su historial, misiones y registros permanecerán intactos.`
+    );
+    if (!confirmed) return;
     try {
       await deleteAgent(id);
       await refreshAgents({ silent: true });
     } catch (e) {
       setActionErrors((prev) => ({
         ...prev,
-        [id]: e instanceof Error ? e.message : "Error al eliminar agente."
+        [id]: e instanceof Error ? e.message : "Error al retirar agente."
       }));
     }
   }
@@ -263,7 +267,7 @@ export function AdminAgents() {
                     {/* Delete */}
                     <button
                       type="button"
-                      onClick={() => void handleDelete(agent.id)}
+                      onClick={() => void handleDelete(agent.id, agent.name)}
                       disabled={!hasValidAgentId(agent)}
                       className="inline-flex min-h-8 items-center gap-1 rounded-md border border-red-400/20 bg-red-400/10 px-3 py-1.5 text-xs font-bold text-red-300 transition hover:bg-red-400/20 disabled:opacity-50"
                     >
