@@ -542,9 +542,17 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
   // El API route es la única autoridad para calcular y persistir los campos
   // financieros (service_fee, total_amount, costo_agente, ganancia_orbi).
   // Los valores que nextMission trae del cliente son ignorados por el servidor.
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token ?? null;
+  if (!token) {
+    throw new Error("Sesión no válida. Inicia sesión para continuar.");
+  }
   const res = await fetch("/api/missions/create", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
     body: JSON.stringify(nextMission),
   });
 

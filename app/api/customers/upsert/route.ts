@@ -1,17 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdmin } from "@/lib/supabase-admin";
+import { assertAdminJWT, getAdmin } from "@/lib/supabase-admin";
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "");
 }
 
 export async function POST(req: NextRequest) {
+  // Auth: admin JWT shortcut OR verified user JWT
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const supabaseAdmin = getAdmin();
   if (!supabaseAdmin) {
     return NextResponse.json(
       { error: "Server misconfiguration: missing Supabase service role key." },
       { status: 500 }
     );
+  }
+
+  const adminResult = await assertAdminJWT(req);
+  const isAdmin = !(adminResult instanceof NextResponse);
+
+  if (!isAdmin) {
+    const { data: { user }, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
   }
 
   let body: {

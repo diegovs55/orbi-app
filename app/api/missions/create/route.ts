@@ -43,7 +43,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
 import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams } from "@/lib/pricing/server";
 import { logEvent } from "@/lib/event-log";
-import { getAdmin } from "@/lib/supabase-admin";
+import { assertAdminJWT, getAdmin } from "@/lib/supabase-admin";
 import { getRouteDistanceKm, RoutingError } from "@/lib/routing/server";
 
 const CATALOG_SERVICE_TYPE = "Compra local";
@@ -54,9 +54,26 @@ export async function POST(req: NextRequest) {
   const startedAt    = Date.now();
   const requestId    = crypto.randomUUID();
 
+  // Auth: admin JWT shortcut OR verified user JWT
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const admin = getAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
+  }
+
+  const adminResult = await assertAdminJWT(req);
+  const isAdmin = !(adminResult instanceof NextResponse);
+
+  if (!isAdmin) {
+    const { data: { user }, error: userErr } = await admin.auth.getUser(token);
+    if (userErr || !user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
   }
 
   let body: Record<string, unknown>;

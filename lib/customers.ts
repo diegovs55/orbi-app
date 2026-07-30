@@ -220,9 +220,18 @@ async function callUpsertAPI(payload: {
   auth_user_id?: string;
 }): Promise<void> {
   try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token ?? null;
+    if (!token) {
+      console.error("[customers] upsert API: no session token available.");
+      return;
+    }
     const res = await fetch("/api/customers/upsert", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
