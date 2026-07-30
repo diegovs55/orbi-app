@@ -802,9 +802,17 @@ export async function updateBusinessProfile(
     schedule?: WeeklySchedule | null;
   }
 ): Promise<void> {
+  const { data: sessionData } = await supabaseBusiness.auth.getSession();
+  const token = sessionData?.session?.access_token ?? null;
+  if (!token) {
+    throw new Error("Sesión no válida. Inicia sesión para continuar.");
+  }
   const res = await fetch("/api/businesses/update-profile", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
     body: JSON.stringify({ id, ...fields }),
   });
   if (!res.ok) {
