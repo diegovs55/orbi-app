@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdmin } from "@/lib/supabase-admin";
+import { assertAdminJWT, getAdmin } from "@/lib/supabase-admin";
 
 export async function POST(req: NextRequest) {
+  const authResult = await assertAdminJWT(req);
+  if (authResult instanceof NextResponse) return authResult;
+
   const admin = getAdmin();
   if (!admin) return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });
 
