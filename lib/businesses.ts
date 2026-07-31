@@ -49,9 +49,11 @@ type BusinessInsert = {
 export async function getBusinesses() {
   const client = getSupabaseClient();
 
+  // Public SELECT: excludes email and auth_user_id (PII not needed by public callers).
+  // Admin and business-owner contexts use getAdminBusinesses/getBusinessByAuthUserId.
   const { data, error } = await client
     .from("businesses")
-    .select("id,name,category,description,status,rating,email,auth_user_id")
+    .select("id,name,category,description,status,rating")
     .order("category", { ascending: true })
     .order("name", { ascending: true });
 

@@ -81,7 +81,14 @@ type AgentRow = {
   current_lng: number | string | null;
 };
 
-// Exact columns present in public.agents — never add columns that don't exist.
+// Public SELECT: used for unauthenticated callers (e.g. /agentes page).
+// Excludes PII (email, phone, auth_user_id) and real-time GPS (current_lat/lng).
+// Static base coordinates (lat, lng) are included — displayed publicly in AgentCards.
+const SELECT_PUBLIC =
+  "id,name,photo_url,initials,service_type,zone,status,admin_status,trust_level," +
+  "description,vehicle,availability,lat,lng,radius_km,is_on_orbit";
+
+// Full SELECT: used for authenticated contexts (admin panel, agent private panel, mission assignment).
 const SELECT =
   "id,name,email,photo_url,initials,service_type,zone,status,admin_status,trust_level," +
   "phone,description,vehicle,availability,lat,lng,radius_km," +
@@ -161,7 +168,7 @@ function client() {
 export async function getAgents(): Promise<OrbiAgent[]> {
   const { data, error } = await client()
     .from("agents")
-    .select(SELECT)
+    .select(SELECT_PUBLIC)
     .eq("admin_status", "activo")
     .neq("status", AGENT_STATUS.OFFLINE)
     .order("status", { ascending: true })
