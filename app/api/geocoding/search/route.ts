@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,9 @@ function buildDisplayName(props: PhotonFeature["properties"]): string | null {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse<SearchResponse | { error: string }>> {
+  const rl = await checkRateLimit(req, "geocoding:search", 30, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   try {
     const params = new URL(req.url).searchParams;
 

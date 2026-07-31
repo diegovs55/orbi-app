@@ -23,11 +23,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 
 const CANCELLABLE_STATUSES = ["esperando_negocio", "por_tomar"] as const;
 
 export async function POST(req: NextRequest) {
+  const rl = await checkRateLimit(req, "missions:cancel-customer", 5, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   const admin = getAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Server misconfiguration." }, { status: 500 });

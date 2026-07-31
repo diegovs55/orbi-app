@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRouteDistanceKm, RoutingError } from "@/lib/routing/server";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 export type { RouteResult } from "@/lib/routing/server";
 
 export async function GET(req: NextRequest) {
+  const rl = await checkRateLimit(req, "routing:route", 10, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   const { searchParams } = new URL(req.url);
   const oLat = parseFloat(searchParams.get("oLat") ?? "");
   const oLng = parseFloat(searchParams.get("oLng") ?? "");

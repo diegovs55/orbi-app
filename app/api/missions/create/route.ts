@@ -40,6 +40,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
 import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams } from "@/lib/pricing/server";
 import { logEvent } from "@/lib/event-log";
@@ -51,6 +52,9 @@ const CATALOG_SERVICE_TYPE = "Compra local";
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const rl = await checkRateLimit(req, "missions:create", 30, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   const startedAt    = Date.now();
   const requestId    = crypto.randomUUID();
 

@@ -28,6 +28,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,9 @@ function cacheSet(key: string, displayName: string | null): void {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse<ReverseResponse | { error: string }>> {
+  const rl = await checkRateLimit(req, "geocoding:reverse", 20, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   try {
     const params = new URL(req.url).searchParams;
 

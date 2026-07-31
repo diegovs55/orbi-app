@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertAdminJWT, getAdmin } from "@/lib/supabase-admin";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "");
 }
 
 export async function POST(req: NextRequest) {
+  const rl = await checkRateLimit(req, "customers:upsert", 30, 60);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfter);
+
   // Auth: admin JWT shortcut OR verified user JWT
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
