@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
-import { getCustomers, OrbiCustomer } from "@/lib/customers";
+import { fetchCustomersPage, OrbiCustomer } from "@/lib/customers";
 import { ActiveMission, fetchMissionsForRankings } from "@/lib/missions";
 import {
   subscribeToAgents,
@@ -177,7 +177,7 @@ export function AdminLeaders() {
       setAgents(data);
     };
     const refreshCustomers = async () => {
-      const data = await getCustomers();
+      const { customers: data } = await fetchCustomersPage({ page: 0 });
       setCustomers(data);
     };
 

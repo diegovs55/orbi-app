@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { getCustomers, OrbiCustomer } from "@/lib/customers";
+import { fetchCustomersPage, OrbiCustomer } from "@/lib/customers";
 import { subscribeToCustomers } from "@/lib/supabase";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -29,7 +29,10 @@ export function AdminConversion() {
 
   useEffect(() => {
     if (!isUnlocked) return;
-    const refresh = async () => setCustomers(await getCustomers());
+    const refresh = async () => {
+      const { customers: data } = await fetchCustomersPage({ page: 0 });
+      setCustomers(data);
+    };
     void refresh();
     return subscribeToCustomers(() => void refresh());
   }, [isUnlocked]);

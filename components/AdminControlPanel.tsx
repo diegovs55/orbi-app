@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
-import { getCustomers, OrbiCustomer } from "@/lib/customers";
+import { fetchCustomersPage, OrbiCustomer } from "@/lib/customers";
 import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts, subscribeToTableChanges } from "@/lib/supabase";
 import { CatalogProduct, getCatalogProductsWithOptions } from "@/lib/catalog";
 import {
@@ -96,7 +96,7 @@ export function AdminControlPanel() {
       const [agentsResult, businessesResult, customersResult, productsResult] = await Promise.allSettled([
         getAgents(),
         getBusinesses(),
-        getCustomers(),
+        fetchCustomersPage({ page: 0 }).then((r) => r.customers),
         getCatalogProductsWithOptions({ includeUnavailable: true, includeDemo: false })
       ]);
 
