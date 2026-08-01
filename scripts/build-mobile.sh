@@ -21,5 +21,5 @@ mv app/api "$API_BACKUP"
 echo "→ app/api movido a $API_BACKUP"
 
 rm -rf .next
-MOBILE_BUILD=true npm run build
+MOBILE_BUILD=true NEXT_PUBLIC_API_BASE=https://redorbi.com npm run build
 echo "✓ Build móvil completado → out/"
