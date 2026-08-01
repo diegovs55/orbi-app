@@ -138,3 +138,25 @@ button {
     transform: scale(1.12);
   }
 }
+
+/* ── Capacitor native: safe areas & keyboard ──────────────────────────────── */
+
+/* Expose env() safe areas so layout components can consume them.
+   Capacitor sets these automatically when viewport-fit=cover is in the meta. */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* Push content below the native status bar on devices with notch/island. */
+body {
+  padding-top: var(--sat);
+}
+
+/* When the soft keyboard opens (class toggled by lib/native-app.ts),
+   remove bottom safe-area padding to avoid double-stacking with the keyboard. */
+body.keyboard-open {
+  padding-bottom: 0;
+}

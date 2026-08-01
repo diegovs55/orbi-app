@@ -1,3 +1,5 @@
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
+
 /**
  * Modelo de órbita — G2
  *
@@ -99,7 +101,7 @@ async function queryGeolocationPermission(): Promise<PermissionState | "unsuppor
  *   - Las coordenadas son autoritativas; el label es solo presentación.
  */
 export async function resolveOrbitFromGps(): Promise<OrbitResolutionResult> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
+  if (!geoIsAvailable()) {
     return { status: "unavailable" };
   }
 
@@ -120,7 +122,7 @@ export async function resolveOrbitFromGps(): Promise<OrbitResolutionResult> {
       resolve({ status: "timeout" });
     }, GPS_TIMEOUT_MS);
 
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       (pos) => {
         if (settled) return;
         settled = true;
@@ -171,7 +173,7 @@ export async function resolveOrbitFromGps(): Promise<OrbitResolutionResult> {
  * si el permiso es "prompt", el navegador mostrará el diálogo nativo.
  */
 export async function resolveOrbitFromGpsExplicit(): Promise<OrbitResolutionResult> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
+  if (!geoIsAvailable()) {
     return { status: "unavailable" };
   }
 
@@ -184,7 +186,7 @@ export async function resolveOrbitFromGpsExplicit(): Promise<OrbitResolutionResu
       resolve({ status: "timeout" });
     }, GPS_EXPLICIT_TIMEOUT_MS);
 
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       (pos) => {
         if (settled) return;
         settled = true;

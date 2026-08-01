@@ -66,5 +66,20 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+
+	<!-- Geolocation — descripción requerida por App Store -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Orbi necesita tu ubicación para asignarte misiones cercanas y mostrar tu posición a negocios y clientes.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Orbi usa tu ubicación en segundo plano para que los clientes puedan rastrear su entrega en tiempo real.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Orbi usa tu ubicación en segundo plano para que los clientes puedan rastrear su entrega en tiempo real.</string>
+
+	<!-- Push Notifications -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+
 </dict>
 </plist>

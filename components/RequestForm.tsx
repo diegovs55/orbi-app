@@ -5,6 +5,7 @@ import { FormEvent } from "react";
 import { FormField } from "@/components/FormField";
 import { OrbiButton } from "@/components/OrbiButton";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { nativeOpenUrl } from "@/lib/native-app";
 
 type RequestFormProps = {
   mode: "pedido" | "movilidad";
@@ -33,7 +34,7 @@ export function RequestForm({ mode }: RequestFormProps) {
             `Referencia: ${data.get("reference")}`
           ].join("\n");
 
-    window.open(buildWhatsAppUrl(message), "_blank", "noopener,noreferrer");
+    void nativeOpenUrl(buildWhatsAppUrl(message));
   }
 
   return (

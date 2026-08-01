@@ -3,6 +3,7 @@ import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { assertAuthenticated } from "@/lib/auth";
 import type { OrbitCenter } from "@/lib/orbit";
 import { DISCOVERY, haversineKm, getOrdinaryRadiusKm } from "@/lib/discovery";
+import { apiUrl } from "@/lib/api-url";
 
 async function assertBusinessAuthenticated(): Promise<void> {
   const { data, error } = await supabaseBusiness.auth.getUser();
@@ -807,7 +808,7 @@ export async function updateBusinessProfile(
   if (!token) {
     throw new Error("Sesión no válida. Inicia sesión para continuar.");
   }
-  const res = await fetch("/api/businesses/update-profile", {
+  const res = await fetch(apiUrl("/api/businesses/update-profile"), {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",

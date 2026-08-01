@@ -1,4 +1,5 @@
-import type { RouteResult } from "@/app/api/routing/route/route";
+import type { RouteResult } from "@/lib/routing/server";
+import { apiUrl } from "@/lib/api-url";
 
 export type { RouteResult };
 
@@ -17,7 +18,7 @@ export async function fetchRoute(
       dLat: dLat.toString(),
       dLng: dLng.toString(),
     });
-    const res = await fetch(`/api/routing/route?${params.toString()}`);
+    const res = await fetch(apiUrl(`/api/routing/route?${params.toString()}`));
     if (!res.ok) return null;
     return (await res.json()) as RouteResult;
   } catch {
