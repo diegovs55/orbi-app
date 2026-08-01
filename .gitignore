@@ -8,3 +8,12 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 *.tsbuildinfo
+
+# Capacitor — artefactos de build nativos (NO excluir ios/ ni android/ del repo)
+ios/App/App/capacitor.config.json
+ios/App/DerivedData
+ios/.build
+android/.gradle
+android/build
+android/app/build
+android/local.properties

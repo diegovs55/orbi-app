@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Orbi</string>
+    <string name="title_activity_main">Orbi</string>
+    <string name="package_name">com.redorbi.app</string>
+    <string name="custom_url_scheme">com.redorbi.app</string>
+</resources>

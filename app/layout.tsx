@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { BottomNav } from "@/components/BottomNav";
 import { SupabaseAuthListener } from "@/components/SupabaseAuthListener";
+import { SplashScreen } from "@/components/SplashScreen";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `(function(){try{var h=window.location.hash;if(h&&h.indexOf('type=recovery')!==-1){window.location.replace('/usuarios/reset-password'+h);}}catch(e){}})();`,
           }}
         />
+        <SplashScreen />
         <SupabaseAuthListener />
         <div className="relative min-h-screen overflow-hidden pb-24">
           <div className="orbit-grid pointer-events-none absolute inset-0 opacity-80" />
