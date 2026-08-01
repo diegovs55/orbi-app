@@ -1557,7 +1557,9 @@ export function ServiceRequestFlow() {
     await new Promise<void>((resolve) => setTimeout(resolve, 1200));
     isSendingRef.current = false;
     setIsSending(false);
-    router.push("/usuarios");
+    // No navegar: activeMission ya está seteado y el componente renderiza el
+    // WaitingRequestCard (esperando_negocio) o PendingMissionCard (por_tomar).
+    // El useEffect de la línea 492 navega a /orbita/${id} cuando pasa a "aceptada".
     } catch (err) {
       // On error: re-enable so the user can retry. draftId is NOT cleared here,
       // so the retry uses the same idempotency key and the server deduplicates.
@@ -1620,8 +1622,7 @@ export function ServiceRequestFlow() {
   }
 
   // Called by AuthGatePanel after successful login or registration.
-  // Stores the userId and closes the gate. The user must press "Poner en órbita"
-  // explicitly — we never auto-create a mission on auth success.
+  // Stores the userId, closes the gate, and resumes mission creation automatically.
   function handleAuthGateSuccess(userId: string, name: string, phone: string, email: string) {
     setAuthUserId(userId);
     setShowAuthGate(false);
@@ -1632,6 +1633,9 @@ export function ServiceRequestFlow() {
       requesterName: name || prev.requesterName,
       requesterPhone: phone || prev.requesterPhone,
     }));
+    // Reanudar la creación de misión con el userId recién obtenido y el
+    // nombre/teléfono actualizados (prev puede no tenerlos si vienen del gate).
+    void handleCreateWaitingRequest(userId, { name, phone });
   }
 
   function handleModifyWaitingRequest() {
@@ -2106,7 +2110,11 @@ export function ServiceRequestFlow() {
                       solicitante: true
                     }));
                     setExpandedDraftSection(null);
-                    goToStep("confirmacion");
+                    // Avanzar directamente: el disabled garantiza que requesterIsComplete y
+                    // el estado de cotización son válidos; leer goToStep aquí causaría un
+                    // stale-closure sobre confirmedDraftSections.solicitante (todavía false).
+                    setSelectedStep("confirmacion");
+                    setIsRequestReady(true);
                   }}
                 />
               </FormSection>
