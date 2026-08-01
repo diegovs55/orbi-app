@@ -1,4 +1,4 @@
-import type { RouteResult } from "@/app/api/routing/route/route";
+import type { RouteResult } from "@/lib/routing/server";
 
 export type { RouteResult };
 

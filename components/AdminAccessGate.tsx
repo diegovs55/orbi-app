@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { LockKeyhole, LogOut } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase-admin-client";
+import { apiUrl } from "@/lib/api-url";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -16,7 +17,7 @@ async function verifyAdminRole(): Promise<boolean> {
     const token = data.session?.access_token;
     if (!token) return false;
 
-    const res = await fetch("/api/admin/verify", {
+    const res = await fetch(apiUrl("/api/admin/verify"), {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });

@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Search, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { adminFetch } from "@/lib/admin-fetch";
-import type { ActivitySummary, ActivityPeriod } from "@/app/api/admin/intelligence/activity/route";
-import type { ActivitySearchResponse, ActivitySearchGroup } from "@/app/api/admin/intelligence/activity/search/route";
+import type { ActivitySummary, ActivityPeriod, ActivitySearchResponse, ActivitySearchGroup } from "@/lib/types/admin-intelligence";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

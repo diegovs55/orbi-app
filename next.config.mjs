@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const SUPABASE_HOST = "tkgownrugjbmugwxbkog.supabase.co";
 
+const isMobileBuild = process.env.MOBILE_BUILD === "true";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -30,12 +32,30 @@ const securityHeaders = [
   },
 ];
 
+// CORS headers añadidos únicamente en rutas /api/* para permitir el WebView
+// nativo de Capacitor (capacitor://localhost en iOS, http://localhost en Android).
+// No se usa Access-Control-Allow-Origin: * para no relajar la política web.
+const corsApiHeaders = [
+  { key: "Access-Control-Allow-Origin", value: "capacitor://localhost" },
+  { key: "Access-Control-Allow-Methods", value: "GET,POST,PATCH,OPTIONS" },
+  { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
+];
+
 const nextConfig = {
+  // Build móvil: static export para el bundle de Capacitor.
+  // Build web: sin output (Next.js SSR/ISR en Netlify), exactamente igual que antes.
+  ...(isMobileBuild ? { output: "export", images: { unoptimized: true } } : {}),
+
   async headers() {
     return [
       {
         source: "/(.*)",
         headers: securityHeaders,
+      },
+      // CORS para WebView nativo — solo /api/*
+      {
+        source: "/api/(.*)",
+        headers: corsApiHeaders,
       },
     ];
   },

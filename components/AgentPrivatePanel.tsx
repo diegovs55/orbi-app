@@ -13,6 +13,7 @@ import {
   UserRound,
   XCircle
 } from "lucide-react";
+import { apiUrl } from "@/lib/api-url";
 import {
   AGENT_STATUS,
   AgentServiceType,
@@ -107,7 +108,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     setMotorParamsLoading(true);
     setMotorParamsError(false);
     try {
-      const res = await fetch("/api/config/motor-params");
+      const res = await fetch(apiUrl("/api/config/motor-params"));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as MotorParamsData;
       setMotorParams(data);
@@ -347,7 +348,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
     let res: Response;
     try {
-      res = await fetch("/api/missions/accept", {
+      res = await fetch(apiUrl("/api/missions/accept"), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,

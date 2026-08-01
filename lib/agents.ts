@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/api-url";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -382,7 +383,7 @@ export async function updateAgentOrbit(
 export async function deleteAgent(id: string): Promise<void> {
   if (!hasValidAgentId({ id })) throw new Error("ID de agente inválido.");
 
-  const res = await fetch("/api/agents/delete", {
+  const res = await fetch(apiUrl("/api/agents/delete"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id }),

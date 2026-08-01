@@ -59,6 +59,7 @@ import {
   type OrderDraft,
 } from "@/lib/order-draft";
 import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
+import { apiUrl } from "@/lib/api-url";
 import {
   type OrbitCenter,
   resolveOrbitFromGps,
@@ -874,7 +875,7 @@ export function ServiceRequestFlow() {
     }
     let cancelled = false;
     setDirectQuote((q) => ({ ...q, loading: true, error: false }));
-    void fetch("/api/pricing/quote", {
+    void fetch(apiUrl("/api/pricing/quote"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -911,7 +912,7 @@ export function ServiceRequestFlow() {
     let cancelled = false;
     setQuoteLoading(true);
     setQuoteError(null);
-    void fetch("/api/pricing/quote", {
+    void fetch(apiUrl("/api/pricing/quote"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1087,7 +1088,7 @@ export function ServiceRequestFlow() {
     if (searchQuery.trim() && intentionContext) {
       const { intencionOrbi, propuestaMostrada, resultadosCatalogo } = intentionContext;
       const correccionHumana = label !== intencionOrbi ? label : null;
-      void fetch("/api/intention-logs", {
+      void fetch(apiUrl("/api/intention-logs"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

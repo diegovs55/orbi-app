@@ -3,25 +3,22 @@ import type { CapacitorConfig } from "@capacitor/cli";
 /**
  * Capacitor — ORBI MVP
  *
- * Arquitectura: Remote URL (WebView → redorbi.com)
+ * Arquitectura: bundle local (webDir: "out") + API calls a https://redorbi.com
  *
- * ¿Por qué Remote URL y no static export?
- * ORBI usa Next.js API routes en Netlify (/api/missions/*, /api/agents/*, etc.)
- * que no pueden ser exportados estáticamente. Con `server.url` el WebView nativo
- * carga directamente la URL de producción; las API routes, auth, RLS y JWT
- * permanecen exactamente igual sin ninguna modificación al backend.
+ * El WebView carga archivos estáticos locales generados por `next export`.
+ * Las llamadas a /api/* van a https://redorbi.com via NEXT_PUBLIC_API_BASE.
  *
- * En desarrollo local: comentar `server.url` y usar `server.cleartext = true`
- * apuntando a la IP local (ver README de Capacitor).
+ * Para desarrollo con hot-reload descomenta `server.url` y `server.cleartext`.
  */
 const config: CapacitorConfig = {
   appId: "com.redorbi.app",
   appName: "Orbi",
-  webDir: "out",                // directorio de salida de next export (para builds locales)
-  server: {
-    url: "https://redorbi.com", // en producción: WebView apunta a la URL desplegada
-    cleartext: false,           // HTTP solo en desarrollo; producción siempre HTTPS
-  },
+  webDir: "out",
+  // server.url solo para desarrollo local con hot-reload:
+  // server: {
+  //   url: "http://192.168.x.x:3000",
+  //   cleartext: true,
+  // },
   ios: {
     contentInset: "automatic",
     backgroundColor: "#05070d",
@@ -32,7 +29,7 @@ const config: CapacitorConfig = {
     backgroundColor: "#05070d",
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: false, // true en dev builds únicamente
+    webContentsDebuggingEnabled: false,
   },
 };
 

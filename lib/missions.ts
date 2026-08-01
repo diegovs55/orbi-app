@@ -1,4 +1,5 @@
 import { supabase, subscribeToTableChanges } from "@/lib/supabase";
+import { apiUrl } from "@/lib/api-url";
 
 export const missionStatuses = [
   "esperando_negocio",
@@ -547,7 +548,7 @@ export async function createMission(mission: CreateMissionInput): Promise<Active
   if (!token) {
     throw new Error("Sesión no válida. Inicia sesión para continuar.");
   }
-  const res = await fetch("/api/missions/create", {
+  const res = await fetch(apiUrl("/api/missions/create"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1035,7 +1036,7 @@ export async function completeMissionWithLedger(
 
   let res: Response;
   try {
-    res = await fetch("/api/missions/complete", {
+    res = await fetch(apiUrl("/api/missions/complete"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1078,7 +1079,7 @@ export async function completeMissionWithLedger(
 /** Customer cancels mission. Backend guards esperando_negocio only. Returns ok=true on success. */
 export async function cancelMissionByCustomer(id: string): Promise<{ ok: boolean }> {
   try {
-    const res = await fetch("/api/missions/cancel-customer", {
+    const res = await fetch(apiUrl("/api/missions/cancel-customer"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mission_id: id }),

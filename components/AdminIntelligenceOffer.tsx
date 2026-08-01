@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Search, RefreshCw } from "lucide-react";
 import { adminFetch } from "@/lib/admin-fetch";
-import type { OfferSummary, OfferBusiness } from "@/app/api/admin/intelligence/offer/route";
-import type { SearchResponse } from "@/app/api/admin/intelligence/offer/search/route";
+import type { OfferSummary, OfferBusiness, SearchResponse } from "@/lib/types/admin-intelligence";
 
 function fmt(n: number | null | undefined, decimals = 0): string {
   if (n == null) return "—";

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
+import { apiUrl } from "@/lib/api-url";
 
 const CUSTOMER_SESSION_KEY = "orbi_customer_session";
 
@@ -226,7 +227,7 @@ async function callUpsertAPI(payload: {
       console.error("[customers] upsert API: no session token available.");
       return;
     }
-    const res = await fetch("/api/customers/upsert", {
+    const res = await fetch(apiUrl("/api/customers/upsert"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
