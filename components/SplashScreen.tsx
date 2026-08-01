@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { initNativeApp } from "@/lib/native-app";
 
 /**
  * SplashScreen — superposición de carga de ORBI.
@@ -18,6 +19,10 @@ export function SplashScreen() {
   const [phase, setPhase] = useState<"in" | "hold" | "pulse" | "out" | "gone">("in");
 
   useEffect(() => {
+    // Inicializar capacidades nativas (SplashScreen, StatusBar, Keyboard, Back button).
+    // No-op en web. hideSplashScreen() se llama aquí; los demás plugins siguen en paralelo.
+    void initNativeApp();
+
     const t1 = setTimeout(() => setPhase("hold"),  120);
     const t2 = setTimeout(() => setPhase("pulse"), 800);
     const t3 = setTimeout(() => setPhase("out"),   950);

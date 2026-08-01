@@ -14,6 +14,7 @@ import {
   XCircle
 } from "lucide-react";
 import { apiUrl } from "@/lib/api-url";
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   AGENT_STATUS,
   AgentServiceType,
@@ -970,11 +971,11 @@ function compatibleServiceType(missionService: string): AgentServiceType {
 
 function getCurrentPosition(): Promise<{ latitude: number; longitude: number }> {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
+    if (!geoIsAvailable()) {
       reject(new Error("Tu navegador no soporta geolocalización."));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
       (err) => reject(new Error(err.message)),
       { enableHighAccuracy: true, timeout: 10000 }

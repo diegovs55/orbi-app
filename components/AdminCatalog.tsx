@@ -23,6 +23,7 @@ import {
   updateCatalogProduct
 } from "@/lib/catalog";
 import { subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 const zumpahuacanCenter = { lat: 18.8349, lng: -99.5818 };
@@ -265,13 +266,13 @@ export function AdminCatalog() {
   }
 
   function handleUseCurrentBusinessLocation() {
-    if (!navigator.geolocation) {
+    if (!geoIsAvailable()) {
       setBusinessLocationMessage("Tu navegador no permite obtener ubicación actual.");
       return;
     }
 
     setBusinessLocationMessage("Solicitando ubicación actual...");
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       async (position) => {
         const point = {
           lat: position.coords.latitude,

@@ -14,11 +14,12 @@
 
 import { updateAgentOrbit } from "@/lib/agents";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
+import { geoWatchPosition, geoClearWatch, geoIsAvailable } from "@/lib/geo";
 
 const MIN_DISTANCE_M = 15;
 const MIN_INTERVAL_MS = 20_000;
 
-let watchId: number | null = null;
+let watchId: string | number | null = null;
 let lastWrite: { lat: number; lng: number; ts: number } | null = null;
 
 function haversineMeters(
@@ -51,10 +52,10 @@ export function startGpsWatch(
   availability: string,
   radiusKm: number,
 ): void {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return;
+  if (!geoIsAvailable()) return;
   if (watchId !== null) return; // already watching — do not open a second watcher
 
-  watchId = navigator.geolocation.watchPosition(
+  watchId = geoWatchPosition(
     (pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
       const now = Date.now();
@@ -87,9 +88,8 @@ export function startGpsWatch(
  * Call this only on explicit "exit orbit" or logout — NOT on page navigation.
  */
 export function stopGpsWatch(): void {
-  if (typeof navigator === "undefined") return;
   if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
+    geoClearWatch(watchId);
     watchId = null;
   }
   lastWrite = null;

@@ -60,6 +60,7 @@ import {
 } from "@/lib/order-draft";
 import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
 import { apiUrl } from "@/lib/api-url";
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   type OrbitCenter,
   resolveOrbitFromGps,
@@ -1203,7 +1204,7 @@ export function ServiceRequestFlow() {
     setOriginPendingConfirm(null);
     setOriginGpsLoading(true);
 
-    if (!navigator.geolocation) {
+    if (!geoIsAvailable()) {
       setOriginGpsError("GPS no disponible. Escribe la dirección o usa el mapa.");
       setOriginGpsLoading(false);
       return;
@@ -1223,7 +1224,7 @@ export function ServiceRequestFlow() {
       time: new Date().toISOString(), visibility: document.visibilityState, options: _reqOptions,
     });
 
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       async (position) => {
         console.info("[GPS:success]", {
           fn: "handleOriginGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
@@ -1274,7 +1275,7 @@ export function ServiceRequestFlow() {
     setDestPendingConfirm(null);
     setDestGpsLoading(true);
 
-    if (!navigator.geolocation) {
+    if (!geoIsAvailable()) {
       setDestGpsError("No pudimos ubicarte. Escribe la dirección o usa el mapa.");
       setDestGpsLoading(false);
       return;
@@ -1294,7 +1295,7 @@ export function ServiceRequestFlow() {
       time: new Date().toISOString(), visibility: document.visibilityState, options: _reqOptions,
     });
 
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       async (position) => {
         console.info("[GPS:success]", {
           fn: "handleDestGps", reqId: _reqId, elapsedMs: Date.now() - _reqStart,
@@ -1366,7 +1367,7 @@ export function ServiceRequestFlow() {
     setMapPoint(currentPoint ?? zumpahuacanCenter);
     setMapTarget(target);
 
-    if (!currentPoint && navigator.geolocation) {
+    if (!currentPoint && geoIsAvailable()) {
       // [DIAG-GPS]
       const _reqId = ++_gpsReqCounter;
       const _reqStart = Date.now();
@@ -1376,7 +1377,7 @@ export function ServiceRequestFlow() {
         time: new Date().toISOString(), visibility: document.visibilityState,
         target, options: _reqOptions,
       });
-      navigator.geolocation.getCurrentPosition(
+      geoGetCurrentPosition(
         (position) => {
           console.info("[GPS:success]", {
             fn: "handleOpenMap", reqId: _reqId, elapsedMs: Date.now() - _reqStart,

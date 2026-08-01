@@ -31,6 +31,7 @@ import {
   markOrderReadyByBusiness,
 } from "@/lib/missions";
 import { subscribeToTableChanges } from "@/lib/supabase";
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   isAudioReady,
   enableAutoUnlock,
@@ -257,9 +258,9 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
   }
 
   function handleUseCurrentLocation() {
-    if (!navigator.geolocation) return;
+    if (!geoIsAvailable()) return;
     setPfGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
+    geoGetCurrentPosition(
       async (pos) => {
         const point = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setPfLoc(point);
