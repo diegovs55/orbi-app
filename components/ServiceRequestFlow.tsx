@@ -1557,9 +1557,7 @@ export function ServiceRequestFlow() {
     await new Promise<void>((resolve) => setTimeout(resolve, 1200));
     isSendingRef.current = false;
     setIsSending(false);
-    // No navegar: activeMission ya está seteado y el componente renderiza el
-    // WaitingRequestCard (esperando_negocio) o PendingMissionCard (por_tomar).
-    // El useEffect de la línea 492 navega a /orbita/${id} cuando pasa a "aceptada".
+    router.push("/usuarios");
     } catch (err) {
       // On error: re-enable so the user can retry. draftId is NOT cleared here,
       // so the retry uses the same idempotency key and the server deduplicates.
