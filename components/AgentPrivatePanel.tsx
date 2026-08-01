@@ -2,6 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isGpsWatching, seedLastGpsWrite, startGpsWatch, stopGpsWatch } from "@/lib/agent-gps";
+import { checkGpsPermission, requestGpsPermission, openGpsSettings } from "@/lib/geo-permissions";
+import type { GeoPermissionState } from "@/lib/geo-permissions";
+import { GpsStatusPill } from "@/components/GpsStatusPill";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -99,6 +102,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   const [orbitError, setOrbitError] = useState("");
   const [orbitMsg, setOrbitMsg] = useState("");
   const [isEnteringOrbit, setIsEnteringOrbit] = useState(false);
+  const [gpsPermission, setGpsPermission] = useState<GeoPermissionState | null>(null);
 
   // ── Motor params — fetched from /api/config/motor-params on mount ────────
   const [motorParams, setMotorParams] = useState<MotorParamsData | null>(null);
@@ -235,6 +239,27 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     setOrbitMsg("");
     setIsEnteringOrbit(true);
     try {
+      // 1. Check current permission state without opening a dialog.
+      let permission = await checkGpsPermission();
+
+      // 2. If not yet decided, request permission (triggers native dialog on device).
+      if (permission === "prompt") {
+        permission = await requestGpsPermission();
+      }
+
+      setGpsPermission(permission);
+
+      // 3. Hard stop if denied — show settings instructions.
+      if (permission === "denied" || permission === "unavailable") {
+        setOrbitError(
+          permission === "denied"
+            ? "Permiso de ubicación denegado. Actívalo en Configuración → Privacidad → Ubicación."
+            : "GPS no disponible en este dispositivo."
+        );
+        return;
+      }
+
+      // 4. Permission granted — acquire initial fix then start watcher.
       const pos = await getCurrentPosition();
       const fresh = await updateAgentOrbit(agentId, {
         isOnOrbit: true,
@@ -251,7 +276,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
       setOrbitMsg(`En órbita. GPS: ${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo obtener la ubicación GPS.";
-      setOrbitError(`GPS no disponible: ${msg}. Asegúrate de dar permiso de ubicación al navegador.`);
+      setOrbitError(`GPS no disponible: ${msg}. Asegúrate de dar permiso de ubicación.`);
     } finally {
       setIsEnteringOrbit(false);
     }
@@ -563,6 +588,11 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           <p className="text-xs text-orbi-muted">Sin posición GPS registrada aún. Entra en órbita para fijar tu ubicación.</p>
         )}
 
+        {/* GPS status indicator — visible while in orbit */}
+        {agent.isOnOrbit && (
+          <GpsStatusPill showCoords className="self-start" />
+        )}
+
         <div className="flex flex-wrap gap-2">
           {!agent.isOnOrbit ? (
             <button
@@ -584,6 +614,17 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
             </button>
           )}
         </div>
+
+        {/* Open Settings button — shown when permission is permanently denied */}
+        {gpsPermission === "denied" && (
+          <button
+            type="button"
+            onClick={() => void openGpsSettings()}
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-orange-400/30 bg-orange-400/10 px-4 py-2 text-xs font-semibold text-orange-300 transition hover:bg-orange-400/20"
+          >
+            Ir a Configuración para activar GPS
+          </button>
+        )}
 
         {orbitError ? (
           <p className="rounded-md border border-red-300/20 bg-red-400/10 p-3 text-xs font-semibold text-red-200">
