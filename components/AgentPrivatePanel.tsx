@@ -241,7 +241,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
         radiusKm: Number(radiusKm),
         serviceType: agent.serviceType,
         availability: agent.availability
-      });
+      }, supabaseAgent);
       setAgent(fresh);
       populateForm(fresh);
       seedLastGpsWrite(pos.latitude, pos.longitude);
@@ -267,7 +267,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
         radiusKm: Number(radiusKm),
         serviceType: agent.serviceType,
         availability: agent.availability
-      });
+      }, supabaseAgent);
       setAgent(fresh);
       populateForm(fresh);
       setOrbitMsg("Saliste de órbita. Tus coordenadas GPS quedan guardadas.");
@@ -368,8 +368,8 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
     let code = "";
     try {
-      const body = (await res.json()) as { code?: string };
-      code = body.code ?? "";
+      const body = (await res.json()) as { error?: string };
+      code = body.error ?? "";
     } catch { /* body no parseable */ }
 
     if (res.status === 409 && code === "MISSION_TAKEN") {

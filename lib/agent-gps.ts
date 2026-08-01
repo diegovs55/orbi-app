@@ -13,6 +13,7 @@
  */
 
 import { updateAgentOrbit } from "@/lib/agents";
+import { supabaseAgent } from "@/lib/supabase-agent-client";
 
 const MIN_DISTANCE_M = 15;
 const MIN_INTERVAL_MS = 20_000;
@@ -74,7 +75,7 @@ export function startGpsWatch(
         radiusKm,
         serviceType: serviceType as never,
         availability,
-      });
+      }, supabaseAgent);
     },
     () => { /* silently ignore watch errors — orbit status unchanged */ },
     { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 },

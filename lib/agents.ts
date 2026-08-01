@@ -330,9 +330,12 @@ export async function updateAgentOrbit(
     radiusKm?: number;
     serviceType?: AgentServiceType;
     availability?: string;
-  }
+  },
+  db?: typeof supabase
 ): Promise<OrbiAgent> {
   if (!hasValidAgentId({ id })) throw new Error("ID de agente inválido.");
+
+  const useClient = db ?? client();
 
   const payload: Record<string, unknown> = {
     is_on_orbit: opts.isOnOrbit,
@@ -349,13 +352,23 @@ export async function updateAgentOrbit(
   if (opts.serviceType) payload.service_type = opts.serviceType;
   if (opts.availability != null) payload.availability = opts.availability || null;
 
-  const { error: upErr } = await client().from("agents").update(payload).eq("id", id);
+  const { data: updRows, error: upErr } = await useClient
+    .from("agents")
+    .update(payload)
+    .eq("id", id)
+    .select("id");
+
   if (upErr) {
     console.error("[agents] orbit UPDATE error", upErr);
     throw new Error(upErr.message);
   }
+  if (!Array.isArray(updRows) || updRows.length !== 1) {
+    throw new Error(
+      `updateAgentOrbit: UPDATE afectó ${updRows?.length ?? 0} filas (esperado 1). Verifica que el cliente Supabase tenga sesión autenticada. id=${id}`
+    );
+  }
 
-  const { data, error: selErr } = await client()
+  const { data, error: selErr } = await useClient
     .from("agents")
     .select(SELECT)
     .eq("id", id)
