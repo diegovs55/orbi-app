@@ -45,7 +45,7 @@ import {
   MissionCompleteResult,
   startMission,
 } from "@/lib/missions";
-import { subscribeToTableChanges } from "@/lib/supabase";
+import { subscribeToTableChangesWithClient } from "@/lib/supabase";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
 import {
   isAudioReady,
@@ -187,13 +187,27 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.isOnOrbit, agentId]);
 
-  // Missions: Supabase is the source of truth. Fetch on mount and on realtime push.
-  useEffect(() => {
-    const refresh = async () => setMissions(await fetchActiveMissions());
-    void refresh();
-    const unsub = subscribeToTableChanges("missions", () => void refresh());
-    return unsub;
+  // Missions: reads under the agent's own session — never under the customer client.
+  // If the agent has no valid session, show an expired-session message instead of
+  // silently falling back to the customer's auth context.
+  const [agentSessionExpired, setAgentSessionExpired] = useState(false);
+
+  const refreshMissions = useCallback(async () => {
+    const { data: sessionData } = await supabaseAgent.auth.getSession();
+    if (!sessionData.session) {
+      setAgentSessionExpired(true);
+      setMissions([]);
+      return;
+    }
+    setAgentSessionExpired(false);
+    setMissions(await fetchActiveMissions(supabaseAgent));
   }, []);
+
+  useEffect(() => {
+    void refreshMissions();
+    const unsub = subscribeToTableChangesWithClient(supabaseAgent, "missions", () => void refreshMissions());
+    return unsub;
+  }, [refreshMissions]);
 
   // ── Sound notifications for new available missions ────────────────────────
   const agentInitialMissionIds = useRef<Set<string> | null>(null);
@@ -388,7 +402,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     }
 
     if (res.ok) {
-      setMissions(await fetchActiveMissions());
+      await refreshMissions();
       setMissionMessage("Misión aceptada. Dirígete al origen.");
       return;
     }
@@ -425,7 +439,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
       try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(Array.from(next))); } catch { /* ignore */ }
       return next;
     });
-    setMissions(await fetchActiveMissions());
+    await refreshMissions();
     setMissionMessage("Misión liberada. Volvió a estar disponible para otros agentes.");
   }
 
@@ -433,7 +447,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     if (mission.status === "aceptada") {
       const result = await startMission(mission.id, realAgentId);
       if (!result) { setMissionError("No se pudo iniciar la ruta."); return; }
-      setMissions(await fetchActiveMissions());
+      await refreshMissions();
       setMissionMessage("Ruta iniciada. Misión en curso.");
     } else if (mission.status === "en_mision") {
       setMissionError("");
@@ -448,7 +462,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
         return;
       }
 
-      setMissions(await fetchActiveMissions());
+      await refreshMissions();
 
       if (result.status === "ledger_pending") {
         // Misión cerrada en DB pero ledger no se escribió. Retry explícito disponible.
@@ -543,6 +557,12 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-6">
 
+      {agentSessionExpired ? (
+        <p className="rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-semibold text-red-200">
+          Tu sesión de agente expiró. Recarga la página para continuar.
+        </p>
+      ) : null}
+
       {agentAudioBlocked ? (
         <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.05] px-3 py-2 text-center text-xs text-orbi-muted">
           Toca la pantalla para activar alertas de sonido.
@@ -569,7 +589,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           </div>
           <button
             type="button"
-            onClick={() => { void loadAgent(); void loadMotorParamsData(); }}
+            onClick={() => { void loadAgent(); void loadMotorParamsData(); void refreshMissions(); }}
             className="inline-flex items-center gap-1.5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.06] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/12"
           >
             <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
