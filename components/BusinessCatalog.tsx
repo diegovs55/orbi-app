@@ -26,11 +26,11 @@ import {
 } from "@/lib/businessSession";
 import {
   ActiveMission,
-  confirmMissionByBusiness,
   fetchBusinessPendingMissions,
-  markOrderReadyByBusiness,
 } from "@/lib/missions";
-import { subscribeToTableChanges } from "@/lib/supabase";
+import { apiUrl } from "@/lib/api-url";
+import { subscribeToTableChangesWithClient } from "@/lib/supabase";
+import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   isAudioReady,
@@ -701,12 +701,17 @@ function PendingOrders({ businessName }: { businessName: string }) {
   const initialIds = useRef<Set<string> | null>(null);
 
   const load = useCallback(async () => {
-    const result = await fetchBusinessPendingMissions(businessName);
+    const { data: sessionData } = await supabaseBusiness.auth.getSession();
+    if (!sessionData.session) { setOrders([]); return; }
+    const result = await fetchBusinessPendingMissions(businessName, supabaseBusiness);
     setOrders(result);
   }, [businessName]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => subscribeToTableChanges("missions", () => void load()), [load]);
+  useEffect(
+    () => subscribeToTableChangesWithClient(supabaseBusiness, "missions", () => void load()),
+    [load]
+  );
 
   // Register auto-unlock once on mount — fires silently on first gesture.
   useEffect(() => { enableAutoUnlock(); }, []);
@@ -744,10 +749,32 @@ function PendingOrders({ businessName }: { businessName: string }) {
 
   async function handleAction(id: string, status: string) {
     setConfirming((prev) => new Set(prev).add(id));
-    if (status === "esperando_negocio") await confirmMissionByBusiness(id);
-    else await markOrderReadyByBusiness(id);
-    await load();
-    setConfirming((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    try {
+      const { data: sessionData } = await supabaseBusiness.auth.getSession();
+      const token = sessionData.session?.access_token ?? null;
+      if (!token) {
+        console.error("[BusinessCatalog] La sesión del negocio expiró. Inicia sesión nuevamente.");
+        return;
+      }
+      const endpoint = status === "esperando_negocio"
+        ? "/api/business/missions/confirm"
+        : "/api/business/missions/ready";
+      const res = await fetch(apiUrl(endpoint), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ missionId: id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        console.error(`[BusinessCatalog] ${endpoint} error ${res.status}:`, err.error ?? res.statusText);
+      }
+    } finally {
+      await load();
+      setConfirming((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
   }
 
   return (

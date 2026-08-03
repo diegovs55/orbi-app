@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -16,14 +16,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
-export function subscribeToTableChanges(
+export function subscribeToTableChangesWithClient(
+  client: SupabaseClient,
   table: string,
   callback: () => void,
   options?: { schema?: string }
 ) {
   const schema = options?.schema ?? "public";
   const channelName = `realtime-${table}-${Math.random().toString(36).slice(2)}`;
-  const channel = supabase.channel(channelName);
+  const channel = client.channel(channelName);
   const postgresEvents = ["INSERT", "UPDATE", "DELETE"] as const;
 
   postgresEvents.forEach((event) => {
@@ -41,6 +42,14 @@ export function subscribeToTableChanges(
   return () => {
     void channel.unsubscribe();
   };
+}
+
+export function subscribeToTableChanges(
+  table: string,
+  callback: () => void,
+  options?: { schema?: string }
+) {
+  return subscribeToTableChangesWithClient(supabase, table, callback, options);
 }
 
 export function subscribeToAgents(callback: () => void) {
