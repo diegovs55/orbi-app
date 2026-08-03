@@ -190,6 +190,7 @@ function SessionView({
   session: CustomerSession;
   onLogout: () => void;
 }) {
+  const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveMission[]>([]);
   const [stats, setStats] = useState<CustomerMissionStats | null>(null);
@@ -313,8 +314,24 @@ function SessionView({
                     {missionNarrativeMessage(m)}
                   </p>
                   <div className="mt-3">
-                    <Link
-                      href={`/orbita/${m.id}`}
+                    <a
+                      href={`/orbita/__mobile__?missionId=${m.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const isCap =
+                          typeof window !== "undefined" &&
+                          (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
+                        const mobileUrl = `/orbita/__mobile__?missionId=${m.id}`;
+                        const webUrl = `/orbita/${m.id}`;
+                        const targetUrl = isCap ? mobileUrl : webUrl;
+                        console.log("[CLIENT_TRACKING_CLICK]", {
+                          missionId: m.id,
+                          targetUrl,
+                          isCapacitor: isCap,
+                          hrefBefore: window.location.href,
+                        });
+                        router.push(isCap ? mobileUrl : webUrl);
+                      }}
                       className={`inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold transition ${
                         isMoving
                           ? "bg-orbi-blue text-white shadow-glow hover:bg-[#0f7af0]"
@@ -322,7 +339,7 @@ function SessionView({
                       }`}
                     >
                       {isMoving ? "Ver en mapa" : "Ver pedido"}
-                    </Link>
+                    </a>
                   </div>
                 </div>
               );
