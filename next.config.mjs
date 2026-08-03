@@ -2,6 +2,7 @@
 const SUPABASE_HOST = "tkgownrugjbmugwxbkog.supabase.co";
 
 const isMobileBuild = process.env.MOBILE_BUILD === "true";
+const isDev = process.env.NODE_ENV === "development";
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -19,7 +20,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
       `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST} https://nominatim.openstreetmap.org`,

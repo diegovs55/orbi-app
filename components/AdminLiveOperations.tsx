@@ -5,9 +5,10 @@ import Link from "next/link";
 import { Bell, Orbit, Store, UsersRound } from "lucide-react";
 import { AGENT_STATUS, getAgents } from "@/lib/agents";
 import { getBusinesses } from "@/lib/businesses";
-import { ActiveMission, fetchActiveMissions, getMissionStatusLabel } from "@/lib/missions";
-import { subscribeToAgents, subscribeToBusinesses, subscribeToTableChanges } from "@/lib/supabase";
+import { ActiveMission, getMissionStatusLabel } from "@/lib/missions";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToTableChangesWithClient } from "@/lib/supabase";
 import { adminFetch } from "@/lib/admin-fetch";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -44,24 +45,30 @@ export function AdminLiveOperations() {
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    const refresh = async () => {
-      const [missionData, agentData, businessData] = await Promise.all([
-        fetchActiveMissions(),
-        getAgents(),
-        getBusinesses()
-      ]);
-      setMissions(missionData);
-      setAgentsInOrbit(
-        agentData.filter((a) => a.status === AGENT_STATUS.ONLINE && a.isOnOrbit).length
-      );
+    const refreshMissions = async () => {
+      const { data: session } = await supabaseAdmin.auth.getSession();
+      if (!session.session) {
+        setMissions([]);
+        return;
+      }
+      const res = await adminFetch("/api/admin/missions/live");
+      if (!res.ok) { setMissions([]); return; }
+      const data: ActiveMission[] = await res.json();
+      setMissions(data);
+    };
+
+    const refreshOthers = async () => {
+      const [agentData, businessData] = await Promise.all([getAgents(), getBusinesses()]);
+      setAgentsInOrbit(agentData.filter((a) => a.status === AGENT_STATUS.ONLINE && a.isOnOrbit).length);
       setBusinessCount(businessData.length);
     };
 
-    void refresh();
+    void refreshMissions();
+    void refreshOthers();
 
-    const unsubMissions = subscribeToTableChanges("missions", () => void refresh());
-    const unsubAgents = subscribeToAgents(() => void refresh());
-    const unsubBusinesses = subscribeToBusinesses(() => void refresh());
+    const unsubMissions = subscribeToTableChangesWithClient(supabaseAdmin, "missions", () => void refreshMissions());
+    const unsubAgents = subscribeToAgents(() => void refreshOthers());
+    const unsubBusinesses = subscribeToBusinesses(() => void refreshOthers());
 
     return () => {
       unsubMissions();

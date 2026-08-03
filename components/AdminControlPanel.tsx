@@ -5,14 +5,15 @@ import { BarChart3, CalendarDays, Gauge, Orbit, ShieldCheck, Store, UsersRound }
 import { AGENT_STATUS, getAgents, OrbiAgent } from "@/lib/agents";
 import { getBusinesses, AffiliateBusiness } from "@/lib/businesses";
 import { fetchCustomersPage, OrbiCustomer } from "@/lib/customers";
-import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts, subscribeToTableChanges } from "@/lib/supabase";
+import { subscribeToAgents, subscribeToBusinesses, subscribeToCustomers, subscribeToProducts, subscribeToTableChangesWithClient } from "@/lib/supabase";
 import { CatalogProduct, getCatalogProductsWithOptions } from "@/lib/catalog";
 import {
   ActiveMission,
-  fetchAllMissionsForAdmin,
   getMissionStatusLabel,
   MissionStatus,
 } from "@/lib/missions";
+import { adminFetch } from "@/lib/admin-fetch";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -82,11 +83,15 @@ export function AdminControlPanel() {
 
   useEffect(() => {
     const refresh = async () => {
-      const data = await fetchAllMissionsForAdmin();
+      const { data: session } = await supabaseAdmin.auth.getSession();
+      if (!session.session) { setAllMissions([]); return; }
+      const res = await adminFetch("/api/admin/missions/active");
+      if (!res.ok) { setAllMissions([]); return; }
+      const data: ActiveMission[] = await res.json();
       setAllMissions(data);
     };
     void refresh();
-    return subscribeToTableChanges("missions", () => void refresh());
+    return subscribeToTableChangesWithClient(supabaseAdmin, "missions", () => void refresh());
   }, []);
 
   useEffect(() => {
