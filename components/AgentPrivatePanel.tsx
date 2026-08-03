@@ -35,7 +35,6 @@ import {
 } from "@/lib/agents";
 import {
   ActiveMission,
-  cancelMissionByAgent,
   completeMissionWithLedger,
   fetchActiveMissions,
   getMissionStatusLabel,
@@ -43,7 +42,6 @@ import {
   isMissionClosed,
   isMissionPending,
   MissionCompleteResult,
-  startMission,
 } from "@/lib/missions";
 import { subscribeToTableChangesWithClient } from "@/lib/supabase";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
@@ -429,11 +427,27 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   }
 
   async function handleCancelMission(mission: ActiveMission) {
-    const ok = await cancelMissionByAgent(mission.id, realAgentId);
-    if (!ok) {
-      setMissionMessage("Error: no se pudo liberar la misión. Revisa la consola.");
+    const { data: sessionData } = await supabaseAgent.auth.getSession();
+    const token = sessionData.session?.access_token ?? "";
+    if (!token) { setMissionMessage("Tu sesión expiró. Recarga la página."); return; }
+
+    let res: Response;
+    try {
+      res = await fetch(apiUrl("/api/missions/cancel-by-agent"), {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ missionId: mission.id }),
+      });
+    } catch {
+      setMissionMessage("Error: no se pudo liberar la misión. Revisa la conexión.");
       return;
     }
+
+    if (!res.ok) {
+      setMissionMessage("Error: no se pudo liberar la misión. Intenta de nuevo.");
+      return;
+    }
+
     setReleasedIds((prev) => {
       const next = new Set(Array.from(prev).concat(mission.id));
       try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(Array.from(next))); } catch { /* ignore */ }
@@ -445,8 +459,23 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
   async function handleAdvanceMission(mission: ActiveMission) {
     if (mission.status === "aceptada") {
-      const result = await startMission(mission.id, realAgentId);
-      if (!result) { setMissionError("No se pudo iniciar la ruta."); return; }
+      const { data: agentSessionData } = await supabaseAgent.auth.getSession();
+      const token = agentSessionData.session?.access_token ?? "";
+      if (!token) { setMissionError("Tu sesión expiró. Recarga la página."); return; }
+
+      let res: Response;
+      try {
+        res = await fetch(apiUrl("/api/missions/start"), {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ missionId: mission.id }),
+        });
+      } catch {
+        setMissionError("No se pudo iniciar la ruta. Revisa la conexión.");
+        return;
+      }
+
+      if (!res.ok) { setMissionError("No se pudo iniciar la ruta."); return; }
       await refreshMissions();
       setMissionMessage("Ruta iniciada. Misión en curso.");
     } else if (mission.status === "en_mision") {
