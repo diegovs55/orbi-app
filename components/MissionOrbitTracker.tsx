@@ -14,7 +14,6 @@ import {
 import {
   ActiveMission,
   fetchActiveMissions,
-  fetchMissionById,
   getMissionStatusLabel,
   isMissionClosed,
   MissionStatus,
@@ -25,6 +24,10 @@ import { subscribeToTableChanges, supabase } from "@/lib/supabase";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { getAgentSession } from "@/lib/agentSession";
 import { getBusinessSession } from "@/lib/businessSession";
+import { supabaseAgent } from "@/lib/supabase-agent-client";
+import { supabaseBusiness } from "@/lib/supabase-business-client";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
+import { apiUrl } from "@/lib/api-url";
 
 const MissionOrbitMap = dynamic(
   () => import("@/components/MissionOrbitMap").then((mod) => mod.MissionOrbitMap),
@@ -44,6 +47,39 @@ const fallbackPoint: MissionPoint | null =
   Number.isFinite(_netLat) && Number.isFinite(_netLng)
     ? { lat: _netLat, lng: _netLng }
     : null;
+
+async function getActiveJWT(): Promise<string | null> {
+  // Admin primero (sessionStorage)
+  if (typeof window !== "undefined" &&
+      window.sessionStorage.getItem("orbi_admin_unlocked") === "true") {
+    const { data } = await supabaseAdmin.auth.getSession();
+    if (data.session?.access_token) return data.session.access_token;
+  }
+  // Agente
+  const { data: agentData } = await supabaseAgent.auth.getSession();
+  if (agentData.session?.access_token) return agentData.session.access_token;
+  // Negocio
+  const { data: bizData } = await supabaseBusiness.auth.getSession();
+  if (bizData.session?.access_token) return bizData.session.access_token;
+  // Cliente registrado (sb-orbi-user)
+  const { data: userData } = await supabase.auth.getSession();
+  return userData.session?.access_token ?? null;
+}
+
+async function fetchMissionByIdAuthenticated(id: string): Promise<ActiveMission | null> {
+  const token = await getActiveJWT();
+  if (!token) return null;
+  try {
+    const res = await fetch(apiUrl(`/api/missions/by-id?id=${id}`), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const body = await res.json() as { mission?: ActiveMission };
+    return body.mission ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: string } = {}) {
   const searchParams = useSearchParams();
@@ -131,12 +167,12 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
     void (async () => {
       if (initialMissionId) {
         // Single-mission mode: load exactly one mission by ID.
-        const m = await fetchMissionById(initialMissionId);
+        const m = await fetchMissionByIdAuthenticated(initialMissionId);
         if (m) {
           setMissions([m]);
           setMissionNotFound(false);
         } else {
-          // Mission row doesn't exist — show "not found" UI instead of listing all missions.
+          // Mission row doesn't exist or no JWT — show "not found" UI.
           setMissionNotFound(true);
         }
         return;
@@ -157,7 +193,7 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
   useEffect(() => {
     return subscribeToTableChanges("missions", async () => {
       if (initialMissionId) {
-        const m = await fetchMissionById(initialMissionId);
+        const m = await fetchMissionByIdAuthenticated(initialMissionId);
         if (m) {
           setMissions([m]);
           setMissionNotFound(false);
@@ -243,7 +279,7 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       // Fetch disappeared missions from Supabase to check if any completed.
       void (async () => {
         for (const id of disappeared) {
-          const found = await fetchMissionById(id);
+          const found = await fetchMissionByIdAuthenticated(id);
           if (found?.status === "cumplida") {
             setLastClosedMission(found);
             setShowSaveSessionPrompt(!getCurrentCustomerSession());

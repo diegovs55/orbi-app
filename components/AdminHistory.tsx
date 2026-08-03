@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import Link from "next/link";
 import {
   ActiveMission,
-  fetchMissionHistory,
   getMissionStatusLabel,
-  MissionHistoryFilters,
 } from "@/lib/missions";
+import { adminFetch } from "@/lib/admin-fetch";
+import { apiUrl } from "@/lib/api-url";
 import { AdminMissionAudit } from "@/components/AdminMissionAudit";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
@@ -95,13 +95,44 @@ export function AdminHistory() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchDebounced, setSearchDebounced] = useState("");
 
-  const doFetch = useCallback(async (filters: MissionHistoryFilters) => {
+  const doFetch = useCallback(async (filters: {
+    page?: number;
+    serviceType?: string;
+    status?: string;
+    search?: string;
+  }) => {
     setLoading(true);
-    const result = await fetchMissionHistory(filters);
-    setMissions(result.missions);
-    setHasMore(result.hasMore);
-    setTotal(result.total);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams({
+        page: String(filters.page ?? 0),
+        serviceType: filters.serviceType ?? "Todos",
+        status: filters.status ?? "Todos",
+        search: filters.search ?? "",
+      });
+      const res = await adminFetch(apiUrl(`/api/admin/missions/history?${params.toString()}`));
+      if (!res.ok) {
+        console.error("[AdminHistory] fetch error:", res.status);
+        setMissions([]);
+        setHasMore(false);
+        setTotal(0);
+        return;
+      }
+      const result = (await res.json()) as {
+        missions: ActiveMission[];
+        hasMore: boolean;
+        total: number;
+      };
+      setMissions(result.missions);
+      setHasMore(result.hasMore);
+      setTotal(result.total);
+    } catch (err) {
+      console.error("[AdminHistory] unexpected error:", err);
+      setMissions([]);
+      setHasMore(false);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
