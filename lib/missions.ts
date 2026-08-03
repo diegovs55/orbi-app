@@ -922,7 +922,10 @@ export async function fetchActiveMissions(client?: SupabaseClient): Promise<Acti
   return (data ?? []).map(normalizeMission) as ActiveMission[];
 }
 
-/** Business accepts order → esperando_negocio → preparando (starts preparation). */
+/**
+ * @deprecated Reemplazada por POST /api/business/missions/confirm (ORBI-AUTH-ISOLATION-02 Fase 2C).
+ * Solo conservada en caso de caller externo no detectado. BusinessCatalog ya no la llama.
+ */
 export async function confirmMissionByBusiness(id: string): Promise<boolean> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -937,7 +940,10 @@ export async function confirmMissionByBusiness(id: string): Promise<boolean> {
   return true;
 }
 
-/** Business marks order ready → preparando → por_tomar so agent can see it. */
+/**
+ * @deprecated Reemplazada por POST /api/business/missions/ready (ORBI-AUTH-ISOLATION-02 Fase 2C).
+ * Solo conservada en caso de caller externo no detectado. BusinessCatalog ya no la llama.
+ */
 export async function markOrderReadyByBusiness(id: string): Promise<boolean> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -953,8 +959,12 @@ export async function markOrderReadyByBusiness(id: string): Promise<boolean> {
 }
 
 /** Fetch missions waiting for or being prepared by a specific business. */
-export async function fetchBusinessPendingMissions(businessName: string): Promise<ActiveMission[]> {
-  const { data, error } = await supabase
+export async function fetchBusinessPendingMissions(
+  businessName: string,
+  client?: SupabaseClient
+): Promise<ActiveMission[]> {
+  const c = client ?? supabase;
+  const { data, error } = await c
     .from("missions")
     .select("*")
     .in("status", ["esperando_negocio", "preparando"])
