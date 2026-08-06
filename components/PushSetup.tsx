@@ -4,8 +4,7 @@ import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+import { apiUrl } from "@/lib/api-url";
 
 // Captura el FCM token si llega antes de que PushSetup monte (token cacheado de sesión anterior).
 // AppDelegate lo entrega via window.dispatchEvent('fcmTokenReceived') al iniciar la app.
@@ -27,7 +26,7 @@ async function registerToken(fcmToken: string): Promise<void> {
     console.log("[PUSH-JS] Sin JWT activo, token no registrado");
     return;
   }
-  await fetch(`${API_BASE}/api/push/register`, {
+  await fetch(apiUrl("/api/push/register"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${jwt}`,
