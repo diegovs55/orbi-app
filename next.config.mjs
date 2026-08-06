@@ -22,7 +22,7 @@ const securityHeaders = [
       "default-src 'self'",
       isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
+      "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.fbcdn.net",
       `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST} https://nominatim.openstreetmap.org`,
       "font-src 'self' data:",
       "frame-src 'none'",
