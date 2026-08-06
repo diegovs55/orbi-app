@@ -59,7 +59,7 @@ export async function assertAuthenticated() {
 }
 
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
 
   if (error) {
     throw new Error(error.message ?? "No fue posible cerrar la sesión.");

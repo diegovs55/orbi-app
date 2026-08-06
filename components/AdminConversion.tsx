@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { fetchCustomersPage, OrbiCustomer } from "@/lib/customers";
-import { subscribeToCustomers } from "@/lib/supabase";
+import { subscribeToTableChangesWithClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin-client";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -34,7 +35,7 @@ export function AdminConversion() {
       setCustomers(data);
     };
     void refresh();
-    return subscribeToCustomers(() => void refresh());
+    return subscribeToTableChangesWithClient(supabaseAdmin, "customers", () => void refresh());
   }, [isUnlocked]);
 
   const stats = useMemo(() => {
