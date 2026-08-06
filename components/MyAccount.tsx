@@ -115,7 +115,7 @@ export function MyAccount() {
 
   function handleLogout() {
     clearCustomerSession();
-    void supabase.auth.signOut();
+    void supabase.auth.signOut({ scope: 'local' });
     setSession(null);
     setCleared(true);
   }
