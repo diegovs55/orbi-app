@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * PushSetup — PUSH-01d
- *
- * Componente silencioso (sin UI) que:
- *  1. Solicita permiso de notificaciones push al usuario.
- *  2. Llama a register() para obtener el token.
- *  3. Escucha el token FCM emitido por AppDelegate vía capacitor-plugin.
- *  4. Envía el token a POST /api/push/register autenticado con el JWT del agente.
- *
- * Solo se monta en el panel del agente autenticado.
- * No conectado a ningún flujo de misiones hasta PUSH-02.
- */
-
 import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
@@ -20,58 +7,90 @@ import { supabaseAgent } from "@/lib/supabase-agent-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
+// Captura el FCM token si llega antes de que PushSetup monte (token cacheado de sesión anterior).
+// AppDelegate lo entrega via window.dispatchEvent('fcmTokenReceived') al iniciar la app.
+let pendingFCMToken: string | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "fcmTokenReceived",
+    (e: Event) => {
+      pendingFCMToken = (e as CustomEvent<{ token: string }>).detail.token;
+    },
+    { once: true }
+  );
+}
+
 async function registerToken(fcmToken: string): Promise<void> {
   const { data: sessionData } = await supabaseAgent.auth.getSession();
   const jwt = sessionData.session?.access_token;
-  if (!jwt) return;
-
+  if (!jwt) {
+    console.log("[PUSH-JS] Sin JWT activo, token no registrado");
+    return;
+  }
   await fetch(`${API_BASE}/api/push/register`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${jwt}`,
+      Authorization: `Bearer ${jwt}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      token: fcmToken,
-      platform: "ios",
-    }),
+    body: JSON.stringify({ token: fcmToken, platform: "ios" }),
   });
 }
 
 export function PushSetup() {
   useEffect(() => {
-    // Solo en dispositivo nativo iOS — no en web ni en Android (aún)
+    console.log(
+      "[PUSH-JS] isNativePlatform:",
+      Capacitor.isNativePlatform(),
+      "platform:",
+      Capacitor.getPlatform()
+    );
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
 
     let mounted = true;
 
     async function init() {
-      // 1. Verificar / solicitar permiso
       const { receive } = await PushNotifications.checkPermissions();
+      console.log("[PUSH-JS] checkPermissions:", receive);
       if (receive === "denied") return;
 
       if (receive !== "granted") {
         const { receive: granted } = await PushNotifications.requestPermissions();
+        console.log("[PUSH-JS] requestPermissions result:", granted);
         if (granted !== "granted") return;
       }
 
-      // 2. Registrar con APNs — Firebase intercepta el APNs token
-      //    y genera el FCM token vía MessagingDelegate en AppDelegate.swift
+      // register() dispara el intercambio APNs → FCM en AppDelegate.swift.
+      // No usamos el evento "registration" de Capacitor como fuente del token FCM —
+      // ese evento entrega el token APNs crudo, no el FCM token.
       await PushNotifications.register();
+      console.log("[PUSH-JS] PushNotifications.register() completado");
 
-      // 3. Escuchar el FCM token que AppDelegate reenvía vía el evento "registration"
-      //    Con FirebaseMessaging activo, el evento "registration" en iOS lleva el FCM token
-      const listener = await PushNotifications.addListener(
-        "registration",
-        async (token) => {
-          if (!mounted) return;
-          await registerToken(token.value);
-        }
-      );
+      // Escuchar el FCM token entregado por AppDelegate via evaluateJavaScript
+      function handleFCMToken(e: Event) {
+        if (!mounted) return;
+        const token = (e as CustomEvent<{ token: string }>).detail.token;
+        console.log(
+          "[PUSH-JS] FCM token recibido, len:",
+          token.length,
+          "prefix:",
+          token.slice(0, 6)
+        );
+        void registerToken(token);
+      }
+
+      window.addEventListener("fcmTokenReceived", handleFCMToken);
+
+      // Caso edge: token cacheado que llegó antes de montar el componente
+      if (pendingFCMToken) {
+        console.log("[PUSH-JS] pendingFCMToken encontrado, registrando");
+        await registerToken(pendingFCMToken);
+        pendingFCMToken = null;
+      }
 
       return () => {
         mounted = false;
-        listener.remove();
+        window.removeEventListener("fcmTokenReceived", handleFCMToken);
       };
     }
 

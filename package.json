@@ -13,7 +13,8 @@
     "cap:open:android": "npx cap open android",
     "cap:run:ios": "npx cap run ios",
     "cap:run:android": "npx cap run android",
-    "smoke": "node scripts/smoke-operational-baseline.mjs --prod"
+    "smoke": "node scripts/smoke-operational-baseline.mjs --prod",
+    "capacitor:sync:after": "node scripts/patch-package-swift.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

@@ -45,7 +45,13 @@ const corsApiHeaders = [
 const nextConfig = {
   // Build móvil: static export para el bundle de Capacitor.
   // Build web: sin output (Next.js SSR/ISR en Netlify), exactamente igual que antes.
-  ...(isMobileBuild ? { output: "export", images: { unoptimized: true } } : {}),
+  // ignoreBuildErrors solo en build móvil: los routes de app/api/ se excluyen del export
+  // porque el app iOS llama al servidor Netlify, no a rutas locales.
+  ...(isMobileBuild ? {
+    output: "export",
+    images: { unoptimized: true },
+    typescript: { ignoreBuildErrors: true },
+  } : {}),
 
   async headers() {
     return [

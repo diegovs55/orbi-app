@@ -46,17 +46,27 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-// PUSH-01d: recibe el FCM token cuando Firebase lo genera o renueva.
-// Capacitor/PushNotificationsPlugin entrega el APNs token a Firebase automáticamente;
-// Firebase lo intercambia por un FCM token y lo entrega aquí.
-// PushSetup.tsx escucha la notificación "FCMTokenReceived" y lo registra en el servidor.
+// PUSH-01e: recibe el FCM token y lo entrega al JavaScript de la app via el bridge de Capacitor.
+// Firebase intercepta el APNs token, lo intercambia por un FCM token, y llama este delegado.
+// Se serializa con JSONEncoder para evitar inyección si el token contiene caracteres especiales.
+// PushSetup.tsx escucha el CustomEvent 'fcmTokenReceived' en window.
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-        guard let token = fcmToken else { return }
-        NotificationCenter.default.post(
-            name: Notification.Name("FCMTokenReceived"),
-            object: nil,
-            userInfo: ["token": token]
-        )
+        guard let fcmToken = fcmToken else { return }
+        print("[PUSH] FCM token recibido, len=\(fcmToken.count)")
+
+        DispatchQueue.main.async {
+            guard
+                let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                let rootVC = scene.windows.first?.rootViewController as? CAPBridgeViewController,
+                let data = try? JSONEncoder().encode(["token": fcmToken]),
+                let json = String(data: data, encoding: .utf8)
+            else {
+                print("[PUSH] No se pudo obtener el bridge de Capacitor")
+                return
+            }
+            let js = "window.dispatchEvent(new CustomEvent('fcmTokenReceived',{detail:\(json)}))"
+            rootVC.bridge?.webViewAsWKWebView()?.evaluateJavaScript(js, completionHandler: nil)
+        }
     }
 }
