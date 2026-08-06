@@ -7,18 +7,19 @@
  * No conectado a ningún flujo de misiones hasta PUSH-02.
  */
 
-import * as admin from "firebase-admin";
+import { initializeApp, getApps, getApp, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 import { createClient } from "@supabase/supabase-js";
 
-// Singleton de la app de Firebase Admin
-function getFirebaseApp(): admin.app.App {
-  if (admin.apps.length > 0) return admin.apps[0]!;
+// Singleton de la app de Firebase Admin (modular API — firebase-admin v14)
+function getFirebaseApp() {
+  if (getApps().length > 0) return getApp();
 
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT env var is not set");
 
   const serviceAccount = JSON.parse(raw);
-  return admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  return initializeApp({ credential: cert(serviceAccount) });
 }
 
 // Cliente Supabase con service_role para leer y actualizar device_tokens sin RLS
@@ -60,7 +61,7 @@ export async function sendPushToUser(
   if (!tokens || tokens.length === 0) return;
 
   const app = getFirebaseApp();
-  const messaging = admin.messaging(app);
+  const messaging = getMessaging(app);
 
   const expiredIds: string[] = [];
 
