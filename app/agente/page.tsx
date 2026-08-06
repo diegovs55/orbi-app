@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LockKeyhole, LogOut } from "lucide-react";
 import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
+import { PushSetup } from "@/components/PushSetup";
 import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
 import { getAgentByAuthUserId } from "@/lib/agents";
@@ -103,6 +104,7 @@ export default function AgentePage() {
           Salir
         </button>
       </div>
+      <PushSetup />
       <AgentPrivatePanel agentId={session.id} />
     </PageShell>
   );

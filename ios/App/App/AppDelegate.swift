@@ -1,5 +1,7 @@
 import UIKit
 import Capacitor
+import FirebaseCore
+import FirebaseMessaging
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +9,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        FirebaseApp.configure()
+        Messaging.messaging().delegate = self
         return true
     }
 
@@ -40,5 +43,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                           sessionRole: connectingSceneSession.role)
         config.delegateClass = SceneDelegate.self
         return config
+    }
+}
+
+// PUSH-01d: recibe el FCM token cuando Firebase lo genera o renueva.
+// Capacitor/PushNotificationsPlugin entrega el APNs token a Firebase automáticamente;
+// Firebase lo intercambia por un FCM token y lo entrega aquí.
+// PushSetup.tsx escucha la notificación "FCMTokenReceived" y lo registra en el servidor.
+extension AppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let token = fcmToken else { return }
+        NotificationCenter.default.post(
+            name: Notification.Name("FCMTokenReceived"),
+            object: nil,
+            userInfo: ["token": token]
+        )
     }
 }
