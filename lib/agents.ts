@@ -281,7 +281,7 @@ export async function createAgent(input: CreateAgentInput): Promise<OrbiAgent> {
   return fromRow(data as unknown as AgentRow);
 }
 
-export async function updateAgent(id: string, input: CreateAgentInput): Promise<OrbiAgent> {
+export async function updateAgent(id: string, input: CreateAgentInput, db?: typeof supabase): Promise<OrbiAgent> {
   if (!hasValidAgentId({ id })) throw new Error("ID de agente inválido.");
 
   const payload = {
@@ -305,7 +305,7 @@ export async function updateAgent(id: string, input: CreateAgentInput): Promise<
     auth_user_id: input.authUserId ?? null
   };
 
-  const { data, error, count, status, statusText } = await client()
+  const { data, error, count, status, statusText } = await (db ?? client())
     .from("agents")
     .update(payload, { count: "exact" })
     .eq("id", id)

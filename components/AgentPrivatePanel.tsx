@@ -95,6 +95,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // ── Orbit state ──────────────────────────────────────────────────────────
   const [orbitError, setOrbitError] = useState("");
@@ -359,7 +360,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
     try {
       // updateAgent: UPDATE → SELECT → returns fresh DB row. No reconstruction from input.
-      const saved = await updateAgent(agentId, payload);
+      const saved = await updateAgent(agentId, payload, supabaseAgent);
       // Apply the DB-confirmed values. No loadAgent, no realtime. This is the source of truth.
       setAgent(saved);
       populateForm(saved);
@@ -863,16 +864,23 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
             <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
               <UserRound aria-hidden="true" className="h-6 w-6" />
             </span>
-            <div>
+            <div className="flex-1">
               <h2 className="text-base font-black text-orbi-text">Mi perfil operativo</h2>
               <p className="mt-1 text-xs text-orbi-muted">
                 Estos datos se muestran a clientes y se usan para filtrar misiones.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setProfileOpen((v) => !v)}
+              className="shrink-0 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+            >
+              {profileOpen ? "Ocultar" : "Editar perfil"}
+            </button>
           </div>
         </div>
 
-        <form
+        {profileOpen && <form
           onSubmit={(e) => void handleSaveProfile(e)}
           className="grid gap-4 rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] sm:grid-cols-2 sm:p-6"
         >
@@ -951,7 +959,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           >
             {isSaving ? "Guardando en Supabase..." : "Guardar perfil"}
           </button>
-        </form>
+        </form>}
       </section>
     </div>
   );
