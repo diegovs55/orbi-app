@@ -66,7 +66,7 @@ extension AppDelegate: MessagingDelegate {
                 return
             }
             let js = "window.dispatchEvent(new CustomEvent('fcmTokenReceived',{detail:\(json)}))"
-            rootVC.bridge?.webViewAsWKWebView()?.evaluateJavaScript(js, completionHandler: nil)
+            rootVC.bridge?.webView?.evaluateJavaScript(js, completionHandler: nil)
         }
     }
 }
