@@ -71,6 +71,11 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Orbi necesita tu ubicación para asignarte misiones cercanas y mostrar tu posición a negocios y clientes.</string>
 
+	<!-- Requerido por @capacitor/geolocation: ion-ios-geolocation puede reportar ubicación
+	     en background. Apple exige esta clave aunque el permiso "Always" no se solicite. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Orbi necesita tu ubicación para asignarte misiones cercanas y mostrar tu posición a negocios y clientes.</string>
+
 	<!-- Push Notifications -->
 	<key>UIBackgroundModes</key>
 	<array>
