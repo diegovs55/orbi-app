@@ -60,6 +60,7 @@ import {
 } from "@/lib/order-draft";
 import { MissionOrbitTracker } from "@/components/MissionOrbitTracker";
 import { apiUrl } from "@/lib/api-url";
+import { isNativeApp } from "@/lib/native-app";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   type OrbitCenter,
@@ -487,6 +488,26 @@ export function ServiceRequestFlow() {
 
     return () => { void ch.unsubscribe(); };
   }, []);
+
+  // RESUME-SYNC-01 — foreground reconciliation (READ-only, native only)
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const onVisible = () => {
+      if (document.hidden) return;
+      if (isReconcilingMissionRef.current) return;
+      if (!authUserId) return;
+      isReconcilingMissionRef.current = true;
+      setIsReconcilingMission(true);
+      fetchActiveMission(authUserId)
+        .then((mission) => { setActiveMission(mission); })
+        .finally(() => {
+          isReconcilingMissionRef.current = false;
+          setIsReconcilingMission(false);
+        });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [authUserId]);
 
   // Waiting-request acceptance: navigate to /orbita when the mission becomes "aceptada".
   // Covers the case where no agent was available at creation time and the user stayed on

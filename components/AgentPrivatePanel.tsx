@@ -44,6 +44,7 @@ import {
   MissionCompleteResult,
 } from "@/lib/missions";
 import { subscribeToTableChangesWithClient } from "@/lib/supabase";
+import { isNativeApp } from "@/lib/native-app";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
 import {
   isAudioReady,
@@ -207,6 +208,17 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     const unsub = subscribeToTableChangesWithClient(supabaseAgent, "missions", () => void refreshMissions());
     return unsub;
   }, [refreshMissions]);
+
+  // RESUME-SYNC-01 — foreground reconciliation (READ-only, native only)
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const onVisible = () => {
+      if (document.hidden) return;
+      void Promise.all([refreshMissions(), loadAgent()]);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshMissions, loadAgent]);
 
   // ── Sound notifications for new available missions ────────────────────────
   const agentInitialMissionIds = useRef<Set<string> | null>(null);

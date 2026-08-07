@@ -21,6 +21,7 @@ import {
 } from "@/lib/missions";
 import { getAgentById } from "@/lib/agents";
 import { subscribeToTableChanges, supabase } from "@/lib/supabase";
+import { isNativeApp } from "@/lib/native-app";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { getAgentSession } from "@/lib/agentSession";
 import { getBusinessSession } from "@/lib/businessSession";
@@ -253,6 +254,32 @@ export function MissionOrbitTracker({ initialMissionId }: { initialMissionId?: s
       .subscribe();
     return () => { void supabase?.removeChannel(channel); };
   }, [agentIdForMission]);
+
+  // RESUME-SYNC-01 — foreground reconciliation (READ-only, native only)
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const onVisible = async () => {
+      if (document.hidden) return;
+      if (initialMissionId) {
+        const m = await fetchMissionByIdAuthenticated(initialMissionId);
+        if (m) { setMissions([m]); setMissionNotFound(false); }
+        else { setMissionNotFound(true); }
+      } else {
+        const all = filterToUserMissions(await fetchActiveMissions());
+        setMissions(all);
+      }
+      if (agentIdForMission) {
+        const a = await getAgentById(agentIdForMission);
+        if (a) {
+          const lat = a.currentLat ?? a.lat;
+          const lng = a.currentLng ?? a.lng;
+          if (lat != null && lng != null) setLiveAgentPoint({ lat, lng });
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [initialMissionId, agentIdForMission]);
 
   useEffect(() => {
     if (mission?.last_updated_at) {

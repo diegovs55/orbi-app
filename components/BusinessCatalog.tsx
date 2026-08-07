@@ -30,6 +30,7 @@ import {
 } from "@/lib/missions";
 import { apiUrl } from "@/lib/api-url";
 import { subscribeToTableChangesWithClient } from "@/lib/supabase";
+import { isNativeApp } from "@/lib/native-app";
 import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
@@ -712,6 +713,14 @@ function PendingOrders({ businessName }: { businessName: string }) {
     () => subscribeToTableChangesWithClient(supabaseBusiness, "missions", () => void load()),
     [load]
   );
+
+  // RESUME-SYNC-01 — foreground reconciliation (READ-only, native only)
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const onVisible = () => { if (!document.hidden) void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [load]);
 
   // Register auto-unlock once on mount — fires silently on first gesture.
   useEffect(() => { enableAutoUnlock(); }, []);
