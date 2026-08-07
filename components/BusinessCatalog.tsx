@@ -982,7 +982,7 @@ function WeeklyScheduleEditor({
 // de la respuesta de Nominatim. El admin puede ajustar la zona manualmente.
 async function reverseGeocodePoint(point: { lat: number; lng: number }) {
   const res = await fetch(
-    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
+    apiUrl(`/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`)
   );
   if (!res.ok) throw new Error("Geocoding failed");
   const data = (await res.json()) as { displayName?: string | null; status?: string };
