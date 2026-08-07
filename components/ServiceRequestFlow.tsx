@@ -3146,14 +3146,12 @@ function OriginPickerField({
       abortRef.current = controller;
       setSearching(true);
       try {
-        const searchUrl = new URL("/api/geocoding/search", window.location.origin);
-        searchUrl.searchParams.set("q", trimmed);
-        searchUrl.searchParams.set("limit", "5");
+        const searchParams = new URLSearchParams({ q: trimmed, limit: "5" });
         if (searchCenter) {
-          searchUrl.searchParams.set("lat", String(searchCenter.lat));
-          searchUrl.searchParams.set("lon", String(searchCenter.lng));
+          searchParams.set("lat", String(searchCenter.lat));
+          searchParams.set("lon", String(searchCenter.lng));
         }
-        const res = await fetch(searchUrl.toString(), { signal: controller.signal });
+        const res = await fetch(apiUrl(`/api/geocoding/search?${searchParams}`), { signal: controller.signal });
         if (!res.ok) { setSearchUnavailable(true); return; }
         const data = (await res.json()) as { results: SearchSuggestion[]; status?: string };
         if (data.status === "unavailable") { setSearchUnavailable(true); setSuggestions([]); setShowDropdown(false); }
@@ -3384,14 +3382,12 @@ function DestinationPickerField({
     debounceRef.current = setTimeout(() => {
       const controller = new AbortController();
       abortRef.current = controller;
-      const searchUrl = new URL("/api/geocoding/search", window.location.origin);
-      searchUrl.searchParams.set("q", newValue.trim());
-      searchUrl.searchParams.set("limit", "5");
+      const searchParams = new URLSearchParams({ q: newValue.trim(), limit: "5" });
       if (searchCenter) {
-        searchUrl.searchParams.set("lat", String(searchCenter.lat));
-        searchUrl.searchParams.set("lon", String(searchCenter.lng));
+        searchParams.set("lat", String(searchCenter.lat));
+        searchParams.set("lon", String(searchCenter.lng));
       }
-      fetch(searchUrl.toString(), {
+      fetch(apiUrl(`/api/geocoding/search?${searchParams}`), {
         signal: controller.signal,
       })
         .then((res) => res.json())
@@ -4432,7 +4428,7 @@ function getLogisticsStatusMessage({
 // responsabilidad exclusiva de los sitios de llamada, no de esta función.
 async function reverseGeocodePoint(point: MapPoint): Promise<string | null> {
   const res = await fetch(
-    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
+    apiUrl(`/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`)
   );
   if (!res.ok) throw new Error("No fue posible consultar la dirección del punto marcado.");
   const data = (await res.json()) as { displayName?: string | null; status?: string };
@@ -4592,10 +4588,8 @@ function OrbitZonePicker({
       abortRef.current = controller;
       setSearching(true);
       try {
-        const url = new URL("/api/geocoding/search", window.location.origin);
-        url.searchParams.set("q", trimmed);
-        url.searchParams.set("limit", "5");
-        const res = await fetch(url.toString(), { signal: controller.signal });
+        const searchParams = new URLSearchParams({ q: trimmed, limit: "5" });
+        const res = await fetch(apiUrl(`/api/geocoding/search?${searchParams}`), { signal: controller.signal });
         if (!res.ok) { setSuggestions([]); return; }
         const data = (await res.json()) as { results: SearchSuggestion[]; status?: string };
         if (!data.results?.length) { setNoResults(true); setSuggestions([]); }

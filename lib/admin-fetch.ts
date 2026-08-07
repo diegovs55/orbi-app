@@ -10,6 +10,7 @@
  * y devuelve 401 para forzar re-login — sin intentar refresh con otra identidad.
  */
 import { supabaseAdmin } from "@/lib/supabase-admin-client";
+import { apiUrl } from "@/lib/api-url";
 
 const ADMIN_SESSION_KEY = "orbi_admin_unlocked";
 
@@ -31,7 +32,7 @@ export async function adminFetch(url: string, options: RequestInit = {}): Promis
     );
   }
 
-  return fetch(url, {
+  return fetch(url.startsWith("/") ? apiUrl(url) : url, {
     ...options,
     headers: {
       ...(options.headers as Record<string, string> | undefined),
