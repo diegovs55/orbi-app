@@ -6,6 +6,18 @@ import { PushNotifications } from "@capacitor/push-notifications";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
 import { apiUrl } from "@/lib/api-url";
 
+// Genera o recupera el installation_id estable de esta instalación.
+// Persiste en localStorage — sobrevive reinicios y actualizaciones OTA.
+// Se limpia con reinstalación completa (que también rota el FCM token).
+function getOrCreateInstallationId(): string {
+  let id = localStorage.getItem("orbi_installation_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("orbi_installation_id", id);
+  }
+  return id;
+}
+
 // Captura el FCM token si llega antes de que PushSetup monte (token cacheado de sesión anterior).
 // AppDelegate lo entrega via window.dispatchEvent('fcmTokenReceived') al iniciar la app.
 let pendingFCMToken: string | null = null;
@@ -13,7 +25,10 @@ if (typeof window !== "undefined") {
   window.addEventListener(
     "fcmTokenReceived",
     (e: Event) => {
-      pendingFCMToken = (e as CustomEvent<{ token: string }>).detail.token;
+      const token = (e as CustomEvent<{ token: string }>).detail.token;
+      pendingFCMToken = token;
+      // Buffer en localStorage para sobrevivir logout→login sin reinicio de app.
+      localStorage.setItem("orbi_pending_fcm_token", token);
     },
     { once: true }
   );
@@ -26,14 +41,19 @@ async function registerToken(fcmToken: string): Promise<void> {
     console.log("[PUSH-JS] Sin JWT activo, token no registrado");
     return;
   }
-  await fetch(apiUrl("/api/push/register"), {
+  const deviceId = getOrCreateInstallationId();
+  const res = await fetch(apiUrl("/api/push/register"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${jwt}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ token: fcmToken, platform: "ios" }),
+    body: JSON.stringify({ token: fcmToken, platform: "ios", device_id: deviceId }),
   });
+  if (res.ok) {
+    // Token registrado correctamente — limpiar buffer persistente.
+    localStorage.removeItem("orbi_pending_fcm_token");
+  }
 }
 
 export function PushSetup() {
@@ -75,16 +95,24 @@ export function PushSetup() {
           "prefix:",
           token.slice(0, 6)
         );
+        localStorage.setItem("orbi_pending_fcm_token", token);
         void registerToken(token);
       }
 
       window.addEventListener("fcmTokenReceived", handleFCMToken);
 
-      // Caso edge: token cacheado que llegó antes de montar el componente
+      // Caso edge: token cacheado en memoria (llegó antes de montar)
       if (pendingFCMToken) {
-        console.log("[PUSH-JS] pendingFCMToken encontrado, registrando");
+        console.log("[PUSH-JS] pendingFCMToken en memoria, registrando");
         await registerToken(pendingFCMToken);
         pendingFCMToken = null;
+      } else {
+        // Caso edge: token guardado en localStorage (sobrevivió logout→login sin reinicio de app)
+        const storedToken = localStorage.getItem("orbi_pending_fcm_token");
+        if (storedToken) {
+          console.log("[PUSH-JS] orbi_pending_fcm_token en localStorage, registrando");
+          await registerToken(storedToken);
+        }
       }
 
       return () => {

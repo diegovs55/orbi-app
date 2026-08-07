@@ -98,8 +98,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "NO_ACCOUNT_FOUND" }, { status: 403 });
   }
 
-  // 4. UPSERT — si cambia el token para el mismo device_id, lo actualiza
+  // 4. Si el request incluye device_id, deshabilitar tokens activos de otros usuarios
+  //    en ese mismo dispositivo antes del UPSERT (segunda defensa tras /api/push/unregister).
+  //    Build 8 y registros legacy (deviceId = null) nunca entran aquí.
   const now = new Date().toISOString();
+  if (deviceId) {
+    await db
+      .from("device_tokens")
+      .update({ enabled: false, updated_at: now })
+      .eq("device_id", deviceId)
+      .neq("auth_user_id", auth_user_id)
+      .eq("enabled", true);
+  }
+
+  // 5. UPSERT — si cambia el token para el mismo device_id, lo actualiza
   const { error: upsertError } = await db
     .from("device_tokens")
     .upsert(
