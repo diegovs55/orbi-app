@@ -85,6 +85,16 @@ export function PushSetup() {
       await PushNotifications.register();
       console.log("[PUSH-JS] PushNotifications.register() completado");
 
+      // Fix determinista PUSH-01b: solicitar el FCM token actual a Swift/Firebase explícitamente.
+      // Firebase NO llama al MessagingDelegate en OTA updates cuando el token no cambió.
+      // El WKScriptMessageHandler("orbiPush") registrado en SceneDelegate responde consultando
+      // Messaging.messaging().token, que siempre devuelve el token actual (caché o Firebase).
+      if (typeof window !== "undefined") {
+        (window as unknown as { webkit?: { messageHandlers?: { orbiPush?: { postMessage: (msg: unknown) => void } } } })
+          .webkit?.messageHandlers?.orbiPush?.postMessage({ type: "getToken" });
+        console.log("[PUSH-JS] postMessage getToken enviado a Swift");
+      }
+
       // Escuchar el FCM token entregado por AppDelegate via evaluateJavaScript
       function handleFCMToken(e: Event) {
         if (!mounted) return;
