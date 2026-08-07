@@ -89,10 +89,14 @@ export function PushSetup() {
       // Firebase NO llama al MessagingDelegate en OTA updates cuando el token no cambió.
       // El WKScriptMessageHandler("orbiPush") registrado en SceneDelegate responde consultando
       // Messaging.messaging().token, que siempre devuelve el token actual (caché o Firebase).
-      if (typeof window !== "undefined") {
-        (window as unknown as { webkit?: { messageHandlers?: { orbiPush?: { postMessage: (msg: unknown) => void } } } })
-          .webkit?.messageHandlers?.orbiPush?.postMessage({ type: "getToken" });
+      // try/catch con acceso directo: Terser elimina optional-chaining como dead code (pure_getters);
+      // el try/catch garantiza que la llamada sobrevive al bundle de producción.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).webkit.messageHandlers.orbiPush.postMessage({ type: "getToken" });
         console.log("[PUSH-JS] postMessage getToken enviado a Swift");
+      } catch (_) {
+        // no es iOS nativo (web, Android) — camino normal, no es un error
       }
 
       // Escuchar el FCM token entregado por AppDelegate via evaluateJavaScript
