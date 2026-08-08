@@ -131,7 +131,10 @@ export default function AgentePage() {
           Salir
         </button>
       </div>
-      <PushSetup />
+      <PushSetup getAccessToken={async () => {
+        const { data } = await supabase.auth.getSession();
+        return data.session?.access_token ?? null;
+      }} />
       <AgentPrivatePanel agentId={session.id} />
     </PageShell>
   );

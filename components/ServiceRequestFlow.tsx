@@ -28,6 +28,7 @@ import {
   OrbiAgent
 } from "@/lib/agents";
 import { supabase, subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
+import { PushSetup } from "@/components/PushSetup";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, CatalogSearchSplit, CatalogTerritorialResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
@@ -1709,6 +1710,12 @@ export function ServiceRequestFlow() {
 
   return (
     <div className="space-y-5">
+      {authUserId && (
+        <PushSetup getAccessToken={async () => {
+          const { data } = await supabase.auth.getSession();
+          return data.session?.access_token ?? null;
+        }} />
+      )}
       {/* B5 — Diálogo de confirmación de cambio de órbita con carrito no vacío */}
       {showOrbitChangeConfirmation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">

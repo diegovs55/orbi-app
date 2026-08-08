@@ -14,6 +14,7 @@ import {
   CustomerSession,
 } from "@/lib/customers";
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/api-url";
 import {
   ActiveMission,
   CustomerMissionStats,
@@ -113,7 +114,22 @@ export function MyAccount() {
     });
   }, [router]);
 
-  function handleLogout() {
+  async function handleLogout() {
+    const { data } = await supabase.auth.getSession();
+    const jwt = data.session?.access_token ?? null;
+    const deviceId = localStorage.getItem("orbi_installation_id");
+    if (jwt && deviceId) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        await fetch(apiUrl("/api/push/unregister"), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ device_id: deviceId }),
+          signal: controller.signal,
+        });
+      } catch { /* best-effort */ } finally { clearTimeout(timeout); }
+    }
     clearCustomerSession();
     void supabase.auth.signOut({ scope: 'local' });
     setSession(null);

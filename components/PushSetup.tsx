@@ -3,8 +3,11 @@
 import { useEffect } from "react";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
-import { supabaseAgent } from "@/lib/supabase-agent-client";
 import { apiUrl } from "@/lib/api-url";
+
+interface PushSetupProps {
+  getAccessToken: () => Promise<string | null>;
+}
 
 // Plugin Capacitor nativo que expone el FCM token via APIs oficiales de Capacitor.
 // Registrado en SceneDelegate via bridge.registerPluginInstance(OrbiPushPlugin()).
@@ -29,9 +32,11 @@ function getOrCreateInstallationId(): string {
   return id;
 }
 
-async function registerToken(fcmToken: string): Promise<void> {
-  const { data: sessionData } = await supabaseAgent.auth.getSession();
-  const jwt = sessionData.session?.access_token;
+async function registerToken(
+  fcmToken: string,
+  getAccessToken: () => Promise<string | null>,
+): Promise<void> {
+  const jwt = await getAccessToken();
   if (!jwt) {
     console.log("[PUSH-JS] Sin JWT activo, token no registrado");
     return;
@@ -52,7 +57,7 @@ async function registerToken(fcmToken: string): Promise<void> {
   }
 }
 
-export function PushSetup() {
+export function PushSetup({ getAccessToken }: PushSetupProps) {
   useEffect(() => {
     console.log(
       "[PUSH-JS] isNativePlatform:",
@@ -85,7 +90,7 @@ export function PushSetup() {
       listenerHandle = await OrbiPush.addListener("fcmToken", (data) => {
         if (!mounted) return;
         console.log("[PUSH-JS] FCM token via OrbiPushPlugin, len:", data.token.length, "prefix:", data.token.slice(0, 6));
-        void registerToken(data.token);
+        void registerToken(data.token, getAccessToken);
       });
 
       // Caso OTA / cold start: el token FCM puede estar cacheado en Firebase y
@@ -93,7 +98,7 @@ export function PushSetup() {
       try {
         const { token } = await OrbiPush.getToken();
         console.log("[PUSH-JS] getToken() directo, len:", token.length, "prefix:", token.slice(0, 6));
-        void registerToken(token);
+        void registerToken(token, getAccessToken);
       } catch (err) {
         console.log("[PUSH-JS] getToken() falló o token no disponible aún:", err);
       }
