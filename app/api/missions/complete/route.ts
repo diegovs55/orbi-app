@@ -26,7 +26,9 @@
  * llamada salta el UPDATE (ya está 'cumplida') y solo hace el INSERT.
  */
 
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
+import { sendPushToUser } from "@/lib/push";
 import { generarMovimientosMision, assertLedgerBalance, validateMissionIds } from "@/lib/ledger";
 import type { ActiveMission } from "@/lib/missions";
 import { logEvent } from "@/lib/event-log";
@@ -126,8 +128,10 @@ export async function POST(req: NextRequest) {
     .update({ status: "cumplida", updated_at: now })
     .eq("id", mission_id)
     .eq("selected_agent_id", agent_id)
-    .in("status", ["en_mision", "cumplida"]) // permite retry si ya está cumplida
+    .eq("status", "en_mision") // retry con misión ya cumplida → 0 filas, sin push duplicado
     .select("*");
+
+  const firstTransition = Array.isArray(updatedRows) && updatedRows.length > 0;
 
   if (updateError) {
     console.error("[missions/complete] Error al actualizar misión:", updateError);
@@ -292,6 +296,16 @@ export async function POST(req: NextRequest) {
     duration_ms:  Date.now() - startedAt,
     request_id:   requestId,
   });
+
+  // PUSH-02 evento 6: notificar al cliente que su pedido fue entregado.
+  // firstTransition garantiza que solo se envía en la primera transición en_mision→cumplida.
+  if (firstTransition && mission?.user_id) {
+    const uid = mission.user_id as string;
+    after(() => sendPushToUser(uid, {
+      title: "ORBI · Pedido entregado",
+      body: "Tu pedido fue entregado. ¡Gracias!",
+    }));
+  }
 
   // 7. Respuesta exitosa
   return NextResponse.json({ ok: true, mission, ledger_entries: entries.length });

@@ -11,9 +11,11 @@
  * - Idempotente: si ya está en "por_tomar" y pertenece al mismo negocio → 200.
  */
 
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
 import { logEvent } from "@/lib/event-log";
+import { sendPushToUser } from "@/lib/push";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
   // 4. Cargar misión con service_role
   const { data: missionRow, error: missionError } = await admin
     .from("missions")
-    .select("id,status,business_name")
+    .select("id,status,business_name,user_id")
     .eq("id", missionId)
     .maybeSingle();
 
@@ -139,6 +141,15 @@ export async function POST(req: NextRequest) {
     duration_ms: Date.now() - startedAt,
     request_id: requestId,
   }).catch(() => {});
+
+  // PUSH-02 evento 3: notificar al cliente que el pedido está listo y buscando agente.
+  if (missionRow.user_id) {
+    const uid = missionRow.user_id as string;
+    after(() => sendPushToUser(uid, {
+      title: "ORBI · Pedido listo",
+      body: "Tu pedido está listo. Buscando agente…",
+    }));
+  }
 
   return NextResponse.json({ ok: true });
 }
