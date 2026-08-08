@@ -1,14 +1,25 @@
 "use client";
 
 import { useEffect } from "react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { supabaseAgent } from "@/lib/supabase-agent-client";
 import { apiUrl } from "@/lib/api-url";
 
-// Genera o recupera el installation_id estable de esta instalación.
-// Persiste en localStorage — sobrevive reinicios y actualizaciones OTA.
-// Se limpia con reinstalación completa (que también rota el FCM token).
+// Plugin Capacitor nativo que expone el FCM token via APIs oficiales de Capacitor.
+// Registrado en SceneDelegate via bridge.registerPluginInstance(OrbiPushPlugin()).
+// getToken() consulta Messaging.messaging().token (determinista).
+// addListener("fcmToken", ...) recibe el token cuando MessagingDelegate lo entrega.
+interface OrbiPushPlugin {
+  getToken(): Promise<{ token: string }>;
+  addListener(
+    event: "fcmToken",
+    handler: (data: { token: string }) => void
+  ): Promise<{ remove: () => void }>;
+}
+
+const OrbiPush = registerPlugin<OrbiPushPlugin>("OrbiPush");
+
 function getOrCreateInstallationId(): string {
   let id = localStorage.getItem("orbi_installation_id");
   if (!id) {
@@ -16,22 +27,6 @@ function getOrCreateInstallationId(): string {
     localStorage.setItem("orbi_installation_id", id);
   }
   return id;
-}
-
-// Captura el FCM token si llega antes de que PushSetup monte (token cacheado de sesión anterior).
-// AppDelegate lo entrega via window.dispatchEvent('fcmTokenReceived') al iniciar la app.
-let pendingFCMToken: string | null = null;
-if (typeof window !== "undefined") {
-  window.addEventListener(
-    "fcmTokenReceived",
-    (e: Event) => {
-      const token = (e as CustomEvent<{ token: string }>).detail.token;
-      pendingFCMToken = token;
-      // Buffer en localStorage para sobrevivir logout→login sin reinicio de app.
-      localStorage.setItem("orbi_pending_fcm_token", token);
-    },
-    { once: true }
-  );
 }
 
 async function registerToken(fcmToken: string): Promise<void> {
@@ -51,8 +46,9 @@ async function registerToken(fcmToken: string): Promise<void> {
     body: JSON.stringify({ token: fcmToken, platform: "ios", device_id: deviceId }),
   });
   if (res.ok) {
-    // Token registrado correctamente — limpiar buffer persistente.
-    localStorage.removeItem("orbi_pending_fcm_token");
+    console.log("[PUSH-JS] Token registrado correctamente");
+  } else {
+    console.error("[PUSH-JS] Error registrando token:", res.status);
   }
 }
 
@@ -66,6 +62,7 @@ export function PushSetup() {
     );
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
 
+    let listenerHandle: { remove: () => void } | null = null;
     let mounted = true;
 
     async function init() {
@@ -79,65 +76,36 @@ export function PushSetup() {
         if (granted !== "granted") return;
       }
 
-      // register() dispara el intercambio APNs → FCM en AppDelegate.swift.
-      // No usamos el evento "registration" de Capacitor como fuente del token FCM —
-      // ese evento entrega el token APNs crudo, no el FCM token.
       await PushNotifications.register();
       console.log("[PUSH-JS] PushNotifications.register() completado");
 
-      // Fix determinista PUSH-01b: solicitar el FCM token actual a Swift/Firebase explícitamente.
-      // Firebase NO llama al MessagingDelegate en OTA updates cuando el token no cambió.
-      // El WKScriptMessageHandler("orbiPush") registrado en SceneDelegate responde consultando
-      // Messaging.messaging().token, que siempre devuelve el token actual (caché o Firebase).
-      // try/catch con acceso directo: Terser elimina optional-chaining como dead code (pure_getters);
-      // el try/catch garantiza que la llamada sobrevive al bundle de producción.
-      try {
-        (window as any).webkit.messageHandlers.orbiPush.postMessage({ type: "getToken" });
-        console.log("[PUSH-JS] postMessage getToken enviado a Swift");
-      } catch (_) {
-        // no es iOS nativo (web, Android) — camino normal, no es un error
-      }
-
-      // Escuchar el FCM token entregado por AppDelegate via evaluateJavaScript
-      function handleFCMToken(e: Event) {
+      // Escuchar el FCM token via canal Capacitor oficial (notifyListeners en Swift).
+      // OrbiPushPlugin.notifyFCMToken() llama notifyListeners("fcmToken", {token}) cuando
+      // MessagingDelegate recibe el token de Firebase. Sin evaluateJavaScript ni CustomEvent.
+      listenerHandle = await OrbiPush.addListener("fcmToken", (data) => {
         if (!mounted) return;
-        const token = (e as CustomEvent<{ token: string }>).detail.token;
-        console.log(
-          "[PUSH-JS] FCM token recibido, len:",
-          token.length,
-          "prefix:",
-          token.slice(0, 6)
-        );
-        localStorage.setItem("orbi_pending_fcm_token", token);
+        console.log("[PUSH-JS] FCM token via OrbiPushPlugin, len:", data.token.length, "prefix:", data.token.slice(0, 6));
+        void registerToken(data.token);
+      });
+
+      // Caso OTA / cold start: el token FCM puede estar cacheado en Firebase y
+      // MessagingDelegate puede no volver a llamarse. getToken() consulta el caché directamente.
+      try {
+        const { token } = await OrbiPush.getToken();
+        console.log("[PUSH-JS] getToken() directo, len:", token.length, "prefix:", token.slice(0, 6));
         void registerToken(token);
+      } catch (err) {
+        console.log("[PUSH-JS] getToken() falló o token no disponible aún:", err);
       }
-
-      window.addEventListener("fcmTokenReceived", handleFCMToken);
-
-      // Caso edge: token cacheado en memoria (llegó antes de montar)
-      if (pendingFCMToken) {
-        console.log("[PUSH-JS] pendingFCMToken en memoria, registrando");
-        await registerToken(pendingFCMToken);
-        pendingFCMToken = null;
-      } else {
-        // Caso edge: token guardado en localStorage (sobrevivió logout→login sin reinicio de app)
-        const storedToken = localStorage.getItem("orbi_pending_fcm_token");
-        if (storedToken) {
-          console.log("[PUSH-JS] orbi_pending_fcm_token en localStorage, registrando");
-          await registerToken(storedToken);
-        }
-      }
-
-      return () => {
-        mounted = false;
-        window.removeEventListener("fcmTokenReceived", handleFCMToken);
-      };
     }
 
-    const cleanup = init();
+    init().catch((err) => {
+      console.error("[PUSH-JS] Error en init:", err);
+    });
+
     return () => {
       mounted = false;
-      cleanup.then((fn) => fn?.());
+      listenerHandle?.remove();
     };
   }, []);
 

@@ -1,11 +1,8 @@
 import UIKit
-import WebKit
 import Capacitor
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
-    // Guard para evitar doble registro si scene(_:willConnectTo:) se llama más de una vez.
-    private var orbiPushHandlerRegistered = false
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
@@ -13,9 +10,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = CAPBridgeViewController()
         window?.makeKeyAndVisible()
-        // Registrar el handler después de makeKeyAndVisible: bridge?.webView ya no es nil,
-        // pero el JS aún no ha evaluado nada. Punto determinista más temprano posible.
-        registerOrbiPushHandler()
+
+        // Registrar OrbiPushPlugin via la API oficial de Capacitor.
+        // registerPluginInstance() no tiene el guard de autoRegisterPlugins — funciona siempre.
+        // El plugin es accesible desde JS como Capacitor.Plugins.OrbiPush y via bridge.plugin(withName: "OrbiPush").
+        if let vc = window?.rootViewController as? CAPBridgeViewController {
+            vc.bridge?.registerPluginInstance(OrbiPushPlugin())
+            print("[PUSH] OrbiPushPlugin registrado via bridge.registerPluginInstance()")
+        }
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
@@ -28,24 +30,5 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
 
-    func sceneDidDisconnect(_ scene: UIScene) {
-        guard orbiPushHandlerRegistered,
-              let rootVC = window?.rootViewController as? CAPBridgeViewController,
-              let webView = rootVC.bridge?.webView
-        else { return }
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "orbiPush")
-        orbiPushHandlerRegistered = false
-    }
-
-    private func registerOrbiPushHandler() {
-        guard !orbiPushHandlerRegistered,
-              let rootVC = window?.rootViewController as? CAPBridgeViewController,
-              let webView = rootVC.bridge?.webView,
-              let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        else { return }
-        let weakHandler = WeakScriptMessageHandler(appDelegate)
-        webView.configuration.userContentController.add(weakHandler, name: "orbiPush")
-        orbiPushHandlerRegistered = true
-        print("[PUSH] WKScriptMessageHandler 'orbiPush' registrado")
-    }
+    func sceneDidDisconnect(_ scene: UIScene) {}
 }
