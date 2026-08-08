@@ -39,7 +39,9 @@
  *   No requiere RLS — la inserción es autorizada por el servidor.
  */
 
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
+import { sendPushToUser } from "@/lib/push";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { calcularMisionCatalogo, PRICING_RULE } from "@/lib/pricing";
 import { computeQuote, haversineKmServer, resolveDistanceServer, loadMotorParams } from "@/lib/pricing/server";
@@ -641,6 +643,26 @@ export async function POST(req: NextRequest) {
     duration_ms:  Date.now() - startedAt,
     request_id:   requestId,
   });
+
+  // PUSH-02 evento 1: notificar al negocio que tiene un nuevo pedido por confirmar.
+  // Solo para misiones de catálogo (isCatalog). after() garantiza ejecución post-response
+  // sin bloquear ni revertir la transición si FCM falla.
+  if (isCatalog && data.business_id) {
+    const bizId = data.business_id as string;
+    after(async () => {
+      const { data: biz } = await admin
+        .from("businesses")
+        .select("auth_user_id")
+        .eq("id", bizId)
+        .single();
+      if (biz?.auth_user_id) {
+        await sendPushToUser(biz.auth_user_id as string, {
+          title: "ORBI · Nuevo pedido",
+          body: "Tienes un nuevo pedido por confirmar.",
+        });
+      }
+    });
+  }
 
   return NextResponse.json({ ok: true, mission: data }, { status: 201 });
 }

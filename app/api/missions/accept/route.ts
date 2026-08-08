@@ -13,9 +13,11 @@
  * - No se escriben selected_agent_vehicle ni selected_agent_trust (columnas inexistentes en DB).
  */
 
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
 import { logEvent } from "@/lib/event-log";
+import { sendPushToUser } from "@/lib/push";
 import { loadMotorParams } from "@/lib/pricing/server";
 import {
   getAgentOperationalLocation,
@@ -105,7 +107,7 @@ export async function POST(req: NextRequest) {
   // 4. Cargar misión
   const { data: missionRow, error: missionError } = await admin
     .from("missions")
-    .select("id,status,selected_agent_id,service_type,origin_lat,origin_lng,business_id,origin_text")
+    .select("id,status,selected_agent_id,service_type,origin_lat,origin_lng,business_id,origin_text,user_id")
     .eq("id", mission_id)
     .maybeSingle();
 
@@ -259,6 +261,17 @@ export async function POST(req: NextRequest) {
     duration_ms: Date.now() - startedAt,
     request_id:  requestId,
   }).catch(() => {});
+
+  // PUSH-02 evento 4: notificar al cliente que un agente aceptó su misión.
+  // agentRow.name disponible en scope sin lookup adicional.
+  if (missionRow.user_id) {
+    const uid = missionRow.user_id as string;
+    const agentName = agentRow.name as string;
+    after(() => sendPushToUser(uid, {
+      title: "ORBI · Agente en camino",
+      body: `${agentName} va por tu pedido.`,
+    }));
+  }
 
   return NextResponse.json({ ok: true, mission_id, agent_id: agentId });
 }
