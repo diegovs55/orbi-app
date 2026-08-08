@@ -92,7 +92,6 @@ export function PushSetup() {
       // try/catch con acceso directo: Terser elimina optional-chaining como dead code (pure_getters);
       // el try/catch garantiza que la llamada sobrevive al bundle de producción.
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkit.messageHandlers.orbiPush.postMessage({ type: "getToken" });
         console.log("[PUSH-JS] postMessage getToken enviado a Swift");
       } catch (_) {
