@@ -24,6 +24,7 @@ const config: CapacitorConfig = {
     backgroundColor: "#05070d",
     allowsLinkPreview: false,
     scrollEnabled: true,
+    webContentsDebuggingEnabled: true,
   },
   android: {
     backgroundColor: "#05070d",
