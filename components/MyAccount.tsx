@@ -14,6 +14,7 @@ import {
   CustomerSession,
 } from "@/lib/customers";
 import { supabase } from "@/lib/supabase";
+import { PushSetup } from "@/components/PushSetup";
 import { apiUrl } from "@/lib/api-url";
 import {
   ActiveMission,
@@ -152,7 +153,15 @@ export function MyAccount() {
   }
 
   if (session) {
-    return <SessionView session={session} onLogout={handleLogout} />;
+    return (
+      <>
+        <PushSetup getAccessToken={async () => {
+          const { data } = await supabase.auth.getSession();
+          return data.session?.access_token ?? null;
+        }} />
+        <SessionView session={session} onLogout={handleLogout} />
+      </>
+    );
   }
 
   if (view === "choice") {
