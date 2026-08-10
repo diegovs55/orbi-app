@@ -696,6 +696,7 @@ const BUSINESS_ALERT_KEY = "business-pending";
 function PendingOrders({ businessName }: { businessName: string }) {
   const [orders, setOrders] = useState<ActiveMission[]>([]);
   const [confirming, setConfirming] = useState<Set<string>>(new Set());
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [audioBlocked, setAudioBlocked] = useState(false);
 
   // IDs seen on the very first load — never alert for these.
@@ -799,6 +800,15 @@ function PendingOrders({ businessName }: { businessName: string }) {
       {orders.map((m) => {
         const isPreparando = m.status === "preparando";
         const isBusy = confirming.has(m.id);
+        const isExpanded = expandedOrders.has(m.id);
+        function toggleExpanded() {
+          setExpandedOrders((prev) => {
+            const next = new Set(prev);
+            if (next.has(m.id)) next.delete(m.id);
+            else next.add(m.id);
+            return next;
+          });
+        }
         return (
           <div
             key={m.id}
@@ -820,17 +830,47 @@ function PendingOrders({ businessName }: { businessName: string }) {
                   Agente: {m.selected_agent_name || "—"} · Total: ${m.total_amount ?? 0}
                 </p>
               </div>
-              <button
-                type="button"
-                disabled={isBusy}
-                onClick={() => void handleAction(m.id, m.status)}
-                className={`shrink-0 inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold text-white transition disabled:opacity-50 ${isPreparando ? "bg-emerald-600 hover:bg-emerald-500" : "bg-orbi-blue hover:bg-[#0f7af0]"}`}
-              >
-                {isBusy
-                  ? (isPreparando ? "Marcando listo…" : "Confirmando…")
-                  : (isPreparando ? "Pedido listo ✓" : "Confirmar pedido")}
-              </button>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                {m.items && m.items.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={toggleExpanded}
+                    className="inline-flex min-h-9 items-center justify-center rounded-md border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text"
+                  >
+                    {isExpanded ? "Ocultar pedido" : "Ver pedido"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void handleAction(m.id, m.status)}
+                  className={`inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold text-white transition disabled:opacity-50 ${isPreparando ? "bg-emerald-600 hover:bg-emerald-500" : "bg-orbi-blue hover:bg-[#0f7af0]"}`}
+                >
+                  {isBusy
+                    ? (isPreparando ? "Marcando listo…" : "Confirmando…")
+                    : (isPreparando ? "Pedido listo ✓" : "Confirmar pedido")}
+                </button>
+              </div>
             </div>
+            {isExpanded && m.items && m.items.length > 0 ? (
+              <ul className="mt-3 divide-y divide-white/[0.06] rounded-md border border-white/10 bg-white/[0.03]">
+                {m.items.map((item, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-orbi-text">
+                        ×{item.quantity} {item.product_name}
+                      </span>
+                      {item.category ? (
+                        <span className="ml-2 text-[10px] text-orbi-muted/70">{item.category}</span>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 font-mono text-xs font-semibold text-orbi-cyan">
+                      ${item.subtotal}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         );
       })}
