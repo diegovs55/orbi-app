@@ -8,6 +8,8 @@ import { BusinessCatalog } from "@/components/BusinessCatalog";
 import { PageShell } from "@/components/PageShell";
 import { supabaseBusiness as supabase } from "@/lib/supabase-business-client";
 import { getBusinessByAuthUserId } from "@/lib/businesses";
+import { PushSetup } from "@/components/PushSetup";
+import { apiUrl } from "@/lib/api-url";
 import {
   getBusinessSession,
   saveBusinessSession,
@@ -56,7 +58,22 @@ export default function NegociosPage() {
     setMounted(true);
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    const { data } = await supabase.auth.getSession();
+    const jwt = data.session?.access_token ?? null;
+    const deviceId = localStorage.getItem("orbi_installation_id");
+    if (jwt && deviceId) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        await fetch(apiUrl("/api/push/unregister"), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ device_id: deviceId }),
+          signal: controller.signal,
+        });
+      } catch { /* best-effort */ } finally { clearTimeout(timeout); }
+    }
     clearBusinessSession();
     void supabase.auth.signOut();
     setSession(null);
@@ -73,6 +90,10 @@ export default function NegociosPage() {
         title="Tu negocio en Orbi."
         description="Administra tus productos y mantén tu catálogo actualizado."
       >
+        <PushSetup getAccessToken={async () => {
+          const { data } = await supabase.auth.getSession();
+          return data.session?.access_token ?? null;
+        }} />
         <BusinessCatalog onLogout={handleLogout} />
       </PageShell>
     );

@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LockKeyhole, LogOut } from "lucide-react";
 import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
+import { PushSetup } from "@/components/PushSetup";
 import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
 import { getAgentByAuthUserId } from "@/lib/agents";
 import { supabaseAgent as supabase } from "@/lib/supabase-agent-client";
 import { stopGpsWatch } from "@/lib/agent-gps";
+import { apiUrl } from "@/lib/api-url";
 
 export default function AgentePage() {
   const router = useRouter();
@@ -54,6 +56,32 @@ export default function AgentePage() {
 
   async function handleLogout() {
     stopGpsWatch();
+    // PUSH-01b Fase A — best-effort acotado: deshabilitar token del dispositivo
+    // mientras el JWT aún existe. Timeout de 3 s; el logout nunca queda bloqueado.
+    // Segunda defensa: el próximo /api/push/register para este device_id limpia la asociación.
+    const installationId = localStorage.getItem("orbi_installation_id");
+    if (installationId) {
+      const { data: { session: agentSession } } = await supabase.auth.getSession();
+      if (agentSession?.access_token) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        try {
+          await fetch(apiUrl("/api/push/unregister"), {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${agentSession.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ device_id: installationId }),
+            signal: controller.signal,
+          });
+        } catch {
+          // timeout, red caída o error — segunda defensa activa en próximo registro
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+    }
     clearAgentSession();
     await supabase.auth.signOut();
     router.push("/agentes");
@@ -103,6 +131,10 @@ export default function AgentePage() {
           Salir
         </button>
       </div>
+      <PushSetup getAccessToken={async () => {
+        const { data } = await supabase.auth.getSession();
+        return data.session?.access_token ?? null;
+      }} />
       <AgentPrivatePanel agentId={session.id} />
     </PageShell>
   );
