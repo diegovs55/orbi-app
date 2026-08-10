@@ -69,6 +69,10 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
 
     let listenerHandle: { remove: () => void } | null = null;
     let mounted = true;
+    // Semáforo: garantiza un único registro por mount, ya sea por getToken() o por addListener.
+    // Declarados aquí para que el cleanup (fuera de init) pueda cancelar los timers pendientes.
+    let tokenRegistered = false;
+    const retryTimers: ReturnType<typeof setTimeout>[] = [];
 
     async function init() {
       const { receive } = await PushNotifications.checkPermissions();
@@ -87,20 +91,44 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
       // Escuchar el FCM token via canal Capacitor oficial (notifyListeners en Swift).
       // OrbiPushPlugin.notifyFCMToken() llama notifyListeners("fcmToken", {token}) cuando
       // MessagingDelegate recibe el token de Firebase. Sin evaluateJavaScript ni CustomEvent.
+
       listenerHandle = await OrbiPush.addListener("fcmToken", (data) => {
         if (!mounted) return;
+        tokenRegistered = true;
         console.log("[PUSH-JS] FCM token via OrbiPushPlugin, len:", data.token.length, "prefix:", data.token.slice(0, 6));
         void registerToken(data.token, getAccessToken);
       });
 
-      // Caso OTA / cold start: el token FCM puede estar cacheado en Firebase y
-      // MessagingDelegate puede no volver a llamarse. getToken() consulta el caché directamente.
+      // Caso OTA / cold start: token cacheado → getToken() resuelve inmediatamente.
+      // Primera instalación: Firebase aún no tiene token → getToken() rechaza.
+      // En ese caso, se programan retries acotados (3s, 10s, 25s) mientras mounted === true.
+      // tokenRegistered evita un segundo POST si addListener ya recibió el token antes del retry.
       try {
         const { token } = await OrbiPush.getToken();
+        tokenRegistered = true;
         console.log("[PUSH-JS] getToken() directo, len:", token.length, "prefix:", token.slice(0, 6));
         void registerToken(token, getAccessToken);
+        // Intento exitoso: no se programan timers.
       } catch (err) {
         console.log("[PUSH-JS] getToken() falló o token no disponible aún:", err);
+        // Solo si el intento inmediato falla se programan los retries.
+        for (const delay of [3000, 10000, 25000]) {
+          retryTimers.push(
+            setTimeout(() => {
+              if (!mounted || tokenRegistered) return;
+              OrbiPush.getToken()
+                .then(({ token }) => {
+                  if (!mounted || tokenRegistered) return;
+                  tokenRegistered = true;
+                  console.log("[PUSH-JS] getToken() retry ok, len:", token.length, "prefix:", token.slice(0, 6));
+                  void registerToken(token, getAccessToken);
+                })
+                .catch((e) => {
+                  console.log("[PUSH-JS] getToken() retry falló:", e);
+                });
+            }, delay)
+          );
+        }
       }
     }
 
@@ -111,6 +139,7 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
     return () => {
       mounted = false;
       listenerHandle?.remove();
+      retryTimers.forEach(clearTimeout);
     };
   }, []);
 
