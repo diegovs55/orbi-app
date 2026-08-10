@@ -1,11 +1,13 @@
 /**
- * POST /api/push/register — PUSH-01c
+ * POST /api/push/register — PUSH-03
  *
  * Registra o actualiza el FCM token del dispositivo del usuario autenticado.
  *
  * - auth_user_id se resuelve siempre del JWT. Nunca se acepta del body.
  * - El role se resuelve del servidor (agents → business → customers). Nunca del body.
- * - Hace UPSERT: si el device_id ya tiene un token, lo actualiza.
+ * - device_id es obligatorio: identifica la instalación física. Rechaza 400 si falta.
+ * - UPSERT atómico por device_id: una sola fila por instalación, auth_user_id y role
+ *   se actualizan al cambiar de sesión. token FCM se actualiza si rota.
  * - No conectado a ningún flujo de misiones. Aislado hasta PUSH-02.
  */
 
@@ -61,9 +63,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (platform !== "ios" && platform !== "android") {
     return NextResponse.json({ error: "platform debe ser 'ios' o 'android'." }, { status: 400 });
   }
-  const deviceId = typeof device_id === "string" && device_id.trim() !== ""
-    ? device_id.trim()
-    : null;
+  if (typeof device_id !== "string" || device_id.trim() === "") {
+    return NextResponse.json({ error: "device_id es requerido." }, { status: 400 });
+  }
+  const deviceId = device_id.trim();
 
   // 3. Resolver role desde el servidor — nunca del body
   const db = adminClient();
@@ -98,20 +101,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "NO_ACCOUNT_FOUND" }, { status: 403 });
   }
 
-  // 4. Si el request incluye device_id, deshabilitar tokens activos de otros usuarios
-  //    en ese mismo dispositivo antes del UPSERT (segunda defensa tras /api/push/unregister).
-  //    Build 8 y registros legacy (deviceId = null) nunca entran aquí.
+  // 4. Deshabilitar tokens activos de otros usuarios en el mismo dispositivo
+  //    antes del UPSERT (segunda defensa tras /api/push/unregister).
+  //    Con UNIQUE(device_id) solo puede existir una fila por device_id; este paso
+  //    es redundante para filas non-NULL pero inofensivo. Se conserva para cubrir
+  //    el caso edge de filas legacy que hubieran quedado con el mismo device_id
+  //    bajo un auth_user_id distinto antes de la migración v2.
   const now = new Date().toISOString();
-  if (deviceId) {
-    await db
-      .from("device_tokens")
-      .update({ enabled: false, updated_at: now })
-      .eq("device_id", deviceId)
-      .neq("auth_user_id", auth_user_id)
-      .eq("enabled", true);
-  }
+  await db
+    .from("device_tokens")
+    .update({ enabled: false, updated_at: now })
+    .eq("device_id", deviceId)
+    .neq("auth_user_id", auth_user_id)
+    .eq("enabled", true);
 
-  // 5. UPSERT — si cambia el token para el mismo device_id, lo actualiza
+  // 5. UPSERT atómico por device_id (identidad canónica de instalación).
+  //    Si device_id ya existe → DO UPDATE: actualiza auth_user_id, role, token, etc.
+  //    Si device_id no existe → INSERT nueva fila.
+  //    El cambio de sesión (agent → business → customer) actualiza la misma fila.
   const { error: upsertError } = await db
     .from("device_tokens")
     .upsert(
@@ -127,7 +134,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         updated_at: now,
       },
       {
-        onConflict: deviceId ? "auth_user_id,device_id" : "token",
+        onConflict: "device_id",
         ignoreDuplicates: false,
       }
     );
