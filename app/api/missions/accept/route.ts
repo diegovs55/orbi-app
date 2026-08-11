@@ -268,8 +268,8 @@ export async function POST(req: NextRequest) {
     const uid = missionRow.user_id as string;
     const agentName = agentRow.name as string;
     after(() => sendPushToUser(uid, {
-      title: "ORBI · Agente en camino",
-      body: `${agentName} va por tu pedido.`,
+      title: "ORBI · Misión aceptada",
+      body: `${agentName} aceptó tu misión.`,
     }));
   }
 
