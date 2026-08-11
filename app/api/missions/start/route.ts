@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     const agentName = agentRow.name as string;
     after(() => sendPushToUser(uid, {
       title: "ORBI · Agente en camino",
-      body: `${agentName} ya va hacia el punto de inicio.`,
+      body: `${agentName} ya va en camino para atender tu misión.`,
     }));
   }
 
