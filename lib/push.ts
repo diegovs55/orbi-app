@@ -43,16 +43,19 @@ export interface PushPayload {
  */
 export async function sendPushToUser(
   auth_user_id: string,
-  payload: PushPayload
+  payload: PushPayload,
+  role?: "agent" | "business" | "customer"
 ): Promise<void> {
   const db = getAdminClient();
 
-  const { data: tokens, error } = await db
+  let query = db
     .from("device_tokens")
     .select("id, token")
     .eq("auth_user_id", auth_user_id)
     .eq("enabled", true)
     .eq("token_type", "fcm");
+  if (role != null) query = query.eq("role", role);
+  const { data: tokens, error } = await query;
 
   if (error) {
     console.error("[push] Error leyendo device_tokens:", error.message);

@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
           await sendPushToUser(uid, {
             title: "ORBI · Pedido disponible nuevamente",
             body: "Un pedido cerca de ti quedó libre. Ábrelo antes que otro agente.",
-          });
+          }, "agent");
         }
       }
     } catch (e) {
