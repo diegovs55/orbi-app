@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
 
         const { eligible } = getAgentOperatingEligibility(candidate, svcType, origin, now, mp);
         if (eligible) {
-          void sendPushToUser(uid, {
+          await sendPushToUser(uid, {
             title: "ORBI · Nuevo pedido disponible",
             body: "Hay un pedido cerca de ti. Ábrelo antes que otro agente.",
           });
