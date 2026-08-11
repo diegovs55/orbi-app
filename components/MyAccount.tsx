@@ -395,8 +395,6 @@ function SessionView({
         </button>
       </div>
 
-      <SupportCard />
-
       {/* KPI chips */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiChip
@@ -515,6 +513,7 @@ function SessionView({
           </div>
         )}
       </div>
+      <SupportCard />
     </section>
   );
 }
