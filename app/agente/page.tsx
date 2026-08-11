@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LockKeyhole, LogOut } from "lucide-react";
 import { AgentPrivatePanel } from "@/components/AgentPrivatePanel";
+import { SupportCard } from "@/components/SupportCard";
 import { PushSetup } from "@/components/PushSetup";
 import { PageShell } from "@/components/PageShell";
 import { clearAgentSession, getAgentSession, saveAgentSession, AgentSession } from "@/lib/agentSession";
@@ -136,6 +137,9 @@ export default function AgentePage() {
         return data.session?.access_token ?? null;
       }} />
       <AgentPrivatePanel agentId={session.id} />
+      <div className="mt-6">
+        <SupportCard />
+      </div>
     </PageShell>
   );
 }

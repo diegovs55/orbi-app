@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AffiliatedBusinesses } from "@/components/AffiliatedBusinesses";
+import { SupportCard } from "@/components/SupportCard";
 import { BusinessAccessPanel } from "@/components/BusinessAccessPanel";
 import { BusinessCatalog } from "@/components/BusinessCatalog";
 import { PageShell } from "@/components/PageShell";
@@ -95,6 +96,9 @@ export default function NegociosPage() {
           return data.session?.access_token ?? null;
         }} />
         <BusinessCatalog onLogout={handleLogout} />
+        <div className="mt-6">
+          <SupportCard />
+        </div>
       </PageShell>
     );
   }

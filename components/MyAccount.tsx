@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
+import { SupportCard } from "@/components/SupportCard";
 import {
   clearCustomerSession,
   getCurrentCustomerSession,
@@ -393,6 +394,8 @@ function SessionView({
           Cerrar sesión
         </button>
       </div>
+
+      <SupportCard />
 
       {/* KPI chips */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
