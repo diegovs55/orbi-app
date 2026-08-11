@@ -2772,6 +2772,9 @@ function CatalogSuggestions({
                         Fuera de la zona cercana
                       </span>
                       <p className="mt-1 text-[10px] text-orbi-muted/60">
+                        A aprox. {formatDistanceKm(result.distanceKm)} de aquí
+                      </p>
+                      <p className="mt-1 text-[10px] text-orbi-muted/60">
                         La ruta y el costo se calcularán cuando indiques el destino.
                       </p>
                     </div>
@@ -2841,7 +2844,7 @@ function CatalogSuggestions({
                     {result.category} · {result.sector}
                   </p>
                   <p className="mt-1 text-[10px] text-orbi-muted/60">
-                    Disponible cerca de la zona seleccionada
+                    A aprox. {formatDistanceKm(result.distanceKm)} de aquí
                   </p>
                   <p className="mt-1.5 text-sm leading-6 text-orbi-muted">{result.description}</p>
                 </div>
