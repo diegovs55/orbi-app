@@ -218,8 +218,8 @@ export async function POST(req: NextRequest) {
         const { eligible } = getAgentOperatingEligibility(candidate, svcType, origin, now, mp);
         if (eligible) {
           await sendPushToUser(uid, {
-            title: "ORBI · Pedido disponible nuevamente",
-            body: "Un pedido cerca de ti quedó libre. Ábrelo antes que otro agente.",
+            title: "ORBI · Misión disponible nuevamente",
+            body: "Hay una misión cerca de ti. Revísala antes de que sea tomada.",
           }, "agent");
         }
       }

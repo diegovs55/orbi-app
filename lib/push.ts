@@ -54,7 +54,7 @@ export async function sendPushToUser(
     .eq("auth_user_id", auth_user_id)
     .eq("enabled", true)
     .eq("token_type", "fcm");
-  if (role != null) query = query.eq("role", role);
+  if (role != null) query = query.eq("role", role).not("device_id", "is", null);
   const { data: tokens, error } = await query;
 
   if (error) {
