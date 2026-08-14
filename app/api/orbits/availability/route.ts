@@ -1,0 +1,183 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAdmin } from "@/lib/supabase-admin";
+import { loadMotorParams } from "@/lib/pricing/server";
+
+export const dynamic = "force-dynamic";
+
+// ── Pure helpers (inlined; do not import from lib/agents to avoid client-only side effects) ──
+
+function toNum(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const n = Number(v.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function validCoords(lat: number | null, lng: number | null): lat is number {
+  if (lat === null || lng === null) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat === 0 && lng === 0) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+function haversineKm(latA: number, lngA: number, latB: number, lngB: number): number {
+  const R = 6371;
+  const dLat = ((latB - latA) * Math.PI) / 180;
+  const dLng = ((lngB - lngA) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((latA * Math.PI) / 180) *
+      Math.cos((latB * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isWithinOperatingHours(availability: string | null): boolean {
+  const av = (availability ?? "").trim().toLowerCase();
+  if (!av || av === "24 horas") return true;
+  const match = av.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+  if (!match) return true;
+  const toMin = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const start = toMin(match[1]);
+  const end = toMin(match[2]);
+  if (start === end) return true;
+  return start < end ? nowMin >= start && nowMin <= end : nowMin >= start || nowMin <= end;
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const latRaw = searchParams.get("lat");
+  const lngRaw = searchParams.get("lng");
+
+  const queryLat = latRaw !== null ? Number(latRaw) : NaN;
+  const queryLng = lngRaw !== null ? Number(lngRaw) : NaN;
+
+  if (
+    !Number.isFinite(queryLat) ||
+    !Number.isFinite(queryLng) ||
+    queryLat < -90 ||
+    queryLat > 90 ||
+    queryLng < -180 ||
+    queryLng > 180
+  ) {
+    return NextResponse.json(
+      { error: "lat y lng son requeridos y deben ser coordenadas válidas." },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const admin = getAdmin();
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Error de configuración del servidor." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // Load radioAsignacionMaximaKm from DB (same source dispatch uses)
+  const { params: motorParams } = await loadMotorParams("zumpahuacan");
+  const { radioAsignacionMaximaKm } = motorParams;
+
+  // 1. Load available agents (service_role reads current_lat/current_lng, bypassing RLS)
+  const { data: agentRows, error: agentError } = await admin
+    .from("agents")
+    .select(
+      "id,status,admin_status,is_on_orbit,availability,lat,lng,current_lat,current_lng,radius_km",
+    )
+    .eq("admin_status", "activo")
+    .eq("status", "Disponible")
+    .eq("is_on_orbit", true);
+
+  if (agentError) {
+    return NextResponse.json(
+      { error: "Error al consultar agentes." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // 2. Occupied agents: have an active mission assigned to them
+  const { data: busyRows } = await admin
+    .from("missions")
+    .select("selected_agent_id")
+    .in("status", ["aceptada", "en_mision"])
+    .not("selected_agent_id", "is", null);
+
+  const busyIds = new Set<string>(
+    (busyRows ?? [])
+      .map((r: Record<string, unknown>) => r.selected_agent_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
+  // 3. Filter: operating hours + valid GPS + not busy
+  const available: { lat: number; lng: number; distKm: number }[] = [];
+
+  for (const row of (agentRows ?? []) as Record<string, unknown>[]) {
+    const id = row.id as string;
+    if (busyIds.has(id)) continue;
+    if (!isWithinOperatingHours(row.availability as string | null)) continue;
+
+    const cLat = toNum(row.current_lat);
+    const cLng = toNum(row.current_lng);
+    const bLat = toNum(row.lat);
+    const bLng = toNum(row.lng);
+
+    let aLat: number | null = null;
+    let aLng: number | null = null;
+
+    if (validCoords(cLat, cLng)) {
+      aLat = cLat;
+      aLng = cLng;
+    } else if (validCoords(bLat, bLng)) {
+      aLat = bLat;
+      aLng = bLng;
+    } else {
+      continue; // no usable GPS
+    }
+
+    const distKm = haversineKm(queryLat, queryLng, aLat, aLng as number);
+
+    // effectiveRadius mirrors the same formula dispatch uses in getAgentOperatingEligibility()
+    const agentRadius = toNum(row.radius_km) ?? radioAsignacionMaximaKm;
+    const effectiveRadius = Math.min(agentRadius, radioAsignacionMaximaKm);
+    if (distKm > effectiveRadius) continue;
+
+    available.push({ lat: aLat, lng: aLng as number, distKm });
+  }
+
+  if (available.length === 0) {
+    return NextResponse.json(
+      { available: 0, nearest_distance_bucket: null, orbits: [] },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // 4. Sort by distance; build nearest-distance bucket
+  available.sort((a, b) => a.distKm - b.distKm);
+  const nearestKm = available[0].distKm;
+  const bucket = `a menos de ${Math.ceil(nearestKm)} km`;
+
+  // 5. Single aggregated orbit — centroid degraded to 2 decimal places (~1.1 km precision)
+  //    NO individual agent coordinates or identifiers in the response.
+  const centLat = available.reduce((s, a) => s + a.lat, 0) / available.length;
+  const centLng = available.reduce((s, a) => s + a.lng, 0) / available.length;
+  const degradedLat = Math.round(centLat * 100) / 100;
+  const degradedLng = Math.round(centLng * 100) / 100;
+
+  return NextResponse.json(
+    {
+      available: available.length,
+      nearest_distance_bucket: bucket,
+      orbits: [{ lat: degradedLat, lng: degradedLng }],
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
