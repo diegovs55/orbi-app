@@ -524,6 +524,7 @@ export function AffiliatedBusinesses({ onOpenRequest }: { onOpenRequest?: () => 
               p.status === "disponible",
           )}
           productId={selectedProductId ?? undefined}
+          orbitCenter={orbitCenter}
           onClose={() => { setSelectedBusiness(null); setSelectedProductId(null); }}
         />
       )}
@@ -605,11 +606,13 @@ function BusinessDetailModal({
   business,
   products,
   productId,
+  orbitCenter,
   onClose,
 }: {
   business: CatalogBusiness;
   products: CatalogProduct[];
   productId?: string;
+  orbitCenter?: OrbitCenter | null;
   onClose: () => void;
 }) {
   return (
@@ -673,7 +676,7 @@ function BusinessDetailModal({
         {/* Cierre / CTA */}
         {productId ? (
           <Link
-            href={`/pedir?productId=${encodeURIComponent(productId)}`}
+            href={`/pedir?productId=${encodeURIComponent(productId)}${orbitCenter ? `&lat=${orbitCenter.lat}&lng=${orbitCenter.lng}&src=${encodeURIComponent(orbitCenter.source)}` : ""}`}
             className="mt-5 inline-flex min-h-10 w-full items-center justify-center rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white transition hover:bg-[#0f7af0]"
           >
             Agregar al pedido →

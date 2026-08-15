@@ -66,6 +66,7 @@ import { isNativeApp } from "@/lib/native-app";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
   type OrbitCenter,
+  type OrbitCenterSource,
   resolveOrbitFromGps,
   resolveOrbitFromGpsExplicit,
   getEnvDefaultOrbit,
@@ -595,6 +596,31 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
 
     async function resolveOrbit() {
       try {
+        // Handoff territorial desde /negocios: si el usuario ya tenía ubicación
+        // resuelta al pulsar "Agregar al pedido", llega en ?lat=&lng=&src=.
+        // Solo se acepta si src pertenece a la allowlist y las coords son válidas.
+        // Si faltan o son inválidas, cae al comportamiento normal.
+        const HANDOFF_SOURCES: OrbitCenterSource[] = ["gps_suggested", "manual"];
+        const sp = new URLSearchParams(window.location.search);
+        const rawLat = parseFloat(sp.get("lat") ?? "");
+        const rawLng = parseFloat(sp.get("lng") ?? "");
+        const rawSrc = sp.get("src") ?? "";
+        if (
+          Number.isFinite(rawLat) && rawLat >= -90 && rawLat <= 90 &&
+          Number.isFinite(rawLng) && rawLng >= -180 && rawLng <= 180 &&
+          (HANDOFF_SOURCES as string[]).includes(rawSrc)
+        ) {
+          if (!cancelled) {
+            setOrbitCenter({
+              lat: rawLat,
+              lng: rawLng,
+              label: rawSrc === "gps_suggested" ? "Mi ubicación" : "Zona seleccionada",
+              source: rawSrc as OrbitCenterSource,
+            });
+          }
+          return; // finally sigue ejecutándose → setOrbitLoading(false) garantizado
+        }
+
         const result = await resolveOrbitFromGps();
 
         if (cancelled) return;
