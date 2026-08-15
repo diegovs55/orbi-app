@@ -236,6 +236,13 @@ const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"]
 const pricingRule = PRICING_RULE;
 
 export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
+  // Prop takes precedence; falls back to URL search param for static export / Capacitor.
+  const resolvedProductId =
+    productId ??
+    (typeof window !== "undefined"
+      ? (new URLSearchParams(window.location.search).get("productId") ?? undefined)
+      : undefined);
+
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
   const [selectedStep, setSelectedStep] = useState<WizardStep>("servicio");
   const [showConfirmationDetails, setShowConfirmationDetails] = useState(false);
@@ -789,14 +796,14 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   // calculateDistanceKm (local) + getOrdinaryRadiusKm (lib/discovery, solo lectura).
   // consumedProductIdRef impide doble-add en StrictMode o re-renders.
   useEffect(() => {
-    if (!productId) return;
-    if (consumedProductIdRef.current === productId) return;
+    if (!resolvedProductId) return;
+    if (consumedProductIdRef.current === resolvedProductId) return;
     if (catalogItems.length === 0) return;
     if (isReconcilingMission) return;
     if (!orbitCenter) return;
 
     const product = catalogItems.find(
-      (p) => p.id === productId && p.available && p.status === "disponible",
+      (p) => p.id === resolvedProductId && p.available && p.status === "disponible",
     );
     if (!product) return;
 
@@ -807,12 +814,12 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
     const distKm = calculateDistanceKm(bLat, bLng, orbitCenter.lat, orbitCenter.lng);
     if (distKm > getOrdinaryRadiusKm(product.sector)) return;
 
-    consumedProductIdRef.current = productId;
+    consumedProductIdRef.current = resolvedProductId;
     handleSelectProduct({ ...product, serviceType: "Compra local" });
   // handleSelectProduct is defined in render scope — intentionally excluded from deps.
   // consumedProductIdRef prevents double-invoke.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, catalogItems, orbitCenter, isReconcilingMission]);
+  }, [resolvedProductId, catalogItems, orbitCenter, isReconcilingMission]);
 
   useEffect(() => {
     let isActive = true;
