@@ -735,6 +735,21 @@ function PendingOrders({ businessName }: { businessName: string }) {
     [load]
   );
 
+  // Invalidación por push foreground: PushSetup emite este evento cuando llega
+  // una notificación con la app activa. Supabase sigue siendo la fuente de verdad.
+  useEffect(() => {
+    const handler = () => { void load(); };
+    window.addEventListener("orbi:push-received", handler);
+    return () => window.removeEventListener("orbi:push-received", handler);
+  }, [load]);
+
+  // Reconciliación al volver de background / lock screen.
+  useEffect(() => {
+    const handler = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [load]);
+
   // Register auto-unlock once on mount — fires silently on first gesture.
   useEffect(() => { enableAutoUnlock(); }, []);
 

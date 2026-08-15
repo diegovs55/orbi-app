@@ -68,6 +68,7 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
 
     let listenerHandle: { remove: () => void } | null = null;
+    let foregroundHandle: { remove: () => void } | null = null;
     let mounted = true;
     // Semáforo: garantiza un único registro por mount, ya sea por getToken() o por addListener.
     // Declarados aquí para que el cleanup (fuera de init) pueda cancelar los timers pendientes.
@@ -91,6 +92,17 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
       // Escuchar el FCM token via canal Capacitor oficial (notifyListeners en Swift).
       // OrbiPushPlugin.notifyFCMToken() llama notifyListeners("fcmToken", {token}) cuando
       // MessagingDelegate recibe el token de Firebase. Sin evaluateJavaScript ni CustomEvent.
+
+      // Invalidación foreground: push recibido mientras la app está activa →
+      // emite evento DOM para que PendingOrders llame load() sin polling.
+      foregroundHandle = await PushNotifications.addListener(
+        "pushNotificationReceived",
+        () => {
+          if (!mounted) return;
+          console.log("[PUSH-JS] pushNotificationReceived → orbi:push-received");
+          window.dispatchEvent(new CustomEvent("orbi:push-received"));
+        }
+      );
 
       listenerHandle = await OrbiPush.addListener("fcmToken", (data) => {
         if (!mounted) return;
@@ -138,6 +150,7 @@ export function PushSetup({ getAccessToken }: PushSetupProps) {
 
     return () => {
       mounted = false;
+      foregroundHandle?.remove();
       listenerHandle?.remove();
       retryTimers.forEach(clearTimeout);
     };
