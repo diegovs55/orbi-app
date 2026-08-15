@@ -116,11 +116,13 @@ export default function NegociosPage() {
       title="Los negocios que confían en Orbi."
       description=""
     >
-      <BusinessAccessPanel
-        onLogin={() => void syncSession()}
-        registerOpen={(fn) => { openBusinessRequest.current = fn; }}
-      />
-      <AffiliatedBusinesses onOpenRequest={() => openBusinessRequest.current?.()} />
+      <div className="flex flex-col gap-8">
+        <AffiliatedBusinesses onOpenRequest={() => openBusinessRequest.current?.()} />
+        <BusinessAccessPanel
+          onLogin={() => void syncSession()}
+          registerOpen={(fn) => { openBusinessRequest.current = fn; }}
+        />
+      </div>
     </PageShell>
   );
 }

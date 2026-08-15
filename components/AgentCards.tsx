@@ -114,11 +114,11 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-3">
-        <div>
-          <p className="text-sm font-black text-orbi-text">Disponibilidad recalculada</p>
-          <p className="mt-1 text-xs text-orbi-muted">
-            Última revisión: {availabilityRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+      <div className="mb-4 flex items-center justify-between gap-2 rounded-md border border-orbi-cyan/15 bg-white/[0.04] px-3 py-2">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-black text-orbi-text">Disponibilidad recalculada</p>
+          <p className="truncate text-xs text-orbi-muted">
+            Revisión: {availabilityRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </p>
         </div>
         <button

@@ -80,21 +80,24 @@ export function AgentAccessPanel() {
     }
 
     return (
-      <div className="flex flex-wrap gap-2 justify-end">
-        <button
-          type="button"
-          onClick={() => setPanel("request")}
-          className="inline-flex items-center gap-2 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
-        >
-          Solicitar alta como agente
-        </button>
-        <button
-          type="button"
-          onClick={() => router.push("/agente/login")}
-          className="inline-flex items-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
-        >
-          Ya tengo acceso
-        </button>
+      <div className="text-center">
+        <p className="mb-3 text-xs text-orbi-muted">¿Quieres formar parte de la red?</p>
+        <div className="flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPanel("request")}
+            className="inline-flex min-h-11 items-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-4 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+          >
+            Solicitar alta como agente
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/agente/login")}
+            className="inline-flex min-h-11 items-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-4 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+          >
+            Ya tengo acceso
+          </button>
+        </div>
       </div>
     );
   }

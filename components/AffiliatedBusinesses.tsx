@@ -253,7 +253,7 @@ export function AffiliatedBusinesses({ onOpenRequest }: { onOpenRequest?: () => 
 
   if (!showMap) {
     return (
-      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur">
+      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur text-center">
         <p className="mt-2 text-sm text-orbi-muted">
           Productos y servicios cerca de ti
         </p>

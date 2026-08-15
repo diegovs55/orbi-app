@@ -141,7 +141,7 @@ export function NearbyOrbitsPreview() {
   // ── Initial state: map not yet open ──────────────────────────────────────
   if (!showMap) {
     return (
-      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur">
+      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur text-center">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
           Órbitas disponibles
         </p>
@@ -149,7 +149,7 @@ export function NearbyOrbitsPreview() {
           Pon misiones en las órbitas o tómalas para trasladarte.
         </p>
         {geoError && <p className="mt-2 text-xs text-red-300">{geoError}</p>}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           <button
             type="button"
             onClick={handleGeolocate}
