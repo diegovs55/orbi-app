@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AffiliatedBusinesses } from "@/components/AffiliatedBusinesses";
+import dynamic from "next/dynamic";
+import { SupportCard } from "@/components/SupportCard";
 import { BusinessAccessPanel } from "@/components/BusinessAccessPanel";
 import { BusinessCatalog } from "@/components/BusinessCatalog";
 import { PageShell } from "@/components/PageShell";
@@ -16,10 +17,17 @@ import {
   clearBusinessSession,
 } from "@/lib/businessSession";
 
+// AffiliatedBusinesses usa react-leaflet que requiere window — carga solo en cliente.
+const AffiliatedBusinesses = dynamic(
+  () => import("@/components/AffiliatedBusinesses").then((m) => m.AffiliatedBusinesses),
+  { ssr: false },
+);
+
 export default function NegociosPage() {
   const router = useRouter();
   const [session, setSession] = useState<ReturnType<typeof getBusinessSession>>(null);
   const [mounted, setMounted] = useState(false);
+  const openBusinessRequest = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     void syncSession();
@@ -95,6 +103,9 @@ export default function NegociosPage() {
           return data.session?.access_token ?? null;
         }} />
         <BusinessCatalog onLogout={handleLogout} />
+        <div className="mt-6">
+          <SupportCard />
+        </div>
       </PageShell>
     );
   }
@@ -103,10 +114,13 @@ export default function NegociosPage() {
     <PageShell
       eyebrow="Negocios afiliados"
       title="Los negocios que confían en Orbi."
-      description="Negocios locales con catálogo y entrega disponible."
+      description=""
     >
-      <BusinessAccessPanel onLogin={() => void syncSession()} />
-      <AffiliatedBusinesses />
+      <BusinessAccessPanel
+        onLogin={() => void syncSession()}
+        registerOpen={(fn) => { openBusinessRequest.current = fn; }}
+      />
+      <AffiliatedBusinesses onOpenRequest={() => openBusinessRequest.current?.()} />
     </PageShell>
   );
 }

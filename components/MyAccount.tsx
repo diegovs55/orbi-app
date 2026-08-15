@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
+import { SupportCard } from "@/components/SupportCard";
 import {
   clearCustomerSession,
   getCurrentCustomerSession,
@@ -512,6 +513,7 @@ function SessionView({
           </div>
         )}
       </div>
+      <SupportCard />
     </section>
   );
 }

@@ -11,9 +11,11 @@
  * - Idempotente: si la misión ya está en_mision devuelve 200.
  */
 
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
 import { logEvent } from "@/lib/event-log";
+import { sendPushToUser } from "@/lib/push";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
   // 4. Cargar misión
   const { data: missionRow, error: missionError } = await admin
     .from("missions")
-    .select("id,status,selected_agent_id")
+    .select("id,status,selected_agent_id,user_id")
     .eq("id", missionId)
     .maybeSingle();
 
@@ -140,6 +142,16 @@ export async function POST(req: NextRequest) {
     duration_ms: Date.now() - startedAt,
     request_id: requestId,
   }).catch(() => {});
+
+  // PUSH-02 evento 5: notificar al cliente que el agente inició ruta (aceptada → en_mision).
+  if (missionRow.user_id) {
+    const uid = missionRow.user_id as string;
+    const agentName = agentRow.name as string;
+    after(() => sendPushToUser(uid, {
+      title: "ORBI · Agente en camino",
+      body: `${agentName} ya va en camino para atender tu misión.`,
+    }));
+  }
 
   return NextResponse.json({ ok: true, mission: updatedRows[0] });
 }

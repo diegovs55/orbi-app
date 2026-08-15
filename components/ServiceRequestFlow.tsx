@@ -32,6 +32,7 @@ import { PushSetup } from "@/components/PushSetup";
 import { CostBreakdown } from "@/components/CostBreakdown";
 import { calculateServiceFee, PRICING_RULE, CATALOG } from "@/lib/pricing";
 import { CatalogProduct, CatalogSearchResult, CatalogSearchSplit, CatalogTerritorialResult, getCatalogItems, searchCatalog } from "@/lib/catalog";
+import { getOrdinaryRadiusKm } from "@/lib/discovery";
 import {
   getCurrentCustomerSession,
   loginCustomerWithSupabase,
@@ -141,6 +142,7 @@ type ServiceOption = (typeof services)[number];
 type CartItem = {
   product: CatalogSearchResult;
   quantity: number;
+  note?: string;
 };
 
 type RequestDetails = {
@@ -233,7 +235,7 @@ const paymentStatuses: PaymentStatus[] = [
 const paymentMethods: PaymentMethod[] = ["Efectivo", "Transferencia", "Tarjeta"];
 const pricingRule = PRICING_RULE;
 
-export function ServiceRequestFlow() {
+export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   const [selectedService, setSelectedService] = useState<ServiceOption | null>(null);
   const [selectedStep, setSelectedStep] = useState<WizardStep>("servicio");
   const [showConfirmationDetails, setShowConfirmationDetails] = useState(false);
@@ -317,6 +319,9 @@ export function ServiceRequestFlow() {
   // When true, the auto-save timer must not write to localStorage — the draft
   // has been intentionally consumed (mission sent) or discarded by the user.
   const draftSuppressedRef = useRef(false);
+  // Idempotency guard — tracks the last productId that was successfully consumed.
+  // Prevents double-add on React StrictMode double-invoke or subsequent re-renders.
+  const consumedProductIdRef = useRef<string | null>(null);
 
   // PR-05 — LocationPicker para origen (ORBI-UX-01)
   const [originPendingConfirm, setOriginPendingConfirm] = useState<DestPendingConfirm | null>(null);
@@ -732,6 +737,7 @@ export function ServiceRequestFlow() {
         cartItems: cartItems.map((ci) => ({
           product: ci.product as Record<string, unknown>,
           quantity: ci.quantity,
+          note: ci.note,
         })),
         selectedAgent: null,
         paymentStatus,
@@ -760,6 +766,7 @@ export function ServiceRequestFlow() {
           cartItems: cartItems.map((ci) => ({
             product: ci.product as Record<string, unknown>,
             quantity: ci.quantity,
+            note: ci.note,
           })),
           selectedAgent: null,
           paymentStatus,
@@ -775,6 +782,37 @@ export function ServiceRequestFlow() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedService, selectedStep, details, cartItems, paymentStatus, paymentMethod, confirmedDraftSections]);
+
+  // Preload de producto desde query param — BUSINESS-DISCOVERY-03.
+  // Espera a que catalogItems, orbitCenter y la reconciliación de misión estén listos.
+  // searchCatalog("", ...) retorna vacío, así que la validación territorial usa
+  // calculateDistanceKm (local) + getOrdinaryRadiusKm (lib/discovery, solo lectura).
+  // consumedProductIdRef impide doble-add en StrictMode o re-renders.
+  useEffect(() => {
+    if (!productId) return;
+    if (consumedProductIdRef.current === productId) return;
+    if (catalogItems.length === 0) return;
+    if (isReconcilingMission) return;
+    if (!orbitCenter) return;
+
+    const product = catalogItems.find(
+      (p) => p.id === productId && p.available && p.status === "disponible",
+    );
+    if (!product) return;
+
+    const bLat = product.businessLat;
+    const bLng = product.businessLng;
+    if (bLat == null || bLng == null || !Number.isFinite(bLat) || !Number.isFinite(bLng)) return;
+
+    const distKm = calculateDistanceKm(bLat, bLng, orbitCenter.lat, orbitCenter.lng);
+    if (distKm > getOrdinaryRadiusKm(product.sector)) return;
+
+    consumedProductIdRef.current = productId;
+    handleSelectProduct({ ...product, serviceType: "Compra local" });
+  // handleSelectProduct is defined in render scope — intentionally excluded from deps.
+  // consumedProductIdRef prevents double-invoke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, catalogItems, orbitCenter, isReconcilingMission]);
 
   useEffect(() => {
     let isActive = true;
@@ -1058,7 +1096,7 @@ export function ServiceRequestFlow() {
 
     const existingBusinessId = cartItems[0]?.product.businessId;
     if (existingBusinessId && existingBusinessId !== product.businessId) {
-      setCartMessage("Para esta versión, crea una misión separada para otro negocio.");
+      setCartMessage("Este producto pertenece a otro negocio. Para pedirlo, crea una misión separada.");
       return;
     }
 
@@ -1158,6 +1196,14 @@ export function ServiceRequestFlow() {
     setCartItems(nextCart);
     setConfirmedDraftSections((currentSections) => ({ ...currentSections, pedido: false }));
     updateDetailsWithCart(nextCart);
+  }
+
+  function updateCartItemNote(productId: string, note: string) {
+    const nextCart = cartItems.map((item) =>
+      item.product.id === productId ? { ...item, note: note.slice(0, 200) } : item
+    );
+    setCartItems(nextCart);
+    setConfirmedDraftSections((currentSections) => ({ ...currentSections, pedido: false }));
   }
 
   function updateDetailsWithCart(nextCart: CartItem[]) {
@@ -1951,6 +1997,7 @@ export function ServiceRequestFlow() {
                   onExpandedChange={setIsCartDetailExpanded}
                   onQuantityChange={updateCartQuantity}
                   onRemove={removeCartItem}
+                  onNoteChange={updateCartItemNote}
                     onAddMore={handleAddMoreProduct}
                 />
               ) : (
@@ -2800,6 +2847,9 @@ function CatalogSuggestions({
                         Fuera de la zona cercana
                       </span>
                       <p className="mt-1 text-[10px] text-orbi-muted/60">
+                        A aprox. {formatDistanceKm(result.distanceKm)} de aquí
+                      </p>
+                      <p className="mt-1 text-[10px] text-orbi-muted/60">
                         La ruta y el costo se calcularán cuando indiques el destino.
                       </p>
                     </div>
@@ -2869,7 +2919,7 @@ function CatalogSuggestions({
                     {result.category} · {result.sector}
                   </p>
                   <p className="mt-1 text-[10px] text-orbi-muted/60">
-                    Disponible cerca de la zona seleccionada
+                    A aprox. {formatDistanceKm(result.distanceKm)} de aquí
                   </p>
                   <p className="mt-1.5 text-sm leading-6 text-orbi-muted">{result.description}</p>
                 </div>
@@ -2891,6 +2941,7 @@ function LocalCart({
   onExpandedChange,
   onQuantityChange,
   onRemove,
+  onNoteChange,
   onAddMore
 }: {
   items: CartItem[];
@@ -2898,6 +2949,7 @@ function LocalCart({
   onExpandedChange: (isExpanded: boolean) => void;
   onQuantityChange: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
+  onNoteChange: (productId: string, note: string) => void;
   onAddMore: () => void;
 }) {
   const subtotal = getCartSubtotal(items);
@@ -2922,20 +2974,20 @@ function LocalCart({
               {firstItem.quantity}x {firstItem.product.name} · {firstItem.product.businessName} · Subtotal ${subtotal}
             </p>
           ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onExpandedChange(true)}
-              className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
-            >
-              Ajustar cantidad
-            </button>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onAddMore}
-              className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/10"
+              className="rounded-md border border-orbi-cyan/40 bg-orbi-cyan/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-cyan/15"
             >
-              Agregar otro producto
+              {business?.businessName ? `+ Agregar otro producto de ${business.businessName}` : "+ Agregar otro producto"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onExpandedChange(true)}
+              className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-orbi-muted transition hover:bg-white/[0.06]"
+            >
+              Ajustar cantidad
             </button>
           </div>
         </div>
@@ -3011,6 +3063,19 @@ function LocalCart({
                   <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-sm font-black text-orbi-cyan">
                     ${subtotalItem}
                   </span>
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs font-semibold text-orbi-muted">
+                    Indicaciones para este producto (opcional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    maxLength={200}
+                    value={item.note ?? ""}
+                    onChange={(e) => onNoteChange(item.product.id, e.target.value)}
+                    placeholder="Ej. sin cebolla, poca azúcar, sin hielo…"
+                    className="mt-1 w-full resize-none rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 text-xs text-orbi-text placeholder:text-orbi-muted/60 outline-none transition focus:border-orbi-cyan/30 focus:bg-orbi-black/60"
+                  />
                 </div>
               </div>
             );
@@ -4370,10 +4435,12 @@ function buildCartTicket(
   logisticsStatusMessage: string
 ) {
   const subtotal = getCartSubtotal(items);
-  const lines = items.map(
-    (item) =>
-      `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`
-  );
+  const lines = items.flatMap((item) => {
+    const productLine = `- ${item.quantity}x ${item.product.name} · ${item.product.businessName} · $${item.product.price * item.quantity}`;
+    return item.note?.trim()
+      ? [productLine, `  Indicación: ${item.note.trim()}`]
+      : [productLine];
+  });
 
   return [
     "Ticket de misión:",

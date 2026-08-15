@@ -302,8 +302,8 @@ export async function POST(req: NextRequest) {
   if (firstTransition && mission?.user_id) {
     const uid = mission.user_id as string;
     after(() => sendPushToUser(uid, {
-      title: "ORBI · Pedido entregado",
-      body: "Tu pedido fue entregado. ¡Gracias!",
+      title: "ORBI · Misión cumplida",
+      body: "Tu misión fue completada. ¡Gracias!",
     }));
   }
 

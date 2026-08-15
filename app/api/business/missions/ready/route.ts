@@ -165,7 +165,6 @@ export async function POST(req: NextRequest) {
   // El fallback de radius_km NULL usa motorParams.radioAsignacionMaximaKm, idéntico a /accept.
   // best-effort: un fallo de push nunca afecta la transición de estado ni la respuesta HTTP.
   after(async () => {
-    console.log("[AGENT-PUSH-01] after() iniciado para misión", missionId);
     try {
       const motorResult = await loadMotorParams("zumpahuacan");
       const mp = motorResult.params;
@@ -183,10 +182,7 @@ export async function POST(req: NextRequest) {
         .eq("status", AGENT_STATUS.ONLINE);
 
       const rows = (rawRows ?? []) as unknown as Record<string, unknown>[];
-      console.log("[AGENT-PUSH-01] agentes activos+Disponible:", rows.length, "| origin:", JSON.stringify(origin));
-
       const seen = new Set<string>();
-      let eligibleCount = 0;
       for (const r of rows) {
         const uid = r.auth_user_id as string | null;
         if (!uid || seen.has(uid)) continue;
@@ -216,23 +212,14 @@ export async function POST(req: NextRequest) {
           isDemo:       false,
         };
 
-        const { eligible, reason } = getAgentOperatingEligibility(candidate, svcType, origin, now, mp);
-        console.log("[AGENT-PUSH-01] agente", r.name, "uid", uid?.slice(0, 8), "eligible:", eligible, "reason:", reason);
+        const { eligible } = getAgentOperatingEligibility(candidate, svcType, origin, now, mp);
         if (eligible) {
-          eligibleCount++;
-          console.log("[AGENT-PUSH-01] enviando push a uid", uid?.slice(0, 8));
-          try {
-            await sendPushToUser(uid, {
-              title: "ORBI · Nuevo pedido disponible",
-              body: "Hay un pedido cerca de ti. Ábrelo antes que otro agente.",
-            });
-            console.log("[AGENT-PUSH-01] sendPushToUser OK uid", uid?.slice(0, 8));
-          } catch (pushErr) {
-            console.error("[AGENT-PUSH-01] sendPushToUser THROW uid", uid?.slice(0, 8), pushErr);
-          }
+          await sendPushToUser(uid, {
+            title: "ORBI · Nueva misión disponible",
+            body: "Hay una misión cerca de ti. Revísala antes de que sea tomada.",
+          }, "agent");
         }
       }
-      console.log("[AGENT-PUSH-01] completado. elegibles:", eligibleCount);
     } catch (e) {
       console.error("[business/missions/ready] error en push a agentes:", e);
     }

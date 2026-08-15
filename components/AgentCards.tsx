@@ -20,7 +20,7 @@ const operationalLabelStyles: Record<string, string> = {
 };
 
 /** Public read-only catalog of agents — no mission controls. */
-export function AgentCards() {
+export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) {
   const [agents, setAgents] = useState<OrbiAgent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -132,57 +132,59 @@ export function AgentCards() {
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {sortedAgents.map((agent) => {
-          const operationalLabel = getAgentOperationalLabel(agent, availabilityRefreshAt);
-          const ratingStats = getAgentRatingStats(agent.id);
-          return (
-            <article
-              key={agent.id}
-              className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
-            >
-              <div className="flex items-start gap-4">
-                <AgentAvatar agent={agent} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-black leading-tight text-orbi-text">{agent.name}</h2>
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                        operationalLabelStyles[operationalLabel] ??
-                        "border-white/10 bg-white/5 text-orbi-muted"
-                      }`}
-                    >
-                      {operationalLabel}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
-                <InfoTile label="Nivel" value={agent.trustLevel} />
-                <InfoTile
-                  label="Calificación"
-                  value={
-                    ratingStats.count
-                      ? `★ ${ratingStats.average.toFixed(1)} · ${ratingStats.count} misión${ratingStats.count > 1 ? "es" : ""}`
-                      : "Sin calificaciones"
-                  }
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setProfileAgent(agent)}
-                className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+      {!hideCards && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {sortedAgents.map((agent) => {
+            const operationalLabel = getAgentOperationalLabel(agent, availabilityRefreshAt);
+            const ratingStats = getAgentRatingStats(agent.id);
+            return (
+              <article
+                key={agent.id}
+                className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
               >
-                Ver perfil
-              </button>
-            </article>
-          );
-        })}
-      </div>
+                <div className="flex items-start gap-4">
+                  <AgentAvatar agent={agent} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl font-black leading-tight text-orbi-text">{agent.name}</h2>
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                          operationalLabelStyles[operationalLabel] ??
+                          "border-white/10 bg-white/5 text-orbi-muted"
+                        }`}
+                      >
+                        {operationalLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-orbi-muted">{agent.description}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                  {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
+                  <InfoTile label="Nivel" value={agent.trustLevel} />
+                  <InfoTile
+                    label="Calificación"
+                    value={
+                      ratingStats.count
+                        ? `★ ${ratingStats.average.toFixed(1)} · ${ratingStats.count} misión${ratingStats.count > 1 ? "es" : ""}`
+                        : "Sin calificaciones"
+                    }
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setProfileAgent(agent)}
+                  className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+                >
+                  Ver perfil
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
 
       {profileAgent ? <ProfileModal agent={profileAgent} onClose={() => setProfileAgent(null)} /> : null}
     </>

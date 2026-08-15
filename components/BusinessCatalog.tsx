@@ -30,7 +30,6 @@ import {
 } from "@/lib/missions";
 import { apiUrl } from "@/lib/api-url";
 import { subscribeToTableChangesWithClient } from "@/lib/supabase";
-import { isNativeApp } from "@/lib/native-app";
 import { supabaseBusiness } from "@/lib/supabase-business-client";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
 import {
@@ -693,6 +692,27 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
 const BUSINESS_ALERT_KEY = "business-pending";
 
+// Extrae todas las indicaciones del ticket en orden posicional.
+// Cada posición del array corresponde exactamente al índice del producto en m.items,
+// garantizado por la preservación de orden cartItems → buildCartTicket → missions.items.
+// Ancla únicamente por líneas de producto ("- " + " · ") sin depender del nombre,
+// eliminando el riesgo de asociación errónea cuando dos product_ids comparten el mismo nombre.
+function parseItemNotes(detail: string): (string | null)[] {
+  const lines = detail.split("\n");
+  const notes: (string | null)[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith("- ") && lines[i].includes(" · ")) {
+      const nextLine = lines[i + 1];
+      notes.push(
+        nextLine?.startsWith("  Indicación: ")
+          ? nextLine.slice("  Indicación: ".length).trim() || null
+          : null
+      );
+    }
+  }
+  return notes;
+}
+
 function PendingOrders({ businessName }: { businessName: string }) {
   const [orders, setOrders] = useState<ActiveMission[]>([]);
   const [confirming, setConfirming] = useState<Set<string>>(new Set());
@@ -714,14 +734,6 @@ function PendingOrders({ businessName }: { businessName: string }) {
     () => subscribeToTableChangesWithClient(supabaseBusiness, "missions", () => void load()),
     [load]
   );
-
-  // RESUME-SYNC-01 — foreground reconciliation (READ-only, native only)
-  useEffect(() => {
-    if (!isNativeApp()) return;
-    const onVisible = () => { if (!document.hidden) void load(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [load]);
 
   // Register auto-unlock once on mount — fires silently on first gesture.
   useEffect(() => { enableAutoUnlock(); }, []);
@@ -854,21 +866,32 @@ function PendingOrders({ businessName }: { businessName: string }) {
             </div>
             {isExpanded && m.items && m.items.length > 0 ? (
               <ul className="mt-3 divide-y divide-white/[0.06] rounded-md border border-white/10 bg-white/[0.03]">
-                {m.items.map((item, idx) => (
-                  <li key={idx} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-orbi-text">
-                        ×{item.quantity} {item.product_name}
-                      </span>
-                      {item.category ? (
-                        <span className="ml-2 text-[10px] text-orbi-muted/70">{item.category}</span>
-                      ) : null}
-                    </div>
-                    <span className="shrink-0 font-mono text-xs font-semibold text-orbi-cyan">
-                      ${item.subtotal}
-                    </span>
-                  </li>
-                ))}
+                {(() => {
+                  const parsedNotes = parseItemNotes(m.detail);
+                  return m.items.map((item, idx) => {
+                    const note = parsedNotes[idx] ?? null;
+                    return (
+                      <li key={idx} className="flex items-start justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-orbi-text">
+                            ×{item.quantity} {item.product_name}
+                          </span>
+                          {item.category ? (
+                            <span className="ml-2 text-[10px] text-orbi-muted/70">{item.category}</span>
+                          ) : null}
+                          {note ? (
+                            <p className="mt-0.5 text-[11px] italic text-orbi-muted">
+                              Indicación: {note}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="shrink-0 font-mono text-xs font-semibold text-orbi-cyan">
+                          ${item.subtotal}
+                        </span>
+                      </li>
+                    );
+                  });
+                })()}
               </ul>
             ) : null}
           </div>
@@ -1031,7 +1054,7 @@ function WeeklyScheduleEditor({
 // de la respuesta de Nominatim. El admin puede ajustar la zona manualmente.
 async function reverseGeocodePoint(point: { lat: number; lng: number }) {
   const res = await fetch(
-    apiUrl(`/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`)
+    `/api/geocoding/reverse?lat=${encodeURIComponent(point.lat)}&lon=${encodeURIComponent(point.lng)}`
   );
   if (!res.ok) throw new Error("Geocoding failed");
   const data = (await res.json()) as { displayName?: string | null; status?: string };
