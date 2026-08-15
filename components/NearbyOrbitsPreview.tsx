@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { Loader2, MapPin, Navigation, RefreshCw, X } from "lucide-react";
+import { apiUrl } from "@/lib/api-url";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ export function NearbyOrbitsPreview() {
     setError(null);
     try {
       const res = await fetch(
-        `/api/orbits/availability?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`,
+        apiUrl(`/api/orbits/availability?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`),
         { cache: "no-store" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
