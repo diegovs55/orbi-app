@@ -139,6 +139,30 @@ button {
   }
 }
 
+/* Concentric orbit waves — staggered delays create a radar/ripple effect */
+.orbi-orbit-wave-1 {
+  animation: orbi-orbit-wave 2.8s ease-in-out infinite;
+}
+
+.orbi-orbit-wave-2 {
+  animation: orbi-orbit-wave 2.8s ease-in-out infinite 0.7s;
+}
+
+.orbi-orbit-wave-3 {
+  animation: orbi-orbit-wave 2.8s ease-in-out infinite 1.4s;
+}
+
+@keyframes orbi-orbit-wave {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.15;
+  }
+}
+
 /* ── Capacitor native: safe areas & keyboard ──────────────────────────────── */
 
 /* Expose env() safe areas so layout components can consume them.

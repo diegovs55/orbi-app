@@ -1,15 +1,26 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, X } from "lucide-react";
 import { addPendingRequest } from "@/lib/pendingRequests";
 
 type Panel = "closed" | "login" | "request" | "confirmed";
 
-export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
+export function BusinessAccessPanel({
+  onLogin,
+  registerOpen,
+}: {
+  onLogin: () => void;
+  registerOpen?: (fn: () => void) => void;
+}) {
   const router = useRouter();
   const [panel, setPanel] = useState<Panel>("closed");
+
+  useEffect(() => {
+    registerOpen?.(() => setPanel("request"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [identifier, setIdentifier] = useState("");
   const [regName, setRegName] = useState("");
   const [regPhone, setRegPhone] = useState("");
@@ -66,7 +77,7 @@ export function BusinessAccessPanel({ onLogin }: { onLogin: () => void }) {
         <button type="button" onClick={() => setPanel("request")}
           className="inline-flex items-center gap-2 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]">
           <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
-          Solicitar alta
+          Solicitar alta como negocio
         </button>
         <button type="button" onClick={() => setPanel("login")}
           className="inline-flex items-center gap-2 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20">

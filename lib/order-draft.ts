@@ -52,6 +52,7 @@ export type DraftRequestDetails = DraftRequestDetailsV1 & {
 export type DraftCartItem = {
   product: Record<string, unknown>;
   quantity: number;
+  note?: string;
 };
 
 export type DraftAgent = {

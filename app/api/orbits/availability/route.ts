@@ -91,7 +91,8 @@ export async function GET(req: NextRequest) {
   const { data: agentRows, error: agentError } = await admin
     .from("agents")
     .select(
-      "id,status,admin_status,is_on_orbit,availability,lat,lng,current_lat,current_lng,radius_km",
+      "id,name,photo_url,initials,vehicle,trust_level,description,service_type,zone," +
+        "status,admin_status,is_on_orbit,availability,lat,lng,current_lat,current_lng,radius_km",
     )
     .eq("admin_status", "activo")
     .eq("status", "Disponible")
@@ -118,9 +119,23 @@ export async function GET(req: NextRequest) {
   );
 
   // 3. Filter: operating hours + valid GPS + not busy
-  const available: { lat: number; lng: number; distKm: number }[] = [];
+  type AvailableAgent = {
+    lat: number;
+    lng: number;
+    distKm: number;
+    id: string;
+    name: string;
+    photo_url: string | null;
+    initials: string | null;
+    vehicle: string | null;
+    trust_level: string;
+    description: string;
+    service_type: string;
+    zone: string;
+  };
+  const available: AvailableAgent[] = [];
 
-  for (const row of (agentRows ?? []) as Record<string, unknown>[]) {
+  for (const row of (agentRows ?? []) as unknown as Record<string, unknown>[]) {
     const id = row.id as string;
     if (busyIds.has(id)) continue;
     if (!isWithinOperatingHours(row.availability as string | null)) continue;
@@ -150,12 +165,25 @@ export async function GET(req: NextRequest) {
     const effectiveRadius = Math.min(agentRadius, radioAsignacionMaximaKm);
     if (distKm > effectiveRadius) continue;
 
-    available.push({ lat: aLat, lng: aLng as number, distKm });
+    available.push({
+      lat: aLat,
+      lng: aLng as number,
+      distKm,
+      id,
+      name: (row.name as string | null) ?? "",
+      photo_url: (row.photo_url as string | null) ?? null,
+      initials: (row.initials as string | null) ?? null,
+      vehicle: (row.vehicle as string | null) ?? null,
+      trust_level: (row.trust_level as string | null) ?? "",
+      description: (row.description as string | null) ?? "",
+      service_type: (row.service_type as string | null) ?? "",
+      zone: (row.zone as string | null) ?? "",
+    });
   }
 
   if (available.length === 0) {
     return NextResponse.json(
-      { available: 0, nearest_distance_bucket: null, orbits: [] },
+      { available: 0, nearest_distance_bucket: null, orbits: [], nearby_agents: [] },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -172,11 +200,27 @@ export async function GET(req: NextRequest) {
   const degradedLat = Math.round(centLat * 100) / 100;
   const degradedLng = Math.round(centLng * 100) / 100;
 
+  // 6. Top 3 public profiles — same available[] already sorted by distKm.
+  //    Strip ALL position data: no lat, lng, current_lat, current_lng, distKm, radius_km.
+  //    No agent_id → coordinate mapping is possible: orbits[] is an anonymous centroid.
+  const nearbyAgents = available.slice(0, 3).map((a) => ({
+    id: a.id,
+    name: a.name,
+    photo_url: a.photo_url,
+    initials: a.initials,
+    vehicle: a.vehicle,
+    trust_level: a.trust_level,
+    description: a.description,
+    service_type: a.service_type,
+    zone: a.zone,
+  }));
+
   return NextResponse.json(
     {
       available: available.length,
       nearest_distance_bucket: bucket,
       orbits: [{ lat: degradedLat, lng: degradedLng }],
+      nearby_agents: nearbyAgents,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

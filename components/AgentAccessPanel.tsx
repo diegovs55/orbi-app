@@ -86,7 +86,7 @@ export function AgentAccessPanel() {
           onClick={() => setPanel("request")}
           className="inline-flex items-center gap-2 rounded-md bg-orbi-blue px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0]"
         >
-          Solicitar alta
+          Solicitar alta como agente
         </button>
         <button
           type="button"
