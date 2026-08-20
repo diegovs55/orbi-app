@@ -194,9 +194,11 @@ export async function GET(req: NextRequest) {
   const nearestKm = available[0].distKm;
   const bucket = `a menos de ${Math.ceil(nearestKm)} km`;
 
-  // 4b. ETA bucket — top-3 candidates by haversine, parallel OSRM route calls.
+  // 4b. Route-based ETA and road distance — top-3 candidates by haversine, parallel OSRM calls.
   //     Uses road-network speed profiles (not real-time traffic).
-  //     No agent coordinates, duration_min or identity sent to client.
+  //     No agent coordinates, geometry, duration_min exact value, or identity sent to client.
+  //     Both buckets always derive from the SAME candidate (lowest duration_min) so distance
+  //     and ETA are coherent even in mountainous terrain where haversine diverges from road km.
   const etaCandidates = available.slice(0, 3); // already sorted by distKm; 3 max
 
   const routeResults = await Promise.allSettled(
@@ -205,28 +207,30 @@ export async function GET(req: NextRequest) {
     )
   );
 
-  const successfulDurations = routeResults
+  type RouteCandidate = { duration_min: number; distance_km: number };
+  const successfulRoutes: RouteCandidate[] = routeResults
     .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getRouteDistanceKm>>> =>
       r.status === "fulfilled"
     )
-    .map((r) => r.value.duration_min);
+    .map((r) => ({ duration_min: r.value.duration_min, distance_km: r.value.distance_km }));
 
   let etaBucket: string | null;
-  if (successfulDurations.length > 0) {
-    const bestMin = Math.min(...successfulDurations);
+  let routeDistanceBucket: string | null;
+
+  if (successfulRoutes.length > 0) {
+    // Pick the candidate that arrives soonest; derive road distance from that same route.
+    const best = successfulRoutes.reduce((a, b) => a.duration_min < b.duration_min ? a : b);
+    const bestMin = best.duration_min;
     etaBucket =
       bestMin < 5  ? "menos de 5 min" :
       bestMin < 10 ? "5–10 min"       :
       bestMin < 15 ? "10–15 min"      :
       bestMin < 20 ? "15–20 min"      : null;
+    routeDistanceBucket = `~${Math.round(best.distance_km)} km`;
   } else {
-    // All routing calls failed — silent fallback to haversine estimate (25 km/h avg)
-    const etaMin = nearestKm * 2.4;
-    etaBucket =
-      etaMin < 5  ? "menos de 5 min" :
-      etaMin < 10 ? "5–10 min"       :
-      etaMin < 15 ? "10–15 min"      :
-      etaMin < 20 ? "15–20 min"      : null;
+    // All routing calls failed — no road distance to show; omit rather than invent.
+    etaBucket = null;
+    routeDistanceBucket = null;
   }
 
   // 5. Single aggregated orbit — centroid degraded to 2 decimal places (~1.1 km precision)
@@ -254,7 +258,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(
     {
       available: available.length,
-      nearest_distance_bucket: bucket,
+      route_distance_bucket: routeDistanceBucket,
       nearest_eta_bucket: etaBucket,
       orbits: [{ lat: degradedLat, lng: degradedLng }],
       nearby_agents: nearbyAgents,

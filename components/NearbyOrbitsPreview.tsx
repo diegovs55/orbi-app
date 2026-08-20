@@ -26,7 +26,7 @@ type NearbyAgent = {
 
 type OrbitData = {
   available: number;
-  nearest_distance_bucket: string | null;
+  route_distance_bucket: string | null;
   nearest_eta_bucket: string | null;
   orbits: { lat: number; lng: number }[];
   nearby_agents: NearbyAgent[];
@@ -222,7 +222,7 @@ export function NearbyOrbitsPreview() {
               {data.available === 1
                 ? "1 agente disponible"
                 : `${data.available} agentes disponibles`}
-              {data.nearest_distance_bucket ? ` · ${data.nearest_distance_bucket}` : ""}
+              {data.route_distance_bucket ? ` · ${data.route_distance_bucket}` : ""}
               {data.nearest_eta_bucket ? ` · llegada aprox. ${data.nearest_eta_bucket}` : ""}
             </p>
           )}
