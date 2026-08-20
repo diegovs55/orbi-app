@@ -93,6 +93,14 @@ button {
   color: #36d7ff !important;
 }
 
+/* Teardrop pin container — overflow:visible prevents WebKit from clipping
+   the SVG stroke and tip when the div size matches the SVG exactly. */
+.orbi-pin-icon {
+  overflow: visible !important;
+  background: none !important;
+  border: none !important;
+}
+
 .orbi-map-marker {
   display: block;
   width: 28px;
@@ -139,27 +147,37 @@ button {
   }
 }
 
-/* Concentric orbit waves — staggered delays create a radar/ripple effect */
+/* Concentric orbit waves — sequential outward ripple.
+   Each circle fades from full opacity to zero in order: inner → mid → outer.
+   will-change: opacity promotes each SVG element to its own compositor layer
+   for reliable GPU-composited animation inside WKWebView on iOS.
+   No transform: scale() — Leaflet already owns the SVG transform stack. */
 .orbi-orbit-wave-1 {
-  animation: orbi-orbit-wave 2.8s ease-in-out infinite;
+  animation: orbi-orbit-wave 2.4s ease-out infinite;
+  will-change: opacity;
 }
 
 .orbi-orbit-wave-2 {
-  animation: orbi-orbit-wave 2.8s ease-in-out infinite 0.7s;
+  animation: orbi-orbit-wave 2.4s ease-out infinite 0.8s;
+  will-change: opacity;
 }
 
 .orbi-orbit-wave-3 {
-  animation: orbi-orbit-wave 2.8s ease-in-out infinite 1.4s;
+  animation: orbi-orbit-wave 2.4s ease-out infinite 1.6s;
+  will-change: opacity;
 }
 
 @keyframes orbi-orbit-wave {
-  0%,
-  100% {
-    opacity: 1;
+  0% {
+    opacity: 0.9;
   }
 
-  50% {
-    opacity: 0.15;
+  70% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 0;
   }
 }
 
