@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdmin } from "@/lib/supabase-admin";
 import { loadMotorParams } from "@/lib/pricing/server";
+import { getRouteDistanceKm } from "@/lib/routing/server";
 
 export const dynamic = "force-dynamic";
 
@@ -193,14 +194,40 @@ export async function GET(req: NextRequest) {
   const nearestKm = available[0].distKm;
   const bucket = `a menos de ${Math.ceil(nearestKm)} km`;
 
-  // 4b. ETA bucket — 25 km/h urban conservative; calculated server-side only.
-  //     No distKm or agent coordinates sent to client.
-  const etaMin = nearestKm * 2.4; // nearestKm / (25 km/h) * 60
-  const etaBucket: string | null =
-    etaMin < 5  ? "menos de 5 min" :
-    etaMin < 10 ? "5–10 min" :
-    etaMin < 15 ? "10–15 min" :
-    etaMin < 20 ? "15–20 min" : null;
+  // 4b. ETA bucket — top-3 candidates by haversine, parallel OSRM route calls.
+  //     Uses road-network speed profiles (not real-time traffic).
+  //     No agent coordinates, duration_min or identity sent to client.
+  const etaCandidates = available.slice(0, 3); // already sorted by distKm; 3 max
+
+  const routeResults = await Promise.allSettled(
+    etaCandidates.map((a) =>
+      getRouteDistanceKm(a.lat, a.lng, queryLat, queryLng)
+    )
+  );
+
+  const successfulDurations = routeResults
+    .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getRouteDistanceKm>>> =>
+      r.status === "fulfilled"
+    )
+    .map((r) => r.value.duration_min);
+
+  let etaBucket: string | null;
+  if (successfulDurations.length > 0) {
+    const bestMin = Math.min(...successfulDurations);
+    etaBucket =
+      bestMin < 5  ? "menos de 5 min" :
+      bestMin < 10 ? "5–10 min"       :
+      bestMin < 15 ? "10–15 min"      :
+      bestMin < 20 ? "15–20 min"      : null;
+  } else {
+    // All routing calls failed — silent fallback to haversine estimate (25 km/h avg)
+    const etaMin = nearestKm * 2.4;
+    etaBucket =
+      etaMin < 5  ? "menos de 5 min" :
+      etaMin < 10 ? "5–10 min"       :
+      etaMin < 15 ? "10–15 min"      :
+      etaMin < 20 ? "15–20 min"      : null;
+  }
 
   // 5. Single aggregated orbit — centroid degraded to 2 decimal places (~1.1 km precision)
   //    NO individual agent coordinates or identifiers in the response.
