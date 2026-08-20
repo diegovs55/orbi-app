@@ -193,6 +193,15 @@ export async function GET(req: NextRequest) {
   const nearestKm = available[0].distKm;
   const bucket = `a menos de ${Math.ceil(nearestKm)} km`;
 
+  // 4b. ETA bucket — 25 km/h urban conservative; calculated server-side only.
+  //     No distKm or agent coordinates sent to client.
+  const etaMin = nearestKm * 2.4; // nearestKm / (25 km/h) * 60
+  const etaBucket: string | null =
+    etaMin < 5  ? "menos de 5 min" :
+    etaMin < 10 ? "5–10 min" :
+    etaMin < 15 ? "10–15 min" :
+    etaMin < 20 ? "15–20 min" : null;
+
   // 5. Single aggregated orbit — centroid degraded to 2 decimal places (~1.1 km precision)
   //    NO individual agent coordinates or identifiers in the response.
   const centLat = available.reduce((s, a) => s + a.lat, 0) / available.length;
@@ -219,6 +228,7 @@ export async function GET(req: NextRequest) {
     {
       available: available.length,
       nearest_distance_bucket: bucket,
+      nearest_eta_bucket: etaBucket,
       orbits: [{ lat: degradedLat, lng: degradedLng }],
       nearby_agents: nearbyAgents,
     },

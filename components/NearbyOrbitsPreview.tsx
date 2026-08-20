@@ -5,7 +5,10 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { Loader2, MapPin, Navigation, RefreshCw, X } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { apiUrl } from "@/lib/api-url";
+import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
+import { checkGpsPermission, requestGpsPermission } from "@/lib/geo-permissions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,7 @@ type NearbyAgent = {
 type OrbitData = {
   available: number;
   nearest_distance_bucket: string | null;
+  nearest_eta_bucket: string | null;
   orbits: { lat: number; lng: number }[];
   nearby_agents: NearbyAgent[];
 };
@@ -32,15 +36,19 @@ type OrbitData = {
 
 const ZUMPAHUACAN: [number, number] = [18.8349, -99.5818];
 
-// Small location-pin SVG — clearly a "you are here" marker, not an agent dot
+// "You are here" teardrop pin — SVG preserved exactly; orbi-pin-icon sets
+// overflow:visible so the container never clips the stroke/tip on iOS.
+// viewBox expands 2 px on every side so the 1.5px stroke never touches the
+// SVG canvas edge. iconSize matches the new canvas; iconAnchor keeps the tip
+// on the exact coordinate (path tip at y=28 → pixel y = 28+2 = 30).
 const queryIcon = L.divIcon({
-  className: "",
-  html: `<svg width="20" height="28" viewBox="0 0 20 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  className: "orbi-pin-icon",
+  html: `<svg width="24" height="32" viewBox="-2 -2 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M10 0C4.477 0 0 4.477 0 10c0 6.627 10 18 10 18S20 16.627 20 10C20 4.477 15.523 0 10 0z" fill="#eef7ff" stroke="#1f8bff" stroke-width="1.5"/>
     <circle cx="10" cy="10" r="4" fill="#1f8bff"/>
   </svg>`,
-  iconAnchor: [10, 28],
-  iconSize: [20, 28],
+  iconAnchor: [12, 30],
+  iconSize: [24, 32],
 });
 
 // ── Map subcomponents ─────────────────────────────────────────────────────────
@@ -106,14 +114,30 @@ export function NearbyOrbitsPreview() {
     [fetchOrbits],
   );
 
-  const handleGeolocate = useCallback(() => {
-    if (!navigator.geolocation) {
+  const handleGeolocate = useCallback(async () => {
+    if (!geoIsAvailable()) {
       setGeoError("Este navegador no soporta geolocalización.");
       return;
     }
     setGeoError(null);
     setLoading(true);
-    navigator.geolocation.getCurrentPosition(
+
+    // En nativo: verificar/solicitar permiso antes de pedir posición para evitar
+    // el race de cold-start de CLLocationManager tras el primer grant (iOS).
+    // En web: omitir — getCurrentPosition maneja el diálogo del navegador.
+    if (Capacitor.isNativePlatform()) {
+      let permission = await checkGpsPermission();
+      if (permission === "prompt") {
+        permission = await requestGpsPermission();
+      }
+      if (permission !== "granted") {
+        setLoading(false);
+        setGeoError("No fue posible obtener tu ubicación. Usa 'Elegir en el mapa'.");
+        return;
+      }
+    }
+
+    geoGetCurrentPosition(
       ({ coords }) => {
         setShowMap(true);
         handlePick(coords.latitude, coords.longitude);
@@ -122,7 +146,7 @@ export function NearbyOrbitsPreview() {
         setLoading(false);
         setGeoError("No fue posible obtener tu ubicación. Usa 'Elegir en el mapa'.");
       },
-      { timeout: 8000, enableHighAccuracy: true },
+      { timeout: 30000, enableHighAccuracy: true },
     );
   }, [handlePick]);
 
@@ -199,6 +223,7 @@ export function NearbyOrbitsPreview() {
                 ? "1 agente disponible"
                 : `${data.available} agentes disponibles`}
               {data.nearest_distance_bucket ? ` · ${data.nearest_distance_bucket}` : ""}
+              {data.nearest_eta_bucket ? ` · llegada aprox. ${data.nearest_eta_bucket}` : ""}
             </p>
           )}
           {!loading && data !== null && data.available === 0 && (
