@@ -184,7 +184,7 @@ export async function GET(req: NextRequest) {
 
   if (available.length === 0) {
     return NextResponse.json(
-      { available: 0, nearest_distance_bucket: null, orbits: [], nearby_agents: [] },
+      { available: 0, route_distance_bucket: null, nearest_eta_bucket: null, orbits: [], nearby_agents: [] },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -226,7 +226,7 @@ export async function GET(req: NextRequest) {
       bestMin < 10 ? "5–10 min"       :
       bestMin < 15 ? "10–15 min"      :
       bestMin < 20 ? "15–20 min"      : null;
-    routeDistanceBucket = `~${Math.round(best.distance_km)} km`;
+    routeDistanceBucket = best.distance_km < 1 ? "<1 km" : `~${Math.round(best.distance_km)} km`;
   } else {
     // All routing calls failed — no road distance to show; omit rather than invent.
     etaBucket = null;
