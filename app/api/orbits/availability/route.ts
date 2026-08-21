@@ -84,9 +84,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Load radioAsignacionMaximaKm from DB (same source dispatch uses)
+  // Load motor params from DB (same source dispatch uses for radioAsignacionMaximaKm).
+  // maxPickupEtaMin is used EXCLUSIVELY by this endpoint — not by missions, dispatch, or pricing.
   const { params: motorParams } = await loadMotorParams("zumpahuacan");
-  const { radioAsignacionMaximaKm } = motorParams;
+  const { radioAsignacionMaximaKm, maxPickupEtaMin } = motorParams;
 
   // 1. Load available agents (service_role reads current_lat/current_lng, bypassing RLS)
   const { data: agentRows, error: agentError } = await admin
@@ -189,77 +190,92 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 4. Sort by distance; build nearest-distance bucket
+  // 4. Sort haversine candidates by proximity — prefiltro only, not eligibility criterion.
   available.sort((a, b) => a.distKm - b.distKm);
-  const nearestKm = available[0].distKm;
-  const bucket = `a menos de ${Math.ceil(nearestKm)} km`;
 
-  // 4b. Route-based ETA and road distance — top-3 candidates by haversine, parallel OSRM calls.
-  //     Uses road-network speed profiles (not real-time traffic).
+  // 4b. Road-eligibility filter — OSRM called for ALL haversine-eligible candidates.
+  //     Agents with duration_min > maxPickupEtaMin are excluded from public availability.
+  //     maxPickupEtaMin is used EXCLUSIVELY here — missions/dispatch/pricing are unaffected.
+  //     Partial OSRM failures use verified results only; total failure → routing_unavailable.
   //     No agent coordinates, geometry, duration_min exact value, or identity sent to client.
-  //     Both buckets always derive from the SAME candidate (lowest duration_min) so distance
-  //     and ETA are coherent even in mountainous terrain where haversine diverges from road km.
-  const etaCandidates = available.slice(0, 3); // already sorted by distKm; 3 max
-
   const routeResults = await Promise.allSettled(
-    etaCandidates.map((a) =>
-      getRouteDistanceKm(a.lat, a.lng, queryLat, queryLng)
-    )
+    available.map((a) => getRouteDistanceKm(a.lat, a.lng, queryLat, queryLng))
   );
 
-  type RouteCandidate = { duration_min: number; distance_km: number };
-  const successfulRoutes: RouteCandidate[] = routeResults
-    .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getRouteDistanceKm>>> =>
-      r.status === "fulfilled"
-    )
-    .map((r) => ({ duration_min: r.value.duration_min, distance_km: r.value.distance_km }));
+  const allRoutingFailed = routeResults.every((r) => r.status === "rejected");
 
-  let etaBucket: string | null;
-  let routeDistanceBucket: string | null;
-
-  if (successfulRoutes.length > 0) {
-    // Pick the candidate that arrives soonest; derive road distance from that same route.
-    const best = successfulRoutes.reduce((a, b) => a.duration_min < b.duration_min ? a : b);
-    const bestMin = best.duration_min;
-    etaBucket =
-      bestMin < 5  ? "menos de 5 min" :
-      bestMin < 10 ? "5–10 min"       :
-      bestMin < 15 ? "10–15 min"      :
-      bestMin < 20 ? "15–20 min"      : null;
-    routeDistanceBucket = best.distance_km < 1 ? "<1 km" : `~${Math.round(best.distance_km)} km`;
-  } else {
-    // All routing calls failed — no road distance to show; omit rather than invent.
-    etaBucket = null;
-    routeDistanceBucket = null;
+  if (allRoutingFailed) {
+    return NextResponse.json(
+      {
+        available: 0,
+        availability_status: "routing_unavailable" as const,
+        pickup_distance_km: null,
+        pickup_eta_min: null,
+        orbits: [],
+        nearby_agents: [],
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
-  // 5. Single aggregated orbit — centroid degraded to 2 decimal places (~1.1 km precision)
-  //    NO individual agent coordinates or identifiers in the response.
-  const centLat = available.reduce((s, a) => s + a.lat, 0) / available.length;
-  const centLng = available.reduce((s, a) => s + a.lng, 0) / available.length;
+  type RoutedAgent = (typeof available)[0] & { duration_min: number; distance_km: number };
+  const routable: RoutedAgent[] = [];
+  for (let i = 0; i < available.length; i++) {
+    const r = routeResults[i];
+    if (r.status !== "fulfilled") continue;
+    if (r.value.duration_min > maxPickupEtaMin) continue;
+    routable.push({ ...available[i], duration_min: r.value.duration_min, distance_km: r.value.distance_km });
+  }
+
+  if (routable.length === 0) {
+    return NextResponse.json(
+      { available: 0, pickup_distance_km: null, pickup_eta_min: null, orbits: [], nearby_agents: [] },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // best via reduce() — routable[] is NOT sorted in-place so that nearby_agents order
+  // (haversine proximity) remains independent of ETA, preserving the privacy invariant
+  // that no profile position can be mapped to the route that produced pickup_eta_min.
+  const best = routable.reduce((a, b) => a.duration_min < b.duration_min ? a : b);
+  const pickupDistanceKm = best.distance_km < 1
+    ? Math.round(best.distance_km * 10) / 10  // 1 decimal for sub-km (e.g. 0.4)
+    : Math.round(best.distance_km);            // integer for ≥1 km (e.g. 8)
+  const pickupEtaMin = Math.ceil(best.duration_min);
+
+  // 5. Orbit centroid — computed from vially-eligible agents only, degraded to 2 decimal
+  //    places (~1.1 km precision). No individual agent coordinates or identifiers exposed.
+  const routableIds = new Set(routable.map((a) => a.id));
+  const centLat = routable.reduce((s, a) => s + a.lat, 0) / routable.length;
+  const centLng = routable.reduce((s, a) => s + a.lng, 0) / routable.length;
   const degradedLat = Math.round(centLat * 100) / 100;
   const degradedLng = Math.round(centLng * 100) / 100;
 
-  // 6. Top 3 public profiles — same available[] already sorted by distKm.
-  //    Strip ALL position data: no lat, lng, current_lat, current_lng, distKm, radius_km.
-  //    No agent_id → coordinate mapping is possible: orbits[] is an anonymous centroid.
-  const nearbyAgents = available.slice(0, 3).map((a) => ({
-    id: a.id,
-    name: a.name,
-    photo_url: a.photo_url,
-    initials: a.initials,
-    vehicle: a.vehicle,
-    trust_level: a.trust_level,
-    description: a.description,
-    service_type: a.service_type,
-    zone: a.zone,
-  }));
+  // 6. Public profiles — from available[] (haversine order), filtered to routable only.
+  //    Order is haversine proximity — independent of routing results and ETA values.
+  //    No position data: no lat, lng, current_lat, current_lng, distKm, duration_min, distance_km.
+  //    No agent_id → ETA/distance mapping is possible from the response.
+  const nearbyAgents = available
+    .filter((a) => routableIds.has(a.id))
+    .slice(0, 3)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      photo_url: a.photo_url,
+      initials: a.initials,
+      vehicle: a.vehicle,
+      trust_level: a.trust_level,
+      description: a.description,
+      service_type: a.service_type,
+      zone: a.zone,
+    }));
 
   return NextResponse.json(
     {
-      available: available.length,
-      route_distance_bucket: routeDistanceBucket,
-      nearest_eta_bucket: etaBucket,
+      available: routable.length,
+      availability_status: "confirmed" as const,
+      pickup_distance_km: pickupDistanceKm,
+      pickup_eta_min: pickupEtaMin,
       orbits: [{ lat: degradedLat, lng: degradedLng }],
       nearby_agents: nearbyAgents,
     },

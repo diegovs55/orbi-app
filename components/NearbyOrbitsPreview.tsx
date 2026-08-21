@@ -26,8 +26,9 @@ type NearbyAgent = {
 
 type OrbitData = {
   available: number;
-  route_distance_bucket: string | null;
-  nearest_eta_bucket: string | null;
+  availability_status?: "confirmed" | "routing_unavailable";
+  pickup_distance_km: number | null;
+  pickup_eta_min: number | null;
   orbits: { lat: number; lng: number }[];
   nearby_agents: NearbyAgent[];
 };
@@ -222,13 +223,19 @@ export function NearbyOrbitsPreview() {
               {data.available === 1
                 ? "1 agente disponible"
                 : `${data.available} agentes disponibles`}
-              {data.route_distance_bucket ? ` · ${data.route_distance_bucket}` : ""}
-              {data.nearest_eta_bucket ? ` · llegada aprox. ${data.nearest_eta_bucket}` : ""}
+              {data.pickup_distance_km != null
+                ? data.pickup_distance_km < 1
+                  ? " · menos de 1 km"
+                  : ` · ${data.pickup_distance_km} km aprox.`
+                : ""}
+              {data.pickup_eta_min != null ? ` · llegada estimada ${data.pickup_eta_min} min` : ""}
             </p>
           )}
           {!loading && data !== null && data.available === 0 && (
             <p className="mt-1 text-sm text-orbi-muted">
-              No hay agentes en órbita en este momento.
+              {data.availability_status === "routing_unavailable"
+                ? "No pudimos confirmar la disponibilidad. Intenta actualizar."
+                : "No hay agentes en órbita en este momento."}
             </p>
           )}
           {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
