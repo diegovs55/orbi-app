@@ -185,7 +185,7 @@ export async function GET(req: NextRequest) {
 
   if (available.length === 0) {
     return NextResponse.json(
-      { available: 0, route_distance_bucket: null, nearest_eta_bucket: null, orbits: [], nearby_agents: [] },
+      { available: 0, pickup_distance_km: null, pickup_eta_min: null, orbits: [], nearby_agents: [] },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
