@@ -2,8 +2,8 @@
 
 import L from "leaflet";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { Loader2, MapPin, Navigation, RefreshCw, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import { apiUrl } from "@/lib/api-url";
@@ -36,6 +36,7 @@ type OrbitData = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ZUMPAHUACAN: [number, number] = [18.8349, -99.5818];
+
 
 // "You are here" teardrop pin — SVG preserved exactly; orbi-pin-icon sets
 // overflow:visible so the container never clips the stroke/tip on iOS.
@@ -75,6 +76,67 @@ function ClickCatcher({ onPick }: { onPick: (lat: number, lng: number) => void }
       onPick(e.latlng.lat, e.latlng.lng);
     },
   });
+  return null;
+}
+
+// ── Orbit wave animation — imperative Leaflet, zero React re-renders ──────────
+// Uses L.circle + setRadius()/setStyle() driven by requestAnimationFrame so the
+// radius is a real geographic metre value that scales correctly at all zoom levels.
+// No transform:scale(), no px-fixed DivIcon, no React state updates during animation.
+
+function OrbitWavesLayer({ center }: { center: [number, number] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const CYCLE = 4000;                         // ms per full wave cycle
+    const OFFSETS: [number, number, number] = [0, 1300 / 4000, 2600 / 4000]; // stagger 1.3 s apart
+    const MIN_R = 100;                          // metres — wave birth radius
+    const MAX_R = 520;                          // metres — wave death radius
+
+    const circles = OFFSETS.map(() =>
+      L.circle(center, {
+        radius: MIN_R,
+        color: "#36d7ff",
+        fillColor: "#1f8bff",
+        fillOpacity: 0.18,
+        weight: 1.5,
+        opacity: 0.95,
+        interactive: false,
+      }).addTo(map),
+    );
+
+    let rafId: number;
+    let startTs: number | null = null;
+
+    const tick = (ts: number) => {
+      if (startTs === null) startTs = ts;
+      const elapsed = ts - startTs;
+
+      circles.forEach((circle, i) => {
+        // phase 0 = just born, 1 = fully expanded and invisible
+        const phase = ((elapsed / CYCLE) + OFFSETS[i]) % 1;
+        // ease-out: fast expansion at start, decelerates toward edge
+        const eased = 1 - (1 - phase) ** 2;
+        circle.setRadius(MIN_R + (MAX_R - MIN_R) * eased);
+        circle.setStyle({
+          opacity:     Math.max(0, 0.95 * (1 - phase)),
+          fillOpacity: Math.max(0, 0.18 * (1 - phase)),
+          weight:      1.5 + 2.5 * phase,
+        });
+      });
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafId);
+      circles.forEach((c) => c.remove());
+    };
+    // center values are degraded to 2 dp server-side and won't drift between renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, center[0], center[1]]);
+
   return null;
 }
 
@@ -310,47 +372,7 @@ export function NearbyOrbitsPreview() {
           )}
 
           {data?.orbits.map((o, i) => (
-            <Fragment key={i}>
-              {/* Inner wave — most visible, tightest radius */}
-              <Circle
-                center={[o.lat, o.lng]}
-                radius={350}
-                pathOptions={{
-                  color: "#36d7ff",
-                  fillColor: "#1f8bff",
-                  fillOpacity: 0.22,
-                  weight: 2,
-                  opacity: 0.75,
-                  className: "orbi-orbit-wave-1",
-                }}
-              />
-              {/* Middle wave */}
-              <Circle
-                center={[o.lat, o.lng]}
-                radius={600}
-                pathOptions={{
-                  color: "#36d7ff",
-                  fillColor: "#1f8bff",
-                  fillOpacity: 0.10,
-                  weight: 1.5,
-                  opacity: 0.50,
-                  className: "orbi-orbit-wave-2",
-                }}
-              />
-              {/* Outer wave — most transparent */}
-              <Circle
-                center={[o.lat, o.lng]}
-                radius={900}
-                pathOptions={{
-                  color: "#1f8bff",
-                  fillColor: "#1f8bff",
-                  fillOpacity: 0.04,
-                  weight: 1,
-                  opacity: 0.28,
-                  className: "orbi-orbit-wave-3",
-                }}
-              />
-            </Fragment>
+            <OrbitWavesLayer key={i} center={[o.lat, o.lng]} />
           ))}
         </MapContainer>
 
