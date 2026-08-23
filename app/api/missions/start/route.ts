@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   const { data: updatedRows, error: updateError } = await admin
     .from("missions")
-    .update({ status: "en_mision", updated_at: now })
+    .update({ status: "en_mision", updated_at: now, route_started_at: now })
     .eq("id", missionId)
     .eq("status", "aceptada")
     .eq("selected_agent_id", agentId)

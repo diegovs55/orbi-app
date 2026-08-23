@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   const { data: updatedRows, error: updateError } = await admin
     .from("missions")
-    .update({ status: "cumplida", updated_at: now })
+    .update({ status: "cumplida", updated_at: now, completed_at: now })
     .eq("id", mission_id)
     .eq("selected_agent_id", agent_id)
     .eq("status", "en_mision") // retry con misión ya cumplida → 0 filas, sin push duplicado
