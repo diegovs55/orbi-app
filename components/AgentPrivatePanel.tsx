@@ -1,6 +1,14 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  isValidVehicleType,
+  type AgentVehicle,
+  type AgentVehiclesResponse,
+  type VehicleType,
+} from "@/lib/vehicles";
 import { isGpsWatching, seedLastGpsWrite, startGpsWatch, stopGpsWatch } from "@/lib/agent-gps";
 import { checkGpsPermission, requestGpsPermission, openGpsSettings } from "@/lib/geo-permissions";
 import type { GeoPermissionState } from "@/lib/geo-permissions";
@@ -8,6 +16,7 @@ import { GpsStatusPill } from "@/components/GpsStatusPill";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Car,
   CheckCircle2,
   LocateFixed,
   Navigation,
@@ -15,7 +24,7 @@ import {
   PackageCheck,
   RefreshCw,
   UserRound,
-  XCircle
+  XCircle,
 } from "lucide-react";
 import { apiUrl } from "@/lib/api-url";
 import { geoGetCurrentPosition, geoIsAvailable } from "@/lib/geo";
@@ -94,6 +103,21 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   const [availabilityStart, setAvailabilityStart] = useState("");
   const [availabilityEnd, setAvailabilityEnd] = useState("");
   const [radiusKm, setRadiusKm] = useState("20");
+
+  // ── Vehicles state ───────────────────────────────────────────────────────
+  const [vehiclesOpen,      setVehiclesOpen]      = useState(false);
+  const [vehiclesData,      setVehiclesData]      = useState<AgentVehiclesResponse | null>(null);
+  const [vehiclesLoading,   setVehiclesLoading]   = useState(false);
+  const [vehiclesError,     setVehiclesError]     = useState("");
+  const [vehiclesMsg,       setVehiclesMsg]       = useState("");
+  // Add form
+  const [addingVehicle,     setAddingVehicle]     = useState(false);
+  const [newVehicleType,    setNewVehicleType]     = useState<VehicleType>("moto_gasolina");
+  const [newVehicleLabel,   setNewVehicleLabel]    = useState("");
+  const [isSavingVehicle,   setIsSavingVehicle]   = useState(false);
+  // Per-vehicle loading
+  const [activatingId,      setActivatingId]      = useState<string | null>(null);
+  const [archivingId,       setArchivingId]        = useState<string | null>(null);
 
   // ── Save state ───────────────────────────────────────────────────────────
   const [isSaving, setIsSaving] = useState(false);
@@ -547,6 +571,117 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     }
   }
 
+  // ── Vehicles handlers ────────────────────────────────────────────────────
+  const loadVehicles = useCallback(async () => {
+    setVehiclesLoading(true);
+    setVehiclesError("");
+    try {
+      const { data: sessionData } = await supabaseAgent.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      if (!token) { setVehiclesError("Sesión expirada. Recarga la página."); return; }
+      const res = await fetch(apiUrl("/api/agents/vehicles"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { setVehiclesError("No se pudieron cargar los vehículos."); return; }
+      setVehiclesData((await res.json()) as AgentVehiclesResponse);
+    } catch {
+      setVehiclesError("Error de red al cargar vehículos.");
+    } finally {
+      setVehiclesLoading(false);
+    }
+  }, []);
+
+  const handleVehiclesPanelOpen = useCallback(() => {
+    setVehiclesOpen((v) => {
+      if (!v) void loadVehicles();
+      return !v;
+    });
+  }, [loadVehicles]);
+
+  async function handleAddVehicle(e: FormEvent) {
+    e.preventDefault();
+    setVehiclesMsg("");
+    setVehiclesError("");
+    const labelTrimmed = newVehicleLabel.trim();
+    if (!labelTrimmed) { setVehiclesError("El nombre del vehículo no puede estar vacío."); return; }
+    if (labelTrimmed.length > 80) { setVehiclesError("El nombre no puede superar 80 caracteres."); return; }
+    setIsSavingVehicle(true);
+    try {
+      const { data: sessionData } = await supabaseAgent.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      const res = await fetch(apiUrl("/api/agents/vehicles"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_type: newVehicleType, display_label: labelTrimmed }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string; detail?: string };
+        setVehiclesError(body.detail ?? "No se pudo agregar el vehículo.");
+        return;
+      }
+      setAddingVehicle(false);
+      setNewVehicleLabel("");
+      setVehiclesMsg("Vehículo agregado. Usa 'Usar este' para activarlo.");
+      await loadVehicles();
+    } catch {
+      setVehiclesError("Error de red al agregar vehículo.");
+    } finally {
+      setIsSavingVehicle(false);
+    }
+  }
+
+  async function handleActivateVehicle(vehicleId: string | null) {
+    setVehiclesMsg("");
+    setVehiclesError("");
+    setActivatingId(vehicleId ?? "__null__");
+    try {
+      const { data: sessionData } = await supabaseAgent.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      const res = await fetch(apiUrl("/api/agents/vehicles/activate"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string; detail?: string };
+        setVehiclesError(body.detail ?? "No se pudo cambiar el vehículo activo.");
+        return;
+      }
+      setVehiclesMsg(vehicleId ? "Vehículo activado." : "Vehículo desactivado.");
+      await loadVehicles();
+    } catch {
+      setVehiclesError("Error de red al activar vehículo.");
+    } finally {
+      setActivatingId(null);
+    }
+  }
+
+  async function handleArchiveVehicle(vehicleId: string) {
+    setVehiclesMsg("");
+    setVehiclesError("");
+    setArchivingId(vehicleId);
+    try {
+      const { data: sessionData } = await supabaseAgent.auth.getSession();
+      const token = sessionData.session?.access_token ?? "";
+      const res = await fetch(apiUrl("/api/agents/vehicles/archive"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string; detail?: string };
+        setVehiclesError(body.detail ?? "No se pudo archivar el vehículo.");
+        return;
+      }
+      setVehiclesMsg("Vehículo archivado.");
+      await loadVehicles();
+    } catch {
+      setVehiclesError("Error de red al archivar vehículo.");
+    } finally {
+      setArchivingId(null);
+    }
+  }
+
   // ── Derived UI ───────────────────────────────────────────────────────────
   const realAgentId = agent?.id ?? agentId;
 
@@ -983,6 +1118,213 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
           </button>
         </form>}
       </section>
+
+      {/* ── Mis vehículos ─────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+              <Car aria-hidden="true" className="h-6 w-6" />
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-black text-orbi-text">Mis vehículos</h2>
+              <p className="mt-1 text-xs text-orbi-muted">
+                El vehículo activo se registra automáticamente en cada misión que aceptes.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleVehiclesPanelOpen}
+              className="shrink-0 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+            >
+              {vehiclesOpen ? "Ocultar" : "Ver vehículos"}
+            </button>
+          </div>
+        </div>
+
+        {vehiclesOpen && (
+          <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 space-y-4">
+
+            {vehiclesError ? (
+              <p className="rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
+                {vehiclesError}
+              </p>
+            ) : null}
+            {vehiclesMsg ? (
+              <p className="rounded-md border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-200">
+                {vehiclesMsg}
+              </p>
+            ) : null}
+
+            {vehiclesLoading ? (
+              <p className="text-sm text-orbi-muted">Cargando vehículos…</p>
+            ) : !vehiclesData || vehiclesData.vehicles.length === 0 ? (
+              <p className="text-sm text-orbi-muted">
+                Sin vehículos registrados. Agrega uno para que ORBI registre qué recurso realizó cada misión.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {vehiclesData.vehicles.map((v) => (
+                  <VehicleRow
+                    key={v.id}
+                    vehicle={v}
+                    activatingId={activatingId}
+                    archivingId={archivingId}
+                    onActivate={handleActivateVehicle}
+                    onDeactivate={() => handleActivateVehicle(null)}
+                    onArchive={handleArchiveVehicle}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Formulario de alta inline */}
+            {!addingVehicle ? (
+              <button
+                type="button"
+                onClick={() => { setAddingVehicle(true); setVehiclesMsg(""); setVehiclesError(""); }}
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+              >
+                + Agregar vehículo
+              </button>
+            ) : (
+              <form onSubmit={(e) => void handleAddVehicle(e)} className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-sm font-bold text-orbi-text">Nuevo vehículo</p>
+
+                <label className="block text-sm font-semibold text-orbi-text">
+                  Tipo de vehículo
+                  <select
+                    value={newVehicleType}
+                    onChange={(e) => setNewVehicleType(e.target.value as VehicleType)}
+                    className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+                  >
+                    {VEHICLE_TYPES.map((t) => (
+                      <option key={t} value={t}>{VEHICLE_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-sm font-semibold text-orbi-text">
+                  Nombre / descripción
+                  <input
+                    type="text"
+                    value={newVehicleLabel}
+                    onChange={(e) => setNewVehicleLabel(e.target.value)}
+                    maxLength={80}
+                    placeholder="Ej. YADEA ELÉCTRICA GRIS"
+                    className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+                  />
+                </label>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingVehicle}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50"
+                  >
+                    {isSavingVehicle ? "Guardando…" : "Agregar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingVehicle(false); setNewVehicleLabel(""); setVehiclesError(""); }}
+                    className="inline-flex min-h-10 items-center rounded-md border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-bold text-orbi-muted transition hover:bg-white/10"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ── VehicleRow sub-component ──────────────────────────────────────────────────
+
+function VehicleRow({
+  vehicle,
+  activatingId,
+  archivingId,
+  onActivate,
+  onDeactivate,
+  onArchive,
+}: {
+  vehicle:      AgentVehicle;
+  activatingId: string | null;
+  archivingId:  string | null;
+  onActivate:   (id: string) => void;
+  onDeactivate: () => void;
+  onArchive:    (id: string) => void;
+}) {
+  const isArchived  = vehicle.archived_at !== null;
+  const isActive    = vehicle.is_active;
+  const busyAct     = activatingId !== null;
+  const busyArch    = archivingId !== null;
+
+  return (
+    <div className={`rounded-md border p-4 ${
+      isArchived
+        ? "border-white/10 bg-white/[0.02] opacity-60"
+        : isActive
+          ? "border-orbi-cyan/25 bg-orbi-blue/[0.07]"
+          : "border-white/10 bg-white/[0.04]"
+    }`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-black text-orbi-text">{vehicle.display_label}</p>
+            {isActive   && <span className="rounded-full border border-orbi-cyan/30 bg-orbi-blue/15 px-2 py-0.5 text-[10px] font-bold text-orbi-cyan">Activo</span>}
+            {isArchived && <span className="rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[10px] font-bold text-orbi-muted">Archivado</span>}
+          </div>
+          <p className="mt-0.5 text-xs text-orbi-muted">
+            {VEHICLE_TYPE_LABELS[vehicle.vehicle_type] ?? vehicle.vehicle_type}
+          </p>
+        </div>
+
+        {!isArchived && (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {isActive ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busyAct}
+                  onClick={onDeactivate}
+                  className="inline-flex items-center rounded-md border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-bold text-orbi-muted transition hover:bg-white/10 disabled:opacity-50"
+                >
+                  {activatingId === "__null__" ? "…" : "Dejar de usar"}
+                </button>
+                <span
+                  title="Desactiva el vehículo antes de archivarlo."
+                  className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-orbi-muted/40 cursor-not-allowed"
+                >
+                  Archivar
+                </span>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busyAct}
+                  onClick={() => onActivate(vehicle.id)}
+                  className="inline-flex items-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20 disabled:opacity-50"
+                >
+                  {activatingId === vehicle.id ? "…" : "Usar este"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busyArch}
+                  onClick={() => onArchive(vehicle.id)}
+                  className="inline-flex items-center rounded-md border border-red-300/20 bg-red-400/10 px-3 py-1.5 text-xs font-bold text-red-200 transition hover:bg-red-400/15 disabled:opacity-50"
+                >
+                  {archivingId === vehicle.id ? "…" : "Archivar"}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
