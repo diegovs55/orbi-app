@@ -92,12 +92,31 @@ export async function POST(req: NextRequest) {
   // 3. Resolver agente desde auth_user_id — sin confiar en agent_id del cliente
   const { data: agentRow, error: agentError } = await admin
     .from("agents")
-    .select("id,name,zone,status,admin_status,is_on_orbit,availability,service_type,radius_km,lat,lng,current_lat,current_lng")
+    .select("id,name,zone,status,admin_status,is_on_orbit,availability,service_type,radius_km,lat,lng,current_lat,current_lng,active_vehicle_id")
     .eq("auth_user_id", callerUid)
     .maybeSingle();
 
   if (agentError || !agentRow) return err("NO_AGENT_ACCOUNT");
   const agentId = agentRow.id as string;
+
+  // ECON-03B: snapshot del vehículo activo — nullable, no bloquea si el agente es legacy
+  let vehicleSnapshot: { id: string; vehicle_type: string; display_label: string } | null = null;
+  const activeVehicleId = (agentRow.active_vehicle_id as string | null) ?? null;
+  if (activeVehicleId) {
+    const { data: vRow } = await admin
+      .from("agent_vehicles")
+      .select("id,vehicle_type,display_label,archived_at,agent_id")
+      .eq("id", activeVehicleId)
+      .maybeSingle();
+    // Solo usar si pertenece al agente y no está archivado (doble comprobación app-level)
+    if (vRow && (vRow.agent_id as string) === agentId && (vRow.archived_at as string | null) === null) {
+      vehicleSnapshot = {
+        id:            vRow.id as string,
+        vehicle_type:  vRow.vehicle_type as string,
+        display_label: vRow.display_label as string,
+      };
+    }
+  }
 
   // 3b. Guardia administrativa — independiente de todos los checks operativos
   if ((agentRow.admin_status as string | null) === "desactivado") {
@@ -188,11 +207,15 @@ export async function POST(req: NextRequest) {
       selected_agent_zone: (agentRow.zone as string | null) ?? null,
       selected_agent_lat:  agentLocation.lat,
       selected_agent_lng:  agentLocation.lng,
-      active_agent_id:     agentId,
-      accepted_at:         now,
-      updated_at:          now,
-      // selected_agent_vehicle → no existe en DB
-      // selected_agent_trust   → no existe en DB
+      active_agent_id:        agentId,
+      accepted_at:            now,
+      updated_at:             now,
+      // ECON-03B: snapshot del recurso del agente — null si legacy (active_vehicle_id = NULL)
+      selected_vehicle_id:    vehicleSnapshot?.id            ?? null,
+      selected_vehicle_type:  vehicleSnapshot?.vehicle_type  ?? null,
+      selected_vehicle_label: vehicleSnapshot?.display_label ?? null,
+      // selected_agent_vehicle → campo legacy en tipo TS, no existe en DB
+      // selected_agent_trust   → campo legacy en tipo TS, no existe en DB
     })
     .eq("id", mission_id)
     .eq("status", "por_tomar")

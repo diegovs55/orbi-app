@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   // 4. Cargar misión
   const { data: missionRow, error: missionError } = await admin
     .from("missions")
-    .select("id,status,selected_agent_id,service_type,origin_lat,origin_lng")
+    .select("id,status,selected_agent_id,service_type,origin_lat,origin_lng,selected_vehicle_id,selected_vehicle_type,selected_vehicle_label")
     .eq("id", missionId)
     .maybeSingle();
 
@@ -113,10 +113,14 @@ export async function POST(req: NextRequest) {
     .from("missions")
     .update({
       status: "por_tomar",
-      selected_agent_id: null,
-      selected_agent_name: null,
-      active_agent_id: null,
-      accepted_at: null,
+      selected_agent_id:    null,
+      selected_agent_name:  null,
+      active_agent_id:      null,
+      accepted_at:          null,
+      // ECON-03B: limpiar snapshot de recurso — misión sin asignación vigente no tiene recurso
+      selected_vehicle_id:    null,
+      selected_vehicle_type:  null,
+      selected_vehicle_label: null,
       updated_at: now,
     })
     .eq("id", missionId)
@@ -157,7 +161,14 @@ export async function POST(req: NextRequest) {
     entity_id: missionId,
     actor_type: "agent",
     actor_id: agentId,
-    payload: { agent_name: agentRow.name },
+    payload: {
+      agent_name:   agentRow.name,
+      prior_status: missionRow.status,
+      // ECON-03B: preservar evidencia del recurso que estaba asignado antes de limpiar
+      vehicle_id:    (missionRow.selected_vehicle_id   as string | null) ?? null,
+      vehicle_type:  (missionRow.selected_vehicle_type  as string | null) ?? null,
+      vehicle_label: (missionRow.selected_vehicle_label as string | null) ?? null,
+    },
     http_status: 200,
     duration_ms: Date.now() - startedAt,
     request_id: requestId,

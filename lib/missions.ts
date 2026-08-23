@@ -128,6 +128,9 @@ export type ActiveMission = {
   cancelled_at?: string;
   route_started_at?: string | null;
   completed_at?: string | null;
+  selected_vehicle_id?: string | null;
+  selected_vehicle_type?: string | null;
+  selected_vehicle_label?: string | null;
 };
 
 type CreateMissionInput = Omit<ActiveMission, "id" | "last_updated_at" | "updated_at" | "status" | "mission_status"> & {
