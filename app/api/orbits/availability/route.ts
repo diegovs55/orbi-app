@@ -94,7 +94,8 @@ export async function GET(req: NextRequest) {
     .from("agents")
     .select(
       "id,name,photo_url,initials,vehicle,trust_level,description,service_type,zone," +
-        "status,admin_status,is_on_orbit,availability,lat,lng,current_lat,current_lng,radius_km",
+        "status,admin_status,is_on_orbit,availability,lat,lng,current_lat,current_lng,radius_km," +
+        "agent_vehicles!agents_active_vehicle_id_fkey(display_label,vehicle_type)",
     )
     .eq("admin_status", "activo")
     .eq("status", "Disponible")
@@ -130,6 +131,7 @@ export async function GET(req: NextRequest) {
     photo_url: string | null;
     initials: string | null;
     vehicle: string | null;
+    vehicleLabel: string | null;
     trust_level: string;
     description: string;
     service_type: string;
@@ -176,6 +178,7 @@ export async function GET(req: NextRequest) {
       photo_url: (row.photo_url as string | null) ?? null,
       initials: (row.initials as string | null) ?? null,
       vehicle: (row.vehicle as string | null) ?? null,
+      vehicleLabel: ((row.agent_vehicles as { display_label?: string } | null)?.display_label ?? (row.vehicle as string | null)) ?? null,
       trust_level: (row.trust_level as string | null) ?? "",
       description: (row.description as string | null) ?? "",
       service_type: (row.service_type as string | null) ?? "",
@@ -263,7 +266,7 @@ export async function GET(req: NextRequest) {
       name: a.name,
       photo_url: a.photo_url,
       initials: a.initials,
-      vehicle: a.vehicle,
+      vehicle: a.vehicleLabel ?? a.vehicle,
       trust_level: a.trust_level,
       description: a.description,
       service_type: a.service_type,

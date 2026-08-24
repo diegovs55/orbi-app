@@ -591,6 +591,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
     }
   }, []);
 
+  // Load vehicles on mount so "Mi perfil operativo" reflects the active vehicle immediately.
+  useEffect(() => { void loadVehicles(); }, [loadVehicles]);
+
   const handleVehiclesPanelOpen = useCallback(() => {
     setVehiclesOpen((v) => {
       if (!v) void loadVehicles();
@@ -1047,12 +1050,22 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
             onChange={setPhotoUrl}
             placeholder="https://..."
           />
-          <FieldInput
-            label="Vehículo / placa"
-            value={vehicle}
-            onChange={setVehicle}
-            placeholder="Moto azul / ABC-123"
-          />
+          {vehiclesData?.active_vehicle_id ? (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-semibold text-orbi-text">Vehículo activo</span>
+              <p className="rounded-md border border-orbi-cyan/20 bg-orbi-black/60 px-4 py-3 text-sm text-orbi-text">
+                {vehiclesData.vehicles.find((v) => v.id === vehiclesData.active_vehicle_id)?.display_label ?? "—"}
+              </p>
+              <p className="text-xs text-orbi-muted">Gestiona tu vehículo desde «Mis vehículos».</p>
+            </div>
+          ) : (
+            <FieldInput
+              label="Vehículo / placa"
+              value={vehicle}
+              onChange={setVehicle}
+              placeholder="Moto azul / ABC-123"
+            />
+          )}
 
           <label className="block text-sm font-semibold text-orbi-text">
             Tipo de servicio

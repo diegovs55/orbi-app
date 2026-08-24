@@ -45,6 +45,7 @@ export type OrbiAgent = {
   phone: string;
   description: string;
   vehicle: string;
+  vehicleLabel?: string;
   availability: string;
   lat: number | null;
   lng: number | null;
@@ -75,6 +76,7 @@ type AgentRow = {
   vehicle: string | null;
   availability: string | null;
   lat: number | string | null;
+  agent_vehicles?: { display_label: string; vehicle_type: string } | null;
   lng: number | string | null;
   radius_km: number | string | null;
   is_on_orbit: boolean | null;
@@ -87,13 +89,15 @@ type AgentRow = {
 // Static base coordinates (lat, lng) are included — displayed publicly in AgentCards.
 const SELECT_PUBLIC =
   "id,name,photo_url,initials,service_type,zone,status,admin_status,trust_level," +
-  "description,vehicle,availability,lat,lng,radius_km,is_on_orbit";
+  "description,vehicle,availability,lat,lng,radius_km,is_on_orbit," +
+  "agent_vehicles!agents_active_vehicle_id_fkey(display_label,vehicle_type)";
 
 // Full SELECT: used for authenticated contexts (admin panel, agent private panel, mission assignment).
 const SELECT =
   "id,name,email,photo_url,initials,service_type,zone,status,admin_status,trust_level," +
   "phone,description,vehicle,availability,lat,lng,radius_km," +
-  "is_on_orbit,current_lat,current_lng,auth_user_id";
+  "is_on_orbit,current_lat,current_lng,auth_user_id," +
+  "agent_vehicles!agents_active_vehicle_id_fkey(display_label,vehicle_type)";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -149,6 +153,7 @@ function fromRow(row: AgentRow): OrbiAgent {
     phone: row.phone,
     description: row.description,
     vehicle: row.vehicle ?? "",
+    vehicleLabel: row.agent_vehicles?.display_label ?? row.vehicle ?? "",
     availability: row.availability ?? "",
     lat: toNum(row.lat),
     lng: toNum(row.lng),

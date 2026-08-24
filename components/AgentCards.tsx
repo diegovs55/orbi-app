@@ -161,7 +161,7 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                  {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
+                  {(agent.vehicleLabel || agent.vehicle) ? <InfoTile label="Vehículo" value={agent.vehicleLabel || agent.vehicle} /> : null}
                   <InfoTile label="Nivel" value={agent.trustLevel} />
                   <InfoTile
                     label="Calificación"
@@ -224,7 +224,7 @@ function ProfileModal({ agent, onClose }: { agent: OrbiAgent; onClose: () => voi
           <InfoTile label="Estado" value={agent.status} />
           {agent.availability ? <InfoTile label="Horario" value={agent.availability} /> : null}
           <InfoTile label="Zona" value={agent.zone} />
-          {agent.vehicle ? <InfoTile label="Vehículo" value={agent.vehicle} /> : null}
+          {(agent.vehicleLabel || agent.vehicle) ? <InfoTile label="Vehículo" value={agent.vehicleLabel || agent.vehicle} /> : null}
           <InfoTile label="Nivel" value={agent.trustLevel} />
           <InfoTile label="Servicios" value={agent.serviceType} />
           <InfoTile label="Radio operativo" value={`${agent.radiusKm || 20} km`} />
