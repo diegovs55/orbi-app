@@ -522,6 +522,40 @@ export async function POST(req: NextRequest) {
     costoAgente           = Math.round(serviceFee * 0.70);
     gananciaOrbi          = serviceFee - costoAgente;
     motorParamsVersionForRow = directResult.motorParamsVersion;
+
+    // ECON-LAZ-01: price lock para misiones directas — con backward compatibility.
+    //
+    // Semántica de tres estados:
+    //   1. Ambos campos presentes y finitos → comparar con recálculo; si difieren → 409 QUOTE_CHANGED.
+    //   2. Ambos campos ausentes            → cliente legacy (Build 27); crear al precio del servidor.
+    //   3. Solo uno presente, o valores no finitos → request inconsistente → 422.
+    //
+    // El servidor sigue siendo la única autoridad del precio en los tres casos.
+    const rawExpectedFee   = body.expected_service_fee;
+    const rawExpectedTotal = body.expected_total_amount;
+    const feePresent   = rawExpectedFee   !== undefined;
+    const totalPresent = rawExpectedTotal !== undefined;
+
+    if (feePresent !== totalPresent) {
+      // Caso 3a: solo uno de los dos campos enviado — request inconsistente.
+      return NextResponse.json({ error: "QUOTE_FIELDS_INCONSISTENT" }, { status: 422 });
+    }
+    if (feePresent && totalPresent) {
+      // Caso 1: ambos presentes — validar que sean números finitos.
+      if (!Number.isFinite(rawExpectedFee) || !Number.isFinite(rawExpectedTotal)) {
+        // Caso 3b: valores presentes pero no finitos (null, NaN, string, etc.).
+        return NextResponse.json({ error: "QUOTE_FIELDS_INCONSISTENT" }, { status: 422 });
+      }
+      // Comparar con el precio recalculado por el servidor.
+      if (rawExpectedFee !== serviceFee || rawExpectedTotal !== totalAmount) {
+        return NextResponse.json(
+          { error: "QUOTE_CHANGED", service_fee: serviceFee, total_amount: totalAmount },
+          { status: 409 }
+        );
+      }
+      // rawExpectedFee === serviceFee && rawExpectedTotal === totalAmount → continuar.
+    }
+    // Caso 2: ambos ausentes → cliente legacy (Build 27) → continuar con precio del servidor.
   }
 
   // ── Construir fila para Supabase ─────────────────────────────────────────

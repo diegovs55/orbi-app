@@ -995,6 +995,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
     details.originLat, details.originLng,
     details.destinationLat, details.destinationLng,
     routeDistance, selectedService,
+    quoteRetryKey,  // ECON-LAZ-01: re-fetch directa cuando QUOTE_CHANGED dispara setQuoteRetryKey
   ]);
 
   // C7 (G1): Cotización autoritativa de catálogo — negocio→destino desde servidor
@@ -1563,6 +1564,13 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
       return;
     }
 
+    // ECON-LAZ-01: no enviar si la cotización directa todavía está cargando.
+    // Evita que el usuario vea "QUOTE_REQUIRED" por una condición transitoria.
+    if (!isCatalogMission && directQuote.loading) {
+      setSubmitError("Calculando el precio, intenta en un momento.");
+      return;
+    }
+
     isSendingRef.current = true;
     setIsSending(true);
     setSubmitError(null);
@@ -1622,10 +1630,17 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
       service_fee: currentServiceFee ?? undefined,
       total: servicePrice,
       total_amount: servicePrice,
-      // G1: cotización confirmada — el servidor valida que no cambió desde el quote
+      // G1 / ECON-LAZ-01: cotización confirmada — el servidor valida que no cambió desde el quote.
+      // Para catálogo: expected_service_fee y expected_total_amount del quote autoritativo.
+      // Para directas: expected_service_fee = expected_total_amount = directQuote.fee.
+      //   (total_amount = service_fee para directas — sin subtotal de productos)
+      //   Condición fee > 0: evita enviar 0 si el quote no cargó (QUOTE_REQUIRED innecesario).
       ...(isCatalogMission && catalogQuote ? {
         expected_service_fee:  catalogQuote.serviceFee,
         expected_total_amount: catalogQuote.totalAmount,
+      } : !isCatalogMission && directQuote.fee > 0 ? {
+        expected_service_fee:  directQuote.fee,
+        expected_total_amount: directQuote.fee,
       } : {}),
       distance_km: routeDistance,
       duration_min: routeDuration ?? undefined,
@@ -1667,9 +1682,11 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
       isSendingRef.current = false;
       setIsSending(false);
       const msg = err instanceof Error ? err.message : "";
-      // C10 (G1): si el precio cambió entre quote y create, re-cotizar automáticamente
-      if (isCatalogMission && msg === "QUOTE_CHANGED") {
-        setCatalogQuote(null);
+      // C10 (G1) / ECON-LAZ-01: si el precio cambió entre quote y create, re-cotizar.
+      // Catálogo: reset catalogQuote + quoteRetryKey → re-fetch del quote de catálogo.
+      // Directa:  solo quoteRetryKey → re-fetch del directQuote (depende de quoteRetryKey).
+      if (msg === "QUOTE_CHANGED") {
+        if (isCatalogMission) setCatalogQuote(null);
         setQuoteRetryKey((k) => k + 1);
         setSubmitError("El precio cambió. Se actualizó la cotización automáticamente.");
       } else {
