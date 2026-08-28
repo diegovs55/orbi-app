@@ -5,14 +5,17 @@ import {
   CreditCard,
   LocateFixed,
   MapPin,
+  Navigation,
   PackageCheck,
   Radar,
   RefreshCw,
+  Route,
   Search,
   Send,
   ShoppingBag,
   Truck,
-  UserRound
+  UserRound,
+  Users
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -2040,6 +2043,56 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
           {activeDraftSection === "pedido" ? (
             <FormSection title="">
               <SelectedService service={selectedService} onReset={resetFlow} />
+              {selectedService.label === "Traslado" && !isCatalogMission ? (
+                <div className="space-y-2.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+                    ¿Cómo quieres viajar?
+                  </p>
+                  {/* Grupo centrado — selector + descripción */}
+                  <div className="mx-auto w-full max-w-xs space-y-2">
+                    {/* Selector compacto — 3 chips horizontales */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {/* Generar — activo */}
+                      <div className="flex flex-col items-center gap-1.5 rounded-md border border-orbi-cyan/60 bg-orbi-cyan/[0.12] px-2 py-3 text-center ring-1 ring-orbi-cyan/15">
+                        <Navigation aria-hidden="true" className="h-5 w-5 text-orbi-cyan drop-shadow-[0_0_4px_rgba(0,200,255,0.5)]" />
+                        <p className="text-xs font-bold text-orbi-text">Generar</p>
+                        <p className="text-[10px] leading-tight text-orbi-cyan/85">Puerta a puerta</p>
+                      </div>
+                      {/* Tomar — próximamente */}
+                      <div
+                        className="flex flex-col items-center gap-1.5 rounded-md border border-white/5 bg-white/[0.02] px-2 py-3 text-center"
+                        style={{ opacity: 0.35, pointerEvents: "none" }}
+                      >
+                        <Users aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
+                        <p className="text-xs font-bold text-orbi-text">Tomar</p>
+                        <p className="text-[10px] leading-tight text-orbi-muted/70">Ruta existente</p>
+                        <span className="rounded-full border border-white/10 px-1 py-px text-[7px] font-medium text-orbi-muted/70">
+                          Próximamente
+                        </span>
+                      </div>
+                      {/* Navegar — próximamente */}
+                      <div
+                        className="flex flex-col items-center gap-1.5 rounded-md border border-white/5 bg-white/[0.02] px-2 py-3 text-center"
+                        style={{ opacity: 0.35, pointerEvents: "none" }}
+                      >
+                        <Route aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
+                        <p className="text-xs font-bold text-orbi-text">Navegar</p>
+                        <p className="text-[10px] leading-tight text-orbi-muted/70">Con conexiones</p>
+                        <span className="rounded-full border border-white/10 px-1 py-px text-[7px] font-medium text-orbi-muted/70">
+                          Próximamente
+                        </span>
+                      </div>
+                    </div>
+                    {/* Descripción de la opción activa */}
+                    <div className="rounded-md border border-orbi-cyan/8 bg-orbi-cyan/[0.03] px-3 py-2.5">
+                      <p className="text-xs font-semibold text-orbi-cyan">Generar una órbita</p>
+                      <p className="mt-0.5 text-xs leading-5 text-orbi-muted">
+                        Un agente pasa por ti y te lleva hasta tu destino.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {isCatalogMission ? (
                 <LocalCart
                   items={cartItems}
