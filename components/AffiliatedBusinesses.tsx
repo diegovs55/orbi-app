@@ -22,13 +22,13 @@ import { subscribeToBusinesses, subscribeToProducts } from "@/lib/supabase";
 
 // Usuario / punto consultado — teardrop azul (mismo que NearbyOrbitsPreview)
 const queryIcon = L.divIcon({
-  className: "",
-  html: `<svg width="20" height="28" viewBox="0 0 20 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  className: "orbi-pin-icon",
+  html: `<svg width="24" height="32" viewBox="-2 -2 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M10 0C4.477 0 0 4.477 0 10c0 6.627 10 18 10 18S20 16.627 20 10C20 4.477 15.523 0 10 0z" fill="#eef7ff" stroke="#1f8bff" stroke-width="1.5"/>
     <circle cx="10" cy="10" r="4" fill="#1f8bff"/>
   </svg>`,
-  iconAnchor: [10, 28],
-  iconSize: [20, 28],
+  iconAnchor: [12, 30],
+  iconSize: [24, 32],
 });
 
 // Negocio — teardrop verde esmeralda.

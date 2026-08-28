@@ -147,39 +147,8 @@ button {
   }
 }
 
-/* Concentric orbit waves — sequential outward ripple.
-   Each circle fades from full opacity to zero in order: inner → mid → outer.
-   will-change: opacity promotes each SVG element to its own compositor layer
-   for reliable GPU-composited animation inside WKWebView on iOS.
-   No transform: scale() — Leaflet already owns the SVG transform stack. */
-.orbi-orbit-wave-1 {
-  animation: orbi-orbit-wave 2.4s ease-out infinite;
-  will-change: opacity;
-}
-
-.orbi-orbit-wave-2 {
-  animation: orbi-orbit-wave 2.4s ease-out infinite 0.8s;
-  will-change: opacity;
-}
-
-.orbi-orbit-wave-3 {
-  animation: orbi-orbit-wave 2.4s ease-out infinite 1.6s;
-  will-change: opacity;
-}
-
-@keyframes orbi-orbit-wave {
-  0% {
-    opacity: 0.9;
-  }
-
-  70% {
-    opacity: 0;
-  }
-
-  100% {
-    opacity: 0;
-  }
-}
+/* Orbit wave animation is driven imperatively by OrbitWavesLayer (rAF + L.circle.setRadius).
+   No CSS keyframes needed — radius, opacity and weight are updated per-frame in JS. */
 
 /* ── Capacitor native: safe areas & keyboard ──────────────────────────────── */
 

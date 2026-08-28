@@ -6,6 +6,7 @@ import { checkGpsPermission, requestGpsPermission, openGpsSettings } from "@/lib
 import type { GeoPermissionState } from "@/lib/geo-permissions";
 import { GpsStatusPill } from "@/components/GpsStatusPill";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   LocateFixed,
@@ -79,6 +80,8 @@ const operationalLabelStyles: Record<string, string> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AgentPrivatePanel({ agentId }: { agentId: string }) {
+  const router = useRouter();
+
   // ── Agent state ──────────────────────────────────────────────────────────
   const [agent, setAgent] = useState<OrbiAgent | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(true);
@@ -823,13 +826,20 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
                       </button>
                     ) : null}
                     {isMissionActive(m) ? (
-                      <Link
-                        href={`/orbita/${m.id}`}
+                      <a
+                        href={`/orbita/__mobile__?missionId=${m.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const isCap =
+                            typeof window !== "undefined" &&
+                            (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
+                          router.push(isCap ? `/orbita/__mobile__?missionId=${m.id}` : `/orbita/${m.id}`);
+                        }}
                         className="inline-flex min-h-11 items-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-4 py-2 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
                       >
                         <Navigation aria-hidden="true" className="h-4 w-4" />
                         Ver ruta
-                      </Link>
+                      </a>
                     ) : null}
                     {m.status === "aceptada" ? (
                       <button
