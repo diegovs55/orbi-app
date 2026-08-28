@@ -338,9 +338,9 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
   // ── Header ───────────────────────────────────────────────────────────────────
   const header = (
-    <div className="flex items-center justify-between rounded-md border border-orbi-cyan/15 bg-white/[0.04] px-4 py-3">
+    <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-gradient-to-r from-orbi-navy/55 to-orbi-black/40 px-4 py-3">
       <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-orbi-cyan/18 bg-orbi-blue/10 text-orbi-cyan/80">
           <Store aria-hidden="true" className="h-4 w-4" />
         </span>
         <div>
@@ -351,7 +351,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
         </div>
       </div>
       <button type="button" onClick={handleLogout}
-        className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text">
+        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.07] bg-transparent px-3 py-1.5 text-xs font-medium text-orbi-muted/45 transition hover:text-orbi-muted/85">
         <LogOut aria-hidden="true" className="h-3.5 w-3.5" />
         Salir
       </button>
@@ -384,7 +384,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
   // ── Panel de negocio ─────────────────────────────────────────────────────────
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
       {header}
 
       {/* Business subtitle + edit profile button */}
@@ -397,7 +397,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
           </p>
           {!showProfile ? (
             <button type="button" onClick={() => setShowProfile(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text">
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.10] bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-orbi-muted/60 transition hover:border-white/20 hover:text-orbi-text">
               <MapPin aria-hidden="true" className="h-3.5 w-3.5" />
               Editar perfil
             </button>
@@ -411,19 +411,19 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
       {/* Profile form */}
       {showProfile ? (
         <form onSubmit={handleProfileSave}
-          className="grid gap-4 rounded-md border border-orbi-cyan/20 bg-orbi-panel/72 p-5">
+          className="grid gap-5 rounded-xl border border-orbi-cyan/[0.18] bg-gradient-to-b from-[rgba(31,139,255,0.07)] to-[rgba(8,20,36,0.72)] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(54,215,255,0.08)] sm:p-7">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-black text-orbi-text">Perfil del negocio</p>
+            <p className="text-base font-black tracking-tight text-orbi-text">Perfil del negocio</p>
             {myBusiness?.lat !== null ? (
               <button type="button" onClick={() => setShowProfile(false)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-muted">
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.10] bg-transparent px-3 text-xs font-medium text-orbi-muted/55 transition hover:border-white/20 hover:text-orbi-muted/85">
                 <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" /> Cancelar
               </button>
             ) : null}
           </div>
 
           {myBusiness?.lat === null ? (
-            <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
+            <p className="rounded-lg border border-orbi-cyan/[0.18] bg-orbi-blue/[0.07] px-4 py-3 text-xs font-semibold leading-5 text-orbi-cyan/90">
               Primer paso: completa los datos de tu negocio para que pueda aparecer correctamente en el catálogo.
             </p>
           ) : null}
@@ -433,7 +433,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
             <FormField label="Nombre del negocio *">
               <input type="text" value={pfName} onChange={(e) => setPfName(e.target.value)}
                 placeholder="Café La Órbita" required
-                className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none" />
+                className="mt-1.5 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/45 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.08] focus:outline-none" />
             </FormField>
 
             {/* Combobox: select from list OR type custom */}
@@ -444,7 +444,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
                 onChange={(e) => setPfCat(e.target.value)}
                 placeholder="Selecciona o escribe…"
                 required
-                className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                className="mt-1.5 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/45 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.08] focus:outline-none"
               />
               <datalist id="biz-sectors-list">
                 {businessSectors.map((s) => <option key={s} value={s} />)}
@@ -474,28 +474,30 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
 
           {/* Mapa + ubicación actual */}
           <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label className="block text-xs font-semibold text-orbi-muted">
-                Ubicación en el mapa *{" "}
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div>
+                <label className="block text-[11px] font-medium tracking-[0.03em] text-orbi-muted/65">
+                  Ubicación en el mapa *
+                </label>
                 {pfLocSet ? (
-                  <span className="text-emerald-300">
-                    · {pfLoc.lat.toFixed(5)}, {pfLoc.lng.toFixed(5)}
+                  <span className="mt-0.5 block text-[10px] font-mono text-orbi-cyan/70">
+                    {pfLoc.lat.toFixed(5)}, {pfLoc.lng.toFixed(5)}
                   </span>
                 ) : (
-                  <span className="text-yellow-300">· haz clic en el mapa para fijar tu negocio</span>
+                  <span className="mt-0.5 block text-[10px] text-amber-400/70">Haz clic en el mapa para fijar tu negocio</span>
                 )}
-              </label>
+              </div>
               <button
                 type="button"
                 onClick={handleUseCurrentLocation}
                 disabled={pfGeoLoading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-2.5 py-1 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20 disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-orbi-cyan/[0.18] bg-orbi-blue/[0.09] px-3 py-1.5 text-xs font-bold text-orbi-cyan/85 transition hover:bg-orbi-blue/[0.17] disabled:opacity-50"
               >
                 <LocateFixed aria-hidden="true" className="h-3.5 w-3.5" />
                 {pfGeoLoading ? "Buscando…" : "Usar mi ubicación"}
               </button>
             </div>
-            <div className="h-52 w-full overflow-hidden rounded-md border border-white/15">
+            <div className="h-52 w-full overflow-hidden rounded-xl border border-white/[0.10] shadow-[0_4px_16px_rgba(0,0,0,0.22)]">
               <LocationPickerMap
                 point={pfLoc}
                 onPointChange={async (p: { lat: number; lng: number }) => {
@@ -512,22 +514,24 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
           </div>
 
           {pfError ? (
-            <p className="rounded-md border border-red-400/20 bg-red-400/[0.08] px-3 py-2 text-xs font-semibold text-red-300">
+            <p className="rounded-lg border border-red-400/[0.18] bg-red-400/[0.07] px-4 py-2.5 text-xs font-semibold leading-5 text-red-300">
               {pfError}
             </p>
           ) : null}
 
-          <button type="submit" disabled={pfSaving}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50">
-            {pfSaving ? "Guardando…" : "Guardar perfil"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <button type="submit" disabled={pfSaving}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-orbi-blue px-6 py-2.5 text-sm font-black text-white shadow-[0_3px_20px_rgba(31,139,255,0.28),inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:bg-[#0f7af0] disabled:opacity-50">
+              {pfSaving ? "Guardando…" : "Guardar perfil"}
+            </button>
+          </div>
         </form>
       ) : null}
 
       {/* Product list */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">Mis productos</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-orbi-muted/70">Mis productos</p>
           {!showForm ? (
             <button type="button" onClick={() => setShowForm(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20">
@@ -543,7 +547,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Buscar producto…"
-            className="w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text placeholder:text-orbi-muted focus:border-orbi-cyan/50 focus:outline-none"
+            className="w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.55)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/50 focus:border-orbi-cyan/50 focus:ring-1 focus:ring-orbi-cyan/10 focus:outline-none"
           />
         ) : null}
 
@@ -570,19 +574,19 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
             return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
           })
           .map((p) => (
-          <article key={p.id} className="rounded-md border border-white/10 bg-white/[0.04] px-4 py-3">
+          <article key={p.id} className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-4 py-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-black text-orbi-text">{p.name}</p>
                 {p.description ? (
                   <p className="text-xs text-orbi-muted mt-0.5">{p.description}</p>
                 ) : null}
-                <p className="mt-1 text-xs font-semibold text-orbi-cyan">
-                  ${p.price} · {p.category}
+                <p className="mt-1 text-sm font-bold text-orbi-text">
+                  ${p.price} <span className="text-xs font-normal text-orbi-muted/60">· {p.category}</span>
                 </p>
                 <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[11px] font-bold ${
                   p.status === "disponible"
-                    ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                    ? "border-orbi-cyan/20 bg-orbi-cyan/[0.07] text-orbi-cyan/80"
                     : p.status === "descontinuado"
                     ? "border-amber-500/25 bg-amber-500/10 text-amber-400 line-through"
                     : "border-white/10 bg-white/[0.04] text-orbi-muted"
@@ -593,13 +597,13 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
               <div className="flex shrink-0 gap-2">
                 {p.status !== "descontinuado" && (
                   <button type="button" onClick={() => startEdit(p)} title="Editar"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan">
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.09] bg-transparent text-orbi-muted/50 transition hover:border-orbi-cyan/30 hover:text-orbi-cyan">
                     <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
                   </button>
                 )}
                 {p.status === "descontinuado" ? (
                   <button type="button" onClick={() => handleRestore(p)} title="Restaurar producto"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-400 transition hover:bg-amber-500/20">
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/[0.07] text-amber-400/70 transition hover:bg-amber-500/15">
                     <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
                   </button>
                 ) : (
@@ -608,13 +612,13 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
                       title={p.status === "disponible" ? "Desactivar" : "Activar"}
                       className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
                         p.status === "disponible"
-                          ? "border-red-300/15 bg-red-400/10 text-red-300 hover:bg-red-400/20"
-                          : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/20"
+                          ? "border-white/[0.09] bg-transparent text-orbi-muted/45 hover:border-red-300/25 hover:text-red-300"
+                          : "border-orbi-cyan/20 bg-orbi-cyan/[0.07] text-orbi-cyan/65 hover:bg-orbi-cyan/14"
                       }`}>
                       <PowerOff aria-hidden="true" className="h-3.5 w-3.5" />
                     </button>
                     <button type="button" onClick={() => handleDiscontinue(p)} title="Descontinuar producto"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-amber-500/15 bg-amber-500/[0.06] text-amber-500/70 transition hover:border-amber-500/30 hover:text-amber-400">
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] bg-transparent text-orbi-muted/35 transition hover:border-amber-500/25 hover:text-amber-400/70">
                       <PowerOff aria-hidden="true" className="h-3.5 w-3.5 rotate-45" />
                     </button>
                   </>
@@ -655,7 +659,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
                 onChange={(e) => setFcat(e.target.value)}
                 placeholder="Selecciona o escribe…"
                 required
-                className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                className="mt-1.5 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/45 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.08] focus:outline-none"
               />
               <datalist id="product-cats-list">
                 {productCategories.map((c) => <option key={c} value={c} />)}
@@ -664,7 +668,7 @@ export function BusinessCatalog({ onLogout }: { onLogout: () => void }) {
             <FormField label="Precio ($)">
               <input type="number" min="0" step="0.01" value={fprice}
                 onChange={(e) => setFprice(e.target.value)} placeholder="65" required
-                className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none" />
+                className="mt-1.5 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/45 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.08] focus:outline-none" />
             </FormField>
           </div>
           <FormField label="Estado">
@@ -821,7 +825,7 @@ function PendingOrders({ businessName }: { businessName: string }) {
           Toca la pantalla para activar alertas de sonido.
         </p>
       ) : null}
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-orbi-cyan">
         Pedidos pendientes · {orders.length}
       </p>
       {orders.map((m) => {
@@ -839,7 +843,7 @@ function PendingOrders({ businessName }: { businessName: string }) {
         return (
           <div
             key={m.id}
-            className={`rounded-md border p-4 ${isPreparando ? "border-emerald-400/20 bg-emerald-400/[0.06]" : "border-yellow-300/20 bg-yellow-300/[0.06]"}`}
+            className={`rounded-xl border p-4 shadow-[0_4px_20px_rgba(0,0,0,0.22)] ${isPreparando ? "border-emerald-400/25 bg-gradient-to-br from-emerald-400/[0.09] to-orbi-black/60" : "border-amber-300/25 bg-gradient-to-br from-amber-300/[0.09] to-orbi-black/60"}`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 space-y-0.5">
@@ -862,7 +866,7 @@ function PendingOrders({ businessName }: { businessName: string }) {
                   <button
                     type="button"
                     onClick={toggleExpanded}
-                    className="inline-flex min-h-9 items-center justify-center rounded-md border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text"
+                    className="inline-flex min-h-9 items-center justify-center rounded-lg border border-white/[0.12] bg-transparent px-4 py-2 text-xs font-bold text-orbi-muted/70 transition hover:border-white/20 hover:text-orbi-text"
                   >
                     {isExpanded ? "Ocultar pedido" : "Ver pedido"}
                   </button>
@@ -871,7 +875,7 @@ function PendingOrders({ businessName }: { businessName: string }) {
                   type="button"
                   disabled={isBusy}
                   onClick={() => void handleAction(m.id, m.status)}
-                  className={`inline-flex min-h-9 items-center justify-center rounded-md px-4 py-2 text-xs font-bold text-white transition disabled:opacity-50 ${isPreparando ? "bg-emerald-600 hover:bg-emerald-500" : "bg-orbi-blue hover:bg-[#0f7af0]"}`}
+                  className={`inline-flex min-h-9 items-center justify-center rounded-lg px-4 py-2 text-xs font-black text-white transition disabled:opacity-50 ${isPreparando ? "bg-emerald-600/90 shadow-[0_2px_12px_rgba(52,211,153,0.20)] hover:bg-emerald-500" : "bg-orbi-blue shadow-[0_2px_12px_rgba(31,139,255,0.22)] hover:bg-[#0f7af0]"}`}
                 >
                   {isBusy
                     ? (isPreparando ? "Marcando listo…" : "Confirmando…")
@@ -919,7 +923,7 @@ function PendingOrders({ businessName }: { businessName: string }) {
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-orbi-muted">{label}</label>
+      <label className="block text-[11px] font-medium tracking-[0.03em] text-orbi-muted/65">{label}</label>
       {children}
     </div>
   );
@@ -989,23 +993,23 @@ function WeeklyScheduleEditor({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold text-orbi-muted">Horario semanal *</span>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-[11px] font-medium tracking-[0.03em] text-orbi-muted/65">Horario semanal *</span>
         {anyOpen && (
           <button
             type="button"
             onClick={applyToAll}
-            className="text-[10px] font-bold text-orbi-cyan hover:underline"
+            className="inline-flex items-center rounded-md border border-orbi-cyan/[0.18] bg-orbi-cyan/[0.07] px-2.5 py-1 text-[10px] font-bold text-orbi-cyan/80 transition hover:bg-orbi-cyan/[0.12]"
           >
             Aplicar mismo horario a días abiertos
           </button>
         )}
       </div>
-      <div className="divide-y divide-white/[0.06] rounded-md border border-white/15 bg-orbi-black/60">
+      <div className="divide-y divide-white/[0.05] rounded-xl border border-white/[0.10] bg-[rgba(5,7,13,0.55)]">
         {SCHEDULE_DAYS.map(({ key, name }) => {
           const day = schedule[key];
           return (
-            <div key={key} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+            <div key={key} className="flex flex-wrap items-center gap-3 px-4 py-3">
               <button
                 type="button"
                 onClick={() =>
@@ -1015,17 +1019,17 @@ function WeeklyScheduleEditor({
                     closesAt: day.isOpen ? null : (day.closesAt ?? "18:00"),
                   })
                 }
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold transition ${
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-black transition ${
                   day.isOpen
-                    ? "border-orbi-cyan/60 bg-orbi-cyan/20 text-orbi-cyan"
-                    : "border-white/20 bg-transparent text-orbi-muted"
+                    ? "border-orbi-cyan/55 bg-orbi-cyan/[0.18] text-orbi-cyan"
+                    : "border-white/[0.15] bg-white/[0.03] text-orbi-muted/40"
                 }`}
                 aria-label={day.isOpen ? `Cerrar ${name}` : `Abrir ${name}`}
               >
                 {day.isOpen ? "✓" : "—"}
               </button>
 
-              <span className={`w-20 shrink-0 text-xs font-semibold ${day.isOpen ? "text-orbi-text" : "text-orbi-muted/60"}`}>
+              <span className={`w-20 shrink-0 text-xs font-bold ${day.isOpen ? "text-orbi-text" : "text-orbi-muted/40"}`}>
                 {name}
               </span>
 
@@ -1034,18 +1038,18 @@ function WeeklyScheduleEditor({
                   <select
                     value={day.opensAt ?? ""}
                     onChange={(e) => setDay(key, { opensAt: e.target.value || null })}
-                    className="rounded border border-white/15 bg-orbi-black/80 px-2 py-1 text-xs text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                    className="rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.70)] px-2.5 py-1.5 text-xs text-orbi-text focus:border-orbi-cyan/55 focus:ring-1 focus:ring-orbi-cyan/[0.08] focus:outline-none"
                   >
                     <option value="">Apertura</option>
                     {profileTimeOptions.map((t) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
-                  <span className="text-xs text-orbi-muted">–</span>
+                  <span className="text-xs text-orbi-muted/40">–</span>
                   <select
                     value={day.closesAt ?? ""}
                     onChange={(e) => setDay(key, { closesAt: e.target.value || null })}
-                    className="rounded border border-white/15 bg-orbi-black/80 px-2 py-1 text-xs text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+                    className="rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.70)] px-2.5 py-1.5 text-xs text-orbi-text focus:border-orbi-cyan/55 focus:ring-1 focus:ring-orbi-cyan/[0.08] focus:outline-none"
                   >
                     <option value="">Cierre</option>
                     {profileTimeOptions.map((t) => (
@@ -1054,7 +1058,7 @@ function WeeklyScheduleEditor({
                   </select>
                 </>
               ) : (
-                <span className="text-xs text-orbi-muted/50">Cerrado</span>
+                <span className="text-[11px] font-medium text-orbi-muted/35 tracking-wide">Cerrado</span>
               )}
             </div>
           );

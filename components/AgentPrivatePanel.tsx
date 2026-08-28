@@ -738,7 +738,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
 
       {agentSessionExpired ? (
         <p className="rounded-md border border-red-300/20 bg-red-400/10 p-3 text-sm font-semibold text-red-200">
@@ -753,10 +753,10 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
       ) : null}
 
       {/* ── Estado operativo ─────────────────────────────────────── */}
-      <section className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 space-y-4">
+      <section className="rounded-xl border border-orbi-cyan/[0.18] bg-gradient-to-b from-[rgba(31,139,255,0.07)] to-[rgba(8,20,36,0.72)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(54,215,255,0.08)] space-y-5 sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-orbi-cyan/[0.25] bg-orbi-blue/[0.15] text-orbi-cyan shadow-[0_0_16px_rgba(31,139,255,0.10)]">
               <Orbit aria-hidden="true" className="h-6 w-6" />
             </span>
             <div>
@@ -767,13 +767,13 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
               >
                 {operationalLabel}
               </span>
-              <p className="mt-1 text-xs text-orbi-muted">Nivel {agent.trustLevel}</p>
+              <p className="mt-1.5 text-[11px] text-orbi-muted/65">Nivel {agent.trustLevel}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => { void loadAgent(); void loadMotorParamsData(); void refreshMissions(); }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.06] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/12"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.09] bg-transparent px-3 py-1.5 text-xs font-medium text-orbi-muted/55 transition hover:border-white/[0.16] hover:text-orbi-muted/85"
           >
             <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
             Actualizar
@@ -781,9 +781,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
         </div>
 
         {currentGps ? (
-          <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] px-3 py-2 text-xs">
-            <p className="font-bold text-orbi-cyan">Última posición GPS</p>
-            <p className="mt-1 font-mono text-orbi-muted">
+          <div className="rounded-lg border border-orbi-cyan/[0.15] bg-[rgba(5,7,13,0.50)] px-3.5 py-2.5 text-xs">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orbi-cyan/70">Última posición GPS</p>
+            <p className="mt-1 font-mono text-[11px] text-orbi-cyan/70">
               {currentGps.lat?.toFixed(6)}, {currentGps.lng?.toFixed(6)}
             </p>
           </div>
@@ -802,7 +802,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
               type="button"
               onClick={() => void handleEnterOrbit()}
               disabled={isEnteringOrbit}
-              className="inline-flex min-h-11 items-center gap-2 rounded-md bg-orbi-blue px-5 py-2 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-orbi-blue px-5 py-2.5 text-sm font-black text-white shadow-[0_4px_20px_rgba(31,139,255,0.30),inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:bg-[#0f7af0] disabled:opacity-50"
             >
               <LocateFixed aria-hidden="true" className="h-4 w-4" />
               {isEnteringOrbit ? "Obteniendo GPS..." : "Entrar en órbita con GPS"}
@@ -811,7 +811,7 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
             <button
               type="button"
               onClick={() => void handleExitOrbit()}
-              className="inline-flex min-h-11 items-center gap-2 rounded-md border border-white/15 bg-white/[0.06] px-5 py-2 text-sm font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.10] bg-transparent px-5 py-2.5 text-sm font-medium text-orbi-muted/60 transition hover:border-white/[0.18] hover:text-orbi-muted/90"
             >
               Salir de órbita
             </button>
@@ -843,9 +843,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
       {/* ── Mis misiones ─────────────────────────────────────────── */}
       <section className="space-y-4">
-        <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
-          <h2 className="text-base font-black text-orbi-text">Mis misiones</h2>
-          <p className="mt-1 text-xs text-orbi-muted">
+        <div className="rounded-xl border border-white/[0.08] bg-gradient-to-b from-[rgba(8,20,36,0.60)] to-[rgba(5,7,13,0.75)] px-5 py-4 shadow-[0_4px_16px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <h2 className="text-base font-black tracking-tight text-orbi-text">Mis misiones</h2>
+          <p className="mt-1.5 text-[11px] leading-5 text-orbi-muted/70">
             Solo aparecen si estás en órbita, dentro de tu horario, radio y tipo de servicio.
           </p>
         </div>
@@ -888,9 +888,9 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
             No pudimos actualizar tus oportunidades. Pulsa Actualizar para intentar de nuevo.
           </p>
         ) : myMissions.length === 0 ? (
-          <p className="rounded-md border border-white/10 bg-white/[0.04] p-4 text-sm text-orbi-muted">
-            Sin misiones activas. Para recibir misiones debes estar en órbita con GPS, dentro de tu horario y radio operativo.
-          </p>
+          <div className="rounded-xl border border-white/[0.07] bg-gradient-to-b from-[rgba(8,20,36,0.55)] to-[rgba(5,7,13,0.70)] px-5 py-5">
+            <p className="text-sm leading-6 text-orbi-muted/75">Sin misiones activas. Para recibir misiones debes estar en órbita con GPS, dentro de tu horario y radio operativo.</p>
+          </div>
         ) : (
           <div className="space-y-4">
             {myMissions.map((m) => {
@@ -1019,21 +1019,21 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
       {/* ── Perfil operativo ─────────────────────────────────────── */}
       <section className="space-y-4">
-        <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+        <div className="rounded-xl border border-white/[0.08] bg-gradient-to-b from-[rgba(8,20,36,0.60)] to-[rgba(5,7,13,0.75)] px-5 py-4 shadow-[0_4px_16px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orbi-cyan/[0.22] bg-orbi-blue/[0.13] text-orbi-cyan shadow-[0_0_14px_rgba(31,139,255,0.09)]">
               <UserRound aria-hidden="true" className="h-6 w-6" />
             </span>
             <div className="flex-1">
-              <h2 className="text-base font-black text-orbi-text">Mi perfil operativo</h2>
-              <p className="mt-1 text-xs text-orbi-muted">
+              <h2 className="text-base font-black tracking-tight text-orbi-text">Mi perfil operativo</h2>
+              <p className="mt-1.5 text-[11px] leading-5 text-orbi-muted/70">
                 Estos datos se muestran a clientes y se usan para filtrar misiones.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setProfileOpen((v) => !v)}
-              className="shrink-0 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+              className="shrink-0 rounded-lg border border-orbi-cyan/[0.22] bg-orbi-blue/[0.10] px-3 py-1.5 text-xs font-bold text-orbi-cyan/90 transition hover:border-orbi-cyan/[0.32] hover:bg-orbi-blue/[0.18]"
             >
               {profileOpen ? "Ocultar" : "Editar perfil"}
             </button>
@@ -1134,21 +1134,21 @@ export function AgentPrivatePanel({ agentId }: { agentId: string }) {
 
       {/* ── Mis vehículos ─────────────────────────────────────── */}
       <section className="space-y-4">
-        <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4">
+        <div className="rounded-xl border border-white/[0.08] bg-gradient-to-b from-[rgba(8,20,36,0.60)] to-[rgba(5,7,13,0.75)] px-5 py-4 shadow-[0_4px_16px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orbi-cyan/[0.22] bg-orbi-blue/[0.13] text-orbi-cyan shadow-[0_0_14px_rgba(31,139,255,0.09)]">
               <Car aria-hidden="true" className="h-6 w-6" />
             </span>
             <div className="flex-1">
-              <h2 className="text-base font-black text-orbi-text">Mis vehículos</h2>
-              <p className="mt-1 text-xs text-orbi-muted">
+              <h2 className="text-base font-black tracking-tight text-orbi-text">Mis vehículos</h2>
+              <p className="mt-1.5 text-[11px] leading-5 text-orbi-muted/70">
                 El vehículo activo se registra automáticamente en cada misión que aceptes.
               </p>
             </div>
             <button
               type="button"
               onClick={handleVehiclesPanelOpen}
-              className="shrink-0 rounded-md border border-orbi-cyan/30 bg-orbi-blue/10 px-3 py-1.5 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+              className="shrink-0 rounded-lg border border-orbi-cyan/[0.22] bg-orbi-blue/[0.10] px-3 py-1.5 text-xs font-bold text-orbi-cyan/90 transition hover:border-orbi-cyan/[0.32] hover:bg-orbi-blue/[0.18]"
             >
               {vehiclesOpen ? "Ocultar" : "Ver vehículos"}
             </button>
@@ -1399,9 +1399,9 @@ function TimeSelect({
 
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
-      <p className="font-semibold text-orbi-muted">{label}</p>
-      <p className="mt-1 font-black text-orbi-text">{value}</p>
+    <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2.5">
+      <p className="text-[10px] font-medium text-orbi-muted/60">{label}</p>
+      <p className="mt-0.5 text-sm font-bold text-orbi-text">{value}</p>
     </div>
   );
 }

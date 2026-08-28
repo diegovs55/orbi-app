@@ -9,7 +9,7 @@ import { getBusinessByAuthUserId } from "@/lib/businesses";
 import { saveBusinessSession } from "@/lib/businessSession";
 
 const inputClasses =
-  "mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15";
+  "mt-2 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/50 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.10]";
 
 export default function NegociosLoginPage() {
   const router = useRouter();
@@ -78,7 +78,7 @@ export default function NegociosLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-orbi-black text-orbi-text">
+    <div className="min-h-screen bg-gradient-to-b from-orbi-navy/20 via-orbi-black to-orbi-black text-orbi-text">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10 sm:px-8 lg:px-12">
         <header className="flex items-center justify-between">
           <BrandMark />
@@ -95,12 +95,12 @@ export default function NegociosLoginPage() {
             <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-5xl">
               Bienvenido a tu panel de negocio.
             </h1>
-            <p className="max-w-lg text-base leading-7 text-orbi-muted sm:text-lg">
+            <p className="max-w-lg text-base leading-7 text-orbi-muted/75 sm:text-lg">
               Si es tu primer acceso, utiliza el correo y la contraseña temporal que te proporcionó el equipo ORBI.
             </p>
           </section>
 
-          <section className="mx-auto w-full max-w-md rounded-3xl border border-white/10 bg-orbi-black/70 p-8 shadow-glow sm:p-10">
+          <section className="mx-auto w-full max-w-md rounded-2xl border border-white/[0.08] bg-[rgba(8,20,36,0.84)] p-8 shadow-[0_24px_64px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm sm:p-10">
             <div className="space-y-4">
               <h2 className="text-2xl font-black tracking-tight text-white">
                 Ingresa con tu correo y contraseña
@@ -108,7 +108,7 @@ export default function NegociosLoginPage() {
             </div>
 
             <form onSubmit={handleLogin} className="mt-8 space-y-6">
-              <label className="block text-sm font-semibold text-orbi-text">
+              <label className="block text-[11px] font-medium tracking-[0.04em] text-orbi-muted/65">
                 Correo electrónico
                 <input
                   className={inputClasses}
@@ -120,7 +120,7 @@ export default function NegociosLoginPage() {
                 />
               </label>
 
-              <label className="block text-sm font-semibold text-orbi-text">
+              <label className="block text-[11px] font-medium tracking-[0.04em] text-orbi-muted/65">
                 Contraseña
                 <input
                   className={inputClasses}

@@ -114,10 +114,10 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-between gap-2 rounded-md border border-orbi-cyan/15 bg-white/[0.04] px-3 py-2">
+      <div className="mb-4 flex items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-3">
         <div className="min-w-0">
-          <p className="truncate text-xs font-black text-orbi-text">Disponibilidad recalculada</p>
-          <p className="truncate text-xs text-orbi-muted">
+          <p className="truncate text-[11px] font-bold text-orbi-muted/70">Disponibilidad recalculada</p>
+          <p className="truncate text-[11px] text-orbi-muted/50">
             Revisión: {availabilityRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </p>
         </div>
@@ -125,7 +125,7 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
           type="button"
           onClick={() => void refreshAgents({ silent: true })}
           disabled={isRefreshing}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.09] bg-transparent px-3 py-1.5 text-xs font-medium text-orbi-muted/55 transition hover:border-white/18 hover:text-orbi-muted/85 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw aria-hidden="true" className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
           {isRefreshing ? "Actualizando..." : "Refrescar agentes"}
@@ -140,7 +140,7 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
             return (
               <article
                 key={agent.id}
-                className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur transition hover:-translate-y-0.5 hover:border-orbi-cyan/35"
+                className="rounded-xl border border-white/[0.08] bg-gradient-to-br from-orbi-panel/85 via-orbi-panel/68 to-orbi-black/80 p-5 shadow-[0_8px_28px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur transition hover:-translate-y-0.5 hover:border-orbi-cyan/[0.25]"
               >
                 <div className="flex items-start gap-4">
                   <AgentAvatar agent={agent} />
@@ -176,7 +176,7 @@ export function AgentCards({ hideCards = false }: { hideCards?: boolean } = {}) 
                 <button
                   type="button"
                   onClick={() => setProfileAgent(agent)}
-                  className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] px-5 py-3 text-sm font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+                  className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-orbi-cyan/[0.20] bg-orbi-blue/[0.09] px-5 py-2.5 text-sm font-bold text-orbi-cyan/90 transition hover:border-orbi-cyan/30 hover:bg-orbi-blue/[0.16]"
                 >
                   Ver perfil
                 </button>
@@ -249,13 +249,13 @@ function AgentAvatar({ agent }: { agent: OrbiAgent }) {
       <div
         aria-label={agent.name}
         role="img"
-        className="h-16 w-16 shrink-0 rounded-md border border-orbi-cyan/20 bg-cover bg-center"
+        className="h-16 w-16 shrink-0 rounded-xl border border-orbi-cyan/[0.18] bg-cover bg-center"
         style={{ backgroundImage: `url(${agent.photoUrl})` }}
       />
     );
   }
   return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-lg font-black text-orbi-cyan shadow-[0_0_22px_rgba(31,139,255,0.12)]">
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-orbi-cyan/[0.18] bg-orbi-blue/[0.12] text-lg font-black text-orbi-cyan/80 shadow-[0_0_16px_rgba(31,139,255,0.09)]">
       {agent.initials || <UserRound aria-hidden="true" className="h-7 w-7" />}
     </div>
   );
@@ -263,16 +263,16 @@ function AgentAvatar({ agent }: { agent: OrbiAgent }) {
 
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
-      <p className="font-semibold text-orbi-muted">{label}</p>
-      <p className="mt-1 font-black text-orbi-text">{value}</p>
+    <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2.5">
+      <p className="text-[10px] font-medium text-orbi-muted/60">{label}</p>
+      <p className="mt-0.5 text-sm font-bold text-orbi-text">{value}</p>
     </div>
   );
 }
 
 function StateCard({ title, body, tone = "default" }: { title: string; body: string; tone?: "default" | "error" }) {
   return (
-    <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 text-center shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] backdrop-blur sm:p-10">
+    <div className="rounded-xl border border-white/[0.07] bg-gradient-to-b from-[rgba(31,139,255,0.05)] to-[rgba(8,20,36,0.60)] p-6 text-center shadow-[0_8px_28px_rgba(0,0,0,0.22)] backdrop-blur sm:p-10">
       <div
         className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-md border shadow-[0_0_24px_rgba(31,139,255,0.14)] ${
           tone === "error"

@@ -1893,7 +1893,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
 
       {!networkReconcileError && !isReconcilingMission && !selectedService ? (
         <>
-          <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
+          <section className="rounded-md border border-orbi-cyan/[0.08] bg-gradient-to-br from-orbi-panel/80 via-orbi-panel/65 to-orbi-black/75 p-5 shadow-[0_12px_40px_rgba(0,0,0,0.22)] sm:p-6">
             {/* G2 — Zona de búsqueda */}
             {orbitLoading ? (
               <p className="mb-3 text-xs text-orbi-muted">Detectando tu zona…</p>
@@ -1919,7 +1919,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
                 onCancel={() => setShowOrbitPicker(false)}
               />
             ) : null}
-            <div className="mt-3 flex min-h-14 items-center gap-3 rounded-md border border-orbi-cyan/25 bg-orbi-black/45 px-4 shadow-[0_0_24px_rgba(31,139,255,0.1)]">
+            <div className="mt-3 flex min-h-[3.75rem] items-center gap-3 rounded-md border border-orbi-cyan/30 bg-orbi-black/50 px-4 shadow-[0_0_32px_rgba(31,139,255,0.14)]">
               <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-orbi-cyan" />
               <input
                 value={searchQuery}
@@ -1928,7 +1928,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
                   setCatalogSearchExpanded(false);
                 }}
                 placeholder="Dime qué necesitas..."
-                className="min-w-0 flex-1 bg-transparent py-4 text-base font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/55"
+                className="min-w-0 flex-1 bg-transparent py-4 text-[1.05rem] font-semibold text-orbi-text outline-none placeholder:text-orbi-muted/45"
               />
             </div>
             {catalogError ? (
@@ -1956,11 +1956,11 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
             ) : null}
           </section>
 
-          <section className="space-y-3">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-muted">
+          <section className="mt-5 space-y-3">
+            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-orbi-muted/50">
               O elige por dónde empezar
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-x-3 gap-y-2.5">
               {services.map((service) => {
                 const Icon = service.icon;
                 return (
@@ -1971,9 +1971,9 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
                       setSelectedService(service);
                       setSelectedStep("pedido");
                     }}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-orbi-text transition hover:border-orbi-cyan/30 hover:bg-orbi-blue/[0.08]"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-sm font-medium text-orbi-text/80 transition hover:border-orbi-cyan/25 hover:bg-orbi-blue/[0.07] hover:text-orbi-text"
                   >
-                    <Icon aria-hidden="true" className="h-4 w-4 text-orbi-cyan" />
+                    <Icon aria-hidden="true" className="h-3.5 w-3.5 text-orbi-cyan/70" />
                     {service.label}
                   </button>
                 );
@@ -1985,7 +1985,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
 
       {isCatalogMission ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/92 via-orbi-panel/76 to-orbi-black/88 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.3),0_0_34px_rgba(31,139,255,0.12)] sm:p-6">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+          <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-orbi-muted/50">
             Agregar otro producto o servicio
           </p>
           {/* G2 — chip de zona también en la sección de agregar producto */}
@@ -2185,7 +2185,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
 
           {orderIsConfirmed ? (
             activeDraftSection === "destino" ? (
-              <FormSection title={getDestinationSectionTitle(selectedService?.label)}>
+              <FormSection title={getDestinationSectionTitle(selectedService?.label)} className="mt-2 border-orbi-cyan/[0.12] bg-orbi-panel/30 shadow-[0_0_24px_rgba(31,139,255,0.06)]" gridClassName="sm:grid-cols-[minmax(0,2fr)_minmax(160px,1fr)] sm:gap-6">
                 <DestinationPickerField
                   value={details.destination}
                   lat={details.destinationLat}
@@ -2253,9 +2253,9 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
 
           {orderIsConfirmed && destinationIsConfirmed ? (
             activeDraftSection === "solicitante" ? (
-              <FormSection title="Datos del solicitante">
+              <FormSection title="Datos del solicitante" className="border-white/[0.06] bg-white/[0.018] sm:border-white/[0.04] sm:bg-transparent sm:px-5 sm:py-5">
                 {customerSession && authUserId ? (
-                  <p className="mb-1 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-cyan">
+                  <p className="mb-1 rounded-md border border-white/[0.07] bg-white/[0.02] px-3 py-2 text-[11px] font-medium text-orbi-muted/60 sm:col-span-2 sm:mb-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0.5 sm:text-[10px] sm:tracking-[0.1em] sm:text-orbi-muted/38">
                     Usando tu cuenta ORBI.
                   </p>
                 ) : null}
@@ -2368,14 +2368,14 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
           </p>
           <h2 className="mt-2 text-2xl font-black text-orbi-text">¿Lo pedimos así?</h2>
 
-          <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
+          <div className="mt-4 rounded-md border border-orbi-cyan/[0.10] bg-orbi-cyan/[0.03] px-4 py-3">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
-                <Radar aria-hidden="true" className="h-5 w-5 text-orbi-muted" />
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/[0.15] bg-orbi-cyan/[0.07]">
+                <Radar aria-hidden="true" className="h-4 w-4 text-orbi-cyan/65" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-bold text-orbi-text">ORBI asignará el mejor agente disponible para tu misión</p>
-                <p className="mt-1 text-xs leading-5 text-orbi-muted">
+                <p className="text-sm font-semibold text-orbi-text/85">ORBI asignará el mejor agente disponible para tu misión</p>
+                <p className="mt-1 text-xs leading-5 text-orbi-muted/65">
                   Seleccionamos según ubicación, disponibilidad y tiempo de respuesta.
                 </p>
               </div>
@@ -2383,8 +2383,8 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
           </div>
 
           <div className="mt-4 grid gap-3 text-sm text-orbi-muted sm:grid-cols-2">
-            <SummaryItem label="Servicio" value={selectedService.label} />
-            {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} /> : null}
+            <SummaryItem label="Servicio" value={selectedService.label} prominent />
+            {isCatalogMission && cartBusiness ? <SummaryItem label="Negocio" value={cartBusiness.businessName} prominent /> : null}
             {isCatalogMission && cartItems.length ? <SummaryItem label="Productos" value={`${cartItems.length} producto(s)`} /> : null}
             <SummaryItem label="Método de pago" value={paymentMethod} />
             <SummaryItem label="Estado de pago" value={paymentStatus} />
@@ -2410,7 +2410,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
             <button
               type="button"
               onClick={() => setShowConfirmationDetails((current) => !current)}
-              className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-bold text-orbi-text transition hover:bg-white/10"
+              className="inline-flex items-center justify-center rounded-md border border-white/[0.07] bg-transparent px-4 py-2 text-xs font-medium text-orbi-muted/55 transition hover:text-orbi-text hover:border-white/15"
             >
               {showConfirmationDetails ? "Ocultar detalle" : "Ver detalle"}
             </button>
@@ -2439,16 +2439,16 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
             </div>
           ) : null}
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="mt-7 grid gap-3 sm:grid-cols-2">
             {isSending ? (
-              <div className="sm:col-span-2 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.06] p-8 text-center">
+              <div className="sm:col-span-2 rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-blue/[0.07] via-orbi-panel/40 to-orbi-black/60 px-6 py-6 text-center shadow-[0_0_32px_rgba(31,139,255,0.10)]">
                 <div
-                  className="mx-auto mb-5 h-16 w-16 rounded-md overflow-hidden border border-white/10 bg-orbi-black/40"
-                  style={{ animation: "orbiArrive 1.8s ease-out forwards" }}
+                  className="mx-auto mb-4 h-14 w-14 overflow-hidden"
+                  style={{ animation: "orbiArrive 1.8s ease-out forwards", filter: "drop-shadow(0 0 10px rgba(54,215,255,0.22))" }}
                 >
                   <img src="/orbi-logo.png" alt="ORBI" className="h-full w-full object-contain" />
                 </div>
-                <p className="text-xl font-black text-orbi-text" style={{ animation: "orbiArrive 1.8s ease-out 0.5s both" }}>Estamos poniendo tu misión en órbita…</p>
+                <p className="text-2xl font-black leading-snug text-orbi-text [text-wrap:balance]" style={{ animation: "orbiArrive 1.8s ease-out 0.5s both" }}>Estamos poniendo tu misión en órbita…</p>
                 <style>{`
                   @keyframes orbiArrive {
                     0%   { opacity: 0; transform: scale(0.96); }
@@ -2526,7 +2526,7 @@ function StepHeader({
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+    <div className="flex flex-wrap gap-1.5">
       {steps.map((step) => {
         const isCurrent = selectedStep === step.id || (step.id === "servicio" && selectedStep === "pedido");
         const isClickable = step.done || isCurrent;
@@ -2541,13 +2541,13 @@ function StepHeader({
               }
             }}
             disabled={!isClickable}
-            className={`rounded-md border px-2 py-2 text-center text-[11px] font-bold transition ${
+            className={`rounded-full border px-3 py-1 text-center text-[10px] font-semibold tracking-wide transition ${
               isCurrent
-                ? "border-orbi-cyan/45 bg-orbi-blue/20 text-orbi-cyan shadow-[0_0_18px_rgba(31,139,255,0.12)]"
+                ? "border-orbi-cyan/35 bg-orbi-blue/15 text-orbi-cyan"
                 : step.done
-                  ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
-                  : "border-white/10 bg-white/[0.03] text-orbi-muted"
-            } ${isClickable ? "cursor-pointer hover:border-orbi-cyan/45" : "cursor-not-allowed"}`}
+                  ? "border-emerald-400/15 bg-emerald-400/[0.07] text-emerald-300/70"
+                  : "border-white/[0.05] bg-transparent text-orbi-muted/30"
+            } ${isClickable ? "cursor-pointer" : "cursor-not-allowed"}`}
           >
             {step.done && !isCurrent ? "✓ " : null}
             {step.label}
@@ -2558,11 +2558,11 @@ function StepHeader({
   );
 }
 
-function FormSection({ title, children }: { title: string; children: ReactNode }) {
+function FormSection({ title, children, className, gridClassName }: { title: string; children: ReactNode; className?: string; gridClassName?: string }) {
   return (
-    <section className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-4">
+    <section className={`space-y-3 rounded-md border border-white/[0.07] bg-white/[0.025] p-4 ${className ?? ""}`}>
       {title ? <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">{title}</h3> : null}
-      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+      <div className={`grid gap-4 sm:grid-cols-2 ${gridClassName ?? ""}`}>{children}</div>
     </section>
   );
 }
@@ -2579,7 +2579,7 @@ function ContinueStepButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"
+      className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-[#0f7af0] disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"
     >
       Continuar
     </button>
@@ -2617,20 +2617,20 @@ function SelectedService({
   const Icon = service.icon;
 
   return (
-    <div className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-4 sm:col-span-2">
+    <div className="border-b border-white/[0.06] pb-3 sm:col-span-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
-            <Icon aria-hidden="true" className="h-5 w-5" />
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md border border-orbi-cyan/15 bg-orbi-blue/10 text-orbi-cyan">
+            <Icon aria-hidden="true" className="h-4 w-4" />
           </span>
           <div>
-            <p className="mt-1 font-black text-orbi-text">{getServiceTitle(service.label)}</p>
+            <p className="font-black text-orbi-text">{getServiceTitle(service.label)}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onReset}
-          className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/10"
+          className="text-xs font-medium text-orbi-muted/55 transition hover:text-orbi-muted"
         >
           {actionLabel}
         </button>
@@ -2690,13 +2690,13 @@ function RequestSummaryBanner({
     : `Solicitud: ${shortenText(details.detail || service.description, 72)} · $${subtotal}`;
 
   return (
-    <section className="rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-black text-orbi-text">{summary}</p>
+    <section className="rounded-md border border-white/[0.05] bg-white/[0.015] px-4 py-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-semibold text-orbi-text/65">{summary}</p>
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+          className="text-xs font-medium text-orbi-muted/50 transition hover:text-orbi-muted"
         >
           Editar solicitud
         </button>
@@ -2999,9 +2999,10 @@ function CatalogSuggestions({
           Sector: {firstResult.sector} · Buscando &ldquo;{query}&rdquo;
         </p>
       </div>
-      <div className="grid gap-2">
-        {ordinaryResults.slice(0, 6).map((result) => {
+      <div className="mt-1 grid gap-3">
+        {ordinaryResults.slice(0, 6).map((result, index) => {
           const already = cartItems.some((item) => item.product.id === result.id);
+          const isFirst = index === 0;
           return (
             <button
               key={result.id}
@@ -3009,24 +3010,28 @@ function CatalogSuggestions({
               onClick={already ? undefined : () => onSelectProduct(result)}
               disabled={already}
               aria-disabled={already}
-              className={`rounded-md border border-white/10 bg-white/[0.04] p-4 text-left transition ${
-                already ? "opacity-60 cursor-not-allowed" : "hover:border-orbi-cyan/35 hover:bg-orbi-blue/[0.08]"
+              className={`rounded-md border p-4 text-left transition ${
+                already
+                  ? "opacity-60 cursor-not-allowed border-white/[0.07] bg-white/[0.03]"
+                  : isFirst
+                    ? "border-orbi-cyan/20 bg-orbi-blue/[0.04] shadow-[0_0_18px_rgba(31,139,255,0.07)] hover:border-orbi-cyan/30 hover:bg-orbi-blue/[0.07]"
+                    : "border-white/[0.07] bg-white/[0.03] hover:border-orbi-cyan/25 hover:bg-orbi-blue/[0.06]"
               }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-black text-orbi-text">
+                  <p className={`font-black text-orbi-text ${isFirst ? "text-base" : "text-sm"}`}>
                     {result.name} · {result.businessName}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-orbi-cyan">
+                  <p className="mt-1 text-xs font-medium text-orbi-muted/70">
                     {result.category} · {result.sector}
                   </p>
-                  <p className="mt-1 text-[10px] text-orbi-muted/60">
+                  <p className="mt-1 text-[10px] text-orbi-muted/35">
                     A aprox. {formatDistanceKm(result.distanceKm)} de aquí
                   </p>
-                  <p className="mt-1.5 text-sm leading-6 text-orbi-muted">{result.description}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-orbi-muted/55">{result.description}</p>
                 </div>
-                <span className="shrink-0 rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-1 text-sm font-black text-orbi-cyan">
+                <span className="shrink-0 rounded-full border border-orbi-cyan/[0.14] bg-orbi-blue/[0.07] px-3 py-1 text-sm font-black text-orbi-cyan/80">
                   {already ? "✓ Agregado" : `$${result.price}`}
                 </span>
               </div>
@@ -3063,32 +3068,32 @@ function LocalCart({
     : false;
 
   return (
-    <div className="rounded-md border border-orbi-cyan/15 bg-white/[0.04] p-4 sm:col-span-2">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="sm:col-span-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+          <p className="text-[9px] font-medium uppercase tracking-[0.18em] text-orbi-muted/45">
             Ticket de misión
           </p>
-          <p className="mt-2 text-lg font-black text-orbi-text">
+          <p className="mt-1 text-base font-semibold text-orbi-text/70">
             {items.length} {items.length === 1 ? "producto agregado" : "productos agregados"}
           </p>
           {firstItem ? (
-            <p className="mt-1 text-sm leading-6 text-orbi-muted">
+            <p className="mt-1.5 text-base font-black text-orbi-text leading-snug">
               {firstItem.quantity}x {firstItem.product.name} · {firstItem.product.businessName} · Subtotal ${subtotal}
             </p>
           ) : null}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={onAddMore}
-              className="rounded-md border border-orbi-cyan/40 bg-orbi-cyan/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-cyan/15"
+              className="rounded-full border border-orbi-cyan/20 bg-orbi-cyan/[0.05] px-3 py-1.5 text-xs font-semibold text-orbi-cyan/70 transition hover:border-orbi-cyan/35 hover:bg-orbi-cyan/[0.09] hover:text-orbi-cyan"
             >
               {business?.businessName ? `+ Agregar otro producto de ${business.businessName}` : "+ Agregar otro producto"}
             </button>
             <button
               type="button"
               onClick={() => onExpandedChange(true)}
-              className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-orbi-muted transition hover:bg-white/[0.06]"
+              className="text-xs font-medium text-orbi-muted/50 transition hover:text-orbi-muted"
             >
               Ajustar cantidad
             </button>
@@ -3097,15 +3102,15 @@ function LocalCart({
         <button
           type="button"
           onClick={() => onExpandedChange(!isExpanded)}
-          className="shrink-0 rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/15"
+          className="shrink-0 text-xs font-semibold text-orbi-muted/65 transition hover:text-orbi-text"
         >
           {isExpanded ? "Ocultar detalle" : "Ver detalle"}
         </button>
       </div>
       {business ? (
-        <div className="mt-3 rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] p-3">
-          <p className="font-black text-orbi-text">{business.businessName}</p>
-          <p className="mt-1 text-xs text-orbi-muted">
+        <div className="mt-3 border-t border-white/[0.06] pt-3">
+          <p className="text-sm font-semibold text-orbi-text/80">{business.businessName}</p>
+          <p className="mt-0.5 text-xs text-orbi-muted/55">
             Origen automático: {business.businessBaseText || business.businessZone || business.businessName}
           </p>
           {!hasValidBusinessOrigin ? (
@@ -3116,34 +3121,34 @@ function LocalCart({
         </div>
       ) : null}
       {isExpanded ? (
-        <div className="mt-3 space-y-2">
+        <div className="mt-4 space-y-3">
           {items.map((item) => {
             const subtotalItem = item.product.price * item.quantity;
             return (
-              <div key={item.product.id} className="rounded-md border border-white/10 bg-orbi-black/25 p-3">
-                <div className="flex items-start justify-between gap-3">
+              <div key={item.product.id} className="rounded-lg border border-white/[0.06] bg-orbi-black/25 px-4 py-4">
+                <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="font-bold text-orbi-text">{item.product.name}</p>
-                    <p className="mt-1 text-xs text-orbi-muted">
+                    <p className="text-[1.05rem] font-black leading-snug text-orbi-text/90">{item.product.name}</p>
+                    <p className="mt-1 text-xs font-medium text-orbi-muted/60">
                       {item.product.businessName} · ${item.product.price} c/u
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => onRemove(item.product.id)}
-                    className="rounded-md border border-red-300/15 bg-red-400/10 px-2 py-1 text-xs font-bold text-red-200"
+                    className="shrink-0 rounded-md border border-red-300/10 bg-red-400/[0.07] px-2 py-1 text-[11px] font-medium text-red-200/70"
                   >
                     Quitar
                   </button>
                 </div>
-                <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
-                  <label className="text-xs font-semibold text-orbi-muted">
+                <div className="mt-4 grid grid-cols-[1fr_auto] items-end gap-3">
+                  <label className="text-[11px] font-medium text-orbi-muted/55">
                     Cantidad
-                    <div className="mt-1 flex items-center gap-2">
+                    <div className="mt-1.5 flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => onQuantityChange(item.product.id, Math.max(1, item.quantity - 1))}
-                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text transition hover:bg-white/10"
+                        className="rounded border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-sm text-orbi-text/80 transition hover:bg-white/[0.07]"
                       >
                         -
                       </button>
@@ -3152,23 +3157,23 @@ function LocalCart({
                         type="number"
                         value={item.quantity}
                         onChange={(event) => onQuantityChange(item.product.id, Number(event.target.value))}
-                        className="w-20 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text outline-none"
+                        className="w-14 rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-center text-sm text-orbi-text outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => onQuantityChange(item.product.id, item.quantity + 1)}
-                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-orbi-text transition hover:bg-white/10"
+                        className="rounded border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-sm text-orbi-text/80 transition hover:bg-white/[0.07]"
                       >
                         +
                       </button>
                     </div>
                   </label>
-                  <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/10 px-3 py-2 text-sm font-black text-orbi-cyan">
+                  <span className="rounded-full border border-orbi-cyan/20 bg-orbi-blue/[0.10] px-3 py-1.5 text-sm font-black text-orbi-cyan/85">
                     ${subtotalItem}
                   </span>
                 </div>
-                <div className="mt-3">
-                  <label className="block text-xs font-semibold text-orbi-muted">
+                <div className="mt-4">
+                  <label className="block text-[11px] font-medium text-orbi-muted/50">
                     Indicaciones para este producto (opcional)
                   </label>
                   <textarea
@@ -3177,7 +3182,7 @@ function LocalCart({
                     value={item.note ?? ""}
                     onChange={(e) => onNoteChange(item.product.id, e.target.value)}
                     placeholder="Ej. sin cebolla, poca azúcar, sin hielo…"
-                    className="mt-1 w-full resize-none rounded-md border border-white/10 bg-orbi-black/40 px-3 py-2 text-xs text-orbi-text placeholder:text-orbi-muted/60 outline-none transition focus:border-orbi-cyan/30 focus:bg-orbi-black/60"
+                    className="mt-1.5 w-full resize-none rounded-md border border-white/[0.05] bg-orbi-black/20 px-3 py-2 text-xs text-orbi-text/75 placeholder:text-orbi-muted/30 outline-none transition focus:border-orbi-cyan/20 focus:bg-orbi-black/40"
                   />
                 </div>
               </div>
@@ -3185,7 +3190,7 @@ function LocalCart({
           })}
         </div>
       ) : null}
-      <p className="mt-3 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-black text-orbi-text">
+      <p className="mt-4 border-t border-white/[0.08] pt-3 text-sm font-black text-orbi-text">
         Subtotal productos: ${subtotal}
       </p>
     </div>
@@ -3223,10 +3228,10 @@ function RequestInput({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block text-sm font-semibold text-orbi-text">
+    <label className="block text-[11px] font-medium text-orbi-muted/65 sm:text-[10px] sm:tracking-[0.06em]">
       {label}
       <input
-        className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.04] px-4 py-3 text-orbi-text outline-none transition placeholder:text-orbi-muted/55 focus:border-orbi-cyan/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-orbi-cyan/15"
+        className="mt-1.5 w-full rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm font-semibold text-orbi-text/90 outline-none transition placeholder:text-orbi-muted/40 focus:border-orbi-cyan/50 focus:bg-white/[0.06] focus:ring-1 focus:ring-orbi-cyan/12 sm:bg-white/[0.05] sm:border-white/[0.07] sm:px-4 sm:py-3 sm:text-base"
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
@@ -3626,7 +3631,7 @@ function DestinationPickerField({
     ? "border-emerald-400/40"
     : pendingConfirm
       ? "border-yellow-300/40"
-      : "border-white/10 focus-within:border-orbi-cyan/60 focus-within:ring-2 focus-within:ring-orbi-cyan/15";
+      : "border-orbi-cyan/[0.18] shadow-[0_0_16px_rgba(54,215,255,0.05)] focus-within:border-orbi-cyan/60 focus-within:ring-2 focus-within:ring-orbi-cyan/15";
 
   const displayValue = pendingConfirm ? pendingConfirm.text : value;
   const isTextDisabled = gpsLoading || Boolean(pendingConfirm);
@@ -3640,7 +3645,7 @@ function DestinationPickerField({
         </p>
       )}
       {/* Fila del input */}
-      <div className={`flex items-center gap-2 rounded-md border bg-white/[0.04] px-3 py-2.5 transition ${inputBorder}`}>
+      <div className={`flex items-center gap-2 rounded-md border bg-white/[0.06] px-3 py-3 transition ${inputBorder}`}>
         {isConfirmed ? (
           <span className="flex-shrink-0 text-sm text-emerald-400" aria-hidden="true">✓</span>
         ) : (
@@ -3659,7 +3664,7 @@ function DestinationPickerField({
           type="button"
           onClick={onGpsRequest}
           disabled={isTextDisabled}
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan disabled:opacity-40"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-orbi-cyan/25 bg-orbi-cyan/[0.07] text-orbi-cyan/70 transition hover:border-orbi-cyan/45 hover:bg-orbi-cyan/[0.12] hover:text-orbi-cyan disabled:opacity-40"
           aria-label="Usar mi ubicación como destino"
         >
           {gpsLoading
@@ -3672,7 +3677,7 @@ function DestinationPickerField({
           type="button"
           onClick={onOpenMap}
           disabled={isMapDisabled}
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.04] text-orbi-muted transition hover:border-orbi-cyan/30 hover:text-orbi-cyan disabled:opacity-40"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-orbi-blue/30 bg-orbi-blue/[0.08] text-orbi-blue/70 transition hover:border-orbi-blue/50 hover:bg-orbi-blue/[0.14] hover:text-orbi-blue disabled:opacity-40"
           aria-label="Elegir destino en mapa"
         >
           <MapPin className="h-3.5 w-3.5" />
@@ -3790,30 +3795,30 @@ function LocationPickerDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-orbi-black/82 px-3 pb-3 pt-10 backdrop-blur sm:items-center sm:justify-center sm:p-6">
-      <section className="max-h-[92vh] w-full overflow-hidden rounded-md border border-orbi-cyan/20 bg-gradient-to-br from-orbi-panel via-orbi-panel/95 to-orbi-black shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_44px_rgba(31,139,255,0.18)] sm:max-w-3xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 p-4 sm:p-5">
+      <section className="max-h-[92vh] w-full overflow-hidden rounded-lg border border-orbi-cyan/[0.14] bg-gradient-to-br from-orbi-panel via-orbi-panel/95 to-orbi-black shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_44px_rgba(31,139,255,0.12)] sm:max-w-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] p-4 sm:px-6 sm:py-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orbi-cyan">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-orbi-cyan/70">
               Selección visual
             </p>
-            <h2 className="mt-1 text-xl font-black text-orbi-text">{title}</h2>
-            <p className="mt-1 text-sm leading-6 text-orbi-muted">
+            <h2 className="mt-2 text-xl font-black text-orbi-text">{title}</h2>
+            <p className="mt-1.5 text-sm leading-6 text-orbi-muted/70">
               Toca el mapa o arrastra el marcador para ajustar el punto.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-bold text-orbi-text transition hover:bg-white/10"
+            className="rounded-md border border-white/[0.05] bg-transparent px-3 py-2 text-xs font-medium text-orbi-muted/45 transition hover:text-orbi-muted"
           >
             Cerrar
           </button>
         </div>
-        <div className="h-[58vh] min-h-[320px] w-full border-b border-white/10">
+        <div className="h-[58vh] min-h-[320px] w-full border-b border-white/[0.07]">
           <LocationPickerMap point={point} onPointChange={onPointChange} />
         </div>
-        <div className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center sm:p-5">
-          <p className="rounded-md border border-orbi-cyan/15 bg-orbi-blue/[0.08] px-3 py-2 text-xs font-semibold text-orbi-muted">
+        <div className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-6 sm:py-4">
+          <p className="rounded-md border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs font-medium text-orbi-muted/60">
             Punto seleccionado: {formatCoordinates(point.lat, point.lng)}
           </p>
           <button
@@ -3843,10 +3848,10 @@ function ScheduleField({
 }) {
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-semibold text-orbi-text">
+      <label className="block text-xs font-medium text-orbi-muted/65">
         Horario deseado
         <select
-          className="mt-2 w-full rounded-md border border-white/10 bg-orbi-black px-4 py-3 text-orbi-text outline-none transition focus:border-orbi-cyan/60 focus:ring-2 focus:ring-orbi-cyan/15"
+          className="mt-2 w-full rounded-md border border-white/[0.08] bg-orbi-black/60 px-4 py-2.5 text-sm text-orbi-text/80 outline-none transition focus:border-orbi-cyan/50 focus:ring-1 focus:ring-orbi-cyan/10"
           value={mode}
           onChange={(event) => onModeChange(event.target.value as "asap" | "scheduled")}
         >
@@ -3921,11 +3926,11 @@ function CompactCostSummary({
   );
 }
 
-function SummaryItem({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
+function SummaryItem({ label, value, wide, prominent }: { label: string; value: string; wide?: boolean; prominent?: boolean }) {
   return (
-    <div className={`rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 ${wide ? "sm:col-span-2" : ""}`}>
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-orbi-cyan">{label}</p>
-      <p className="mt-1 font-semibold text-orbi-text">{value}</p>
+    <div className={`rounded-md border px-3 py-2 ${wide ? "sm:col-span-2" : ""} ${prominent ? "border-white/[0.10] bg-white/[0.04]" : "border-white/[0.07] bg-white/[0.02]"}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-orbi-muted/55">{label}</p>
+      <p className={`mt-1 text-sm font-semibold ${prominent ? "text-orbi-text/95" : "text-orbi-text/75"}`}>{value}</p>
     </div>
   );
 }
