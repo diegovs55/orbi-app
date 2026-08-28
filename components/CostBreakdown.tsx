@@ -21,27 +21,27 @@ export function CostBreakdown({
   total: number;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-4">
-      <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+    <div className="rounded-md border border-white/[0.07] bg-white/[0.025] px-4 py-3">
+      <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-orbi-muted/55">
         Desglose de pago
       </p>
-      <div className="space-y-2 text-sm">
+      <div className="space-y-1.5 text-sm">
         {subtotal !== null ? (
-          <div className="flex justify-between text-orbi-muted">
+          <div className="flex justify-between text-orbi-muted/65">
             <span>Subtotal productos</span>
-            <span className="font-semibold text-orbi-text">${subtotal.toFixed(0)}</span>
+            <span className="font-medium text-orbi-text/70">${subtotal.toFixed(0)}</span>
           </div>
         ) : null}
         {serviceFee !== null ? (
-          <div className="flex justify-between text-orbi-muted">
+          <div className="flex justify-between text-orbi-muted/65">
             <span>Servicio / logística</span>
-            <span className="font-semibold text-orbi-text">${serviceFee.toFixed(0)}</span>
+            <span className="font-medium text-orbi-text/70">${serviceFee.toFixed(0)}</span>
           </div>
         ) : null}
-        <div className="border-t border-white/15 pt-2">
-          <div className="flex justify-between">
-            <span className="font-bold text-orbi-text">Total a pagar</span>
-            <span className="font-black text-orbi-cyan">${total.toFixed(0)}</span>
+        <div className="border-t border-white/[0.08] pt-2.5 mt-1">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-bold text-orbi-text">Total a pagar</span>
+            <span className="text-xl font-black text-orbi-cyan">${total.toFixed(0)}</span>
           </div>
         </div>
       </div>

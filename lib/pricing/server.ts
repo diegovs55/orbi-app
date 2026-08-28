@@ -43,6 +43,7 @@ export type MotorParams = DirectParams & {
   radioServicioMaximoKm:      number;
   radioAsignacionAutomaticaKm: number;
   radioAsignacionMaximaKm:    number;
+  maxPickupEtaMin:             number;  // solo leído por orbits/availability
 };
 
 export function haversineKmServer(
@@ -81,6 +82,7 @@ const FALLBACK_MOTOR: MotorParams = {
   radioServicioMaximoKm:       30,  // A2.1 — sincronizado con migración 20260720_a2_radio_servicio_v2
   radioAsignacionAutomaticaKm:  3,
   radioAsignacionMaximaKm:      8,
+  maxPickupEtaMin:             30,
 };
 
 export async function loadMotorParams(
@@ -108,6 +110,7 @@ export async function loadMotorParams(
           "radio_servicio_maximo_km",
           "radio_asignacion_automatica_km",
           "radio_asignacion_maxima_km",
+          "max_pickup_eta_min",
         ]),
       admin
         .from("motor_params_history")
@@ -141,6 +144,7 @@ export async function loadMotorParams(
       radioServicioMaximoKm:       map.get("radio_servicio_maximo_km")       ?? 0,
       radioAsignacionAutomaticaKm: map.get("radio_asignacion_automatica_km") ?? 0,
       radioAsignacionMaximaKm:     map.get("radio_asignacion_maxima_km")     ?? 0,
+      maxPickupEtaMin:             map.get("max_pickup_eta_min")             ?? 30,
     };
 
     const invalid = (Object.entries(raw) as [string, number][])

@@ -118,15 +118,15 @@ export default function AgentePage() {
       title="Tu centro de órbita y misiones Orbi."
       description="Recibe, acepta y administra misiones en tiempo real desde la red local."
     >
-      <div className="mb-4 flex items-center justify-between rounded-md border border-orbi-cyan/15 bg-white/[0.04] px-4 py-3">
+      <div className="mb-6 flex items-center justify-between rounded-xl border border-white/[0.08] bg-gradient-to-b from-[rgba(8,20,36,0.72)] to-[rgba(5,7,13,0.82)] px-5 py-4 shadow-[0_8px_28px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.05)]">
         <div>
-          <p className="text-sm font-black text-orbi-text">{session.name}</p>
-          <p className="text-xs text-orbi-muted">{session.email}</p>
+          <p className="text-base font-black tracking-tight text-orbi-text">{session.name}</p>
+          <p className="mt-0.5 text-[11px] text-orbi-muted/65">{session.email}</p>
         </div>
         <button
           type="button"
           onClick={handleLogout}
-          className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-bold text-orbi-muted transition hover:bg-white/10 hover:text-orbi-text"
+          className="inline-flex items-center gap-2 rounded-lg border border-white/[0.08] bg-transparent px-3 py-1.5 text-xs font-medium text-orbi-muted/55 transition hover:border-white/[0.15] hover:text-orbi-muted/85"
         >
           <LogOut aria-hidden="true" className="h-3.5 w-3.5" />
           Salir
@@ -137,7 +137,7 @@ export default function AgentePage() {
         return data.session?.access_token ?? null;
       }} />
       <AgentPrivatePanel agentId={session.id} />
-      <div className="mt-6">
+      <div className="mt-10">
         <SupportCard />
       </div>
     </PageShell>

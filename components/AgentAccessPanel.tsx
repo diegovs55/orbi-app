@@ -80,20 +80,20 @@ export function AgentAccessPanel() {
     }
 
     return (
-      <div className="text-center">
-        <p className="mb-3 text-xs text-orbi-muted">¿Quieres formar parte de la red?</p>
-        <div className="flex items-center justify-center gap-2">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-[11px] font-medium text-orbi-muted/55">¿Quieres formar parte de la red?</p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             onClick={() => setPanel("request")}
-            className="inline-flex min-h-11 items-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-4 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+            className="inline-flex min-h-10 items-center rounded-lg border border-orbi-cyan/[0.20] bg-orbi-blue/[0.12] px-5 py-2 text-xs font-bold text-orbi-cyan/90 transition hover:border-orbi-cyan/30 hover:bg-orbi-blue/[0.20]"
           >
             Solicitar alta como agente
           </button>
           <button
             type="button"
             onClick={() => router.push("/agente/login")}
-            className="inline-flex min-h-11 items-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 px-4 py-2 text-xs font-bold text-orbi-cyan transition hover:bg-orbi-blue/20"
+            className="inline-flex min-h-10 items-center rounded-lg border border-white/[0.08] bg-transparent px-4 py-2 text-xs font-medium text-orbi-muted/50 transition hover:border-white/15 hover:text-orbi-muted/80"
           >
             Ya tengo acceso
           </button>
@@ -103,18 +103,18 @@ export function AgentAccessPanel() {
   }
 
   return (
-    <div className="rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.06] p-5">
+    <div className="rounded-xl border border-white/[0.10] bg-gradient-to-b from-[rgba(8,20,36,0.82)] to-[rgba(5,7,13,0.92)] p-6 shadow-[0_12px_40px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-8">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-black text-orbi-text">
+        <p className="text-lg font-black tracking-tight text-white">
           {panel === "confirmed" ? "¡Solicitud recibida!" : "Solicitar alta como agente"}
         </p>
-        <button type="button" onClick={handleClose} className="text-orbi-muted transition hover:text-orbi-text">
+        <button type="button" onClick={handleClose} className="text-orbi-muted/35 transition hover:text-orbi-muted">
           <X aria-hidden="true" className="h-4 w-4" />
         </button>
       </div>
 
       {panel === "confirmed" ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-6 space-y-4">
           <p className="text-sm text-orbi-muted">
             Revisaremos tus datos y te contactaremos por WhatsApp al{" "}
             {confirmedPhone
@@ -126,18 +126,18 @@ export function AgentAccessPanel() {
           <SecondaryBtn label="Entendido" onClick={handleClose} />
         </div>
       ) : (
-        <form onSubmit={handleRequest} className="mt-4 space-y-3" noValidate>
+        <form onSubmit={handleRequest} className="mt-6 space-y-4" noValidate>
           <FieldInput label="Nombre completo" type="text" value={reqName} onChange={setReqName} placeholder="Tu nombre" autoComplete="name" />
           <FieldInput label="Correo electrónico" type="email" value={identifier} onChange={setIdentifier} placeholder="correo@ejemplo.com" autoComplete="email" />
           <FieldInput label="WhatsApp" type="tel" value={reqPhone} onChange={setReqPhone} placeholder="7771234567" autoComplete="tel" />
           <div>
-            <label className="block text-xs font-semibold text-orbi-muted">Mensaje (opcional)</label>
+            <label className="block text-[10px] font-medium tracking-[0.05em] text-orbi-muted/45">Mensaje (opcional)</label>
             <textarea value={reqMessage} onChange={(e) => setReqMessage(e.target.value)} rows={2}
-              className="mt-1 w-full resize-none rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none"
+              className="mt-1.5 w-full resize-none rounded-lg border border-white/[0.08] bg-[rgba(5,7,13,0.50)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/35 focus:border-orbi-cyan/40 focus:bg-[rgba(54,215,255,0.02)] focus:ring-1 focus:ring-orbi-cyan/[0.06] focus:outline-none"
               placeholder="¿Qué servicios ofreces?" />
           </div>
           {error ? <ErrorMsg msg={error} /> : null}
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <PrimaryBtn label={loading ? "Enviando…" : "Enviar solicitud"} disabled={loading} />
             <SecondaryBtn label="Ya tengo acceso" onClick={() => router.push("/agente/login")} />
           </div>
@@ -153,9 +153,9 @@ function FieldInput({ label, type, value, onChange, placeholder, autoComplete }:
 }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-orbi-muted">{label}</label>
+      <label className="block text-[11px] font-medium tracking-[0.03em] text-orbi-muted/65">{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoComplete={autoComplete}
-        className="mt-1 w-full rounded-md border border-white/15 bg-orbi-black/60 px-3 py-2 text-sm text-orbi-text focus:border-orbi-cyan/50 focus:outline-none" />
+        className="mt-1.5 w-full rounded-lg border border-white/[0.12] bg-[rgba(5,7,13,0.60)] px-3 py-2.5 text-sm text-orbi-text placeholder:text-orbi-muted/45 focus:border-orbi-cyan/55 focus:bg-[rgba(54,215,255,0.03)] focus:ring-2 focus:ring-orbi-cyan/[0.08] focus:outline-none" />
     </div>
   );
 }
@@ -163,7 +163,7 @@ function FieldInput({ label, type, value, onChange, placeholder, autoComplete }:
 function PrimaryBtn({ label, disabled }: { label: string; disabled?: boolean }) {
   return (
     <button type="submit" disabled={disabled}
-      className="inline-flex min-h-10 items-center justify-center rounded-md bg-orbi-blue px-5 py-2 text-xs font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-50">
+      className="inline-flex min-h-10 items-center justify-center rounded-lg bg-orbi-blue px-7 py-2.5 text-sm font-black text-white shadow-[0_4px_24px_rgba(31,139,255,0.26),inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:bg-[#0f7af0] disabled:opacity-50">
       {label}
     </button>
   );
@@ -171,7 +171,7 @@ function PrimaryBtn({ label, disabled }: { label: string; disabled?: boolean }) 
 
 function SecondaryBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="inline-flex min-h-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] px-5 py-2 text-xs font-bold text-orbi-muted transition hover:bg-white/10">
+    <button type="button" onClick={onClick} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-white/[0.08] bg-transparent px-5 py-2.5 text-sm font-medium text-orbi-muted/50 transition hover:border-white/[0.15] hover:text-orbi-muted/80">
       {label}
     </button>
   );

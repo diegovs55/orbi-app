@@ -690,15 +690,15 @@ function MissionDetailBody({
     return (
       <section className="space-y-5">
         <MissionSummary mission={mission} title="Tu pedido" />
-        <article className="rounded-md border border-amber-400/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-8">
-          <div className="flex flex-col items-center gap-3 text-center sm:gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-amber-400/25 bg-amber-400/10 shadow-[0_0_28px_rgba(251,191,36,0.15)]">
-              <Clock3 aria-hidden="true" className="h-8 w-8 animate-pulse text-amber-300" />
+        <article className="rounded-md border border-amber-400/28 bg-gradient-to-br from-orbi-panel/90 via-orbi-panel/75 to-orbi-black/82 px-6 py-8 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_32px_rgba(251,191,36,0.07)] sm:px-8 sm:py-10">
+          <div className="flex flex-col items-center gap-4 text-center sm:gap-5">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/[0.10] shadow-[0_0_36px_rgba(251,191,36,0.20)]">
+              <Clock3 aria-hidden="true" className="h-9 w-9 animate-pulse text-amber-300" />
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-300">Pedido recibido</p>
-              <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya recibimos tu pedido</h2>
-              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
+              <h2 className="mt-2 text-2xl font-black text-orbi-text sm:text-3xl">Ya recibimos tu pedido</h2>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted/85">
                 El negocio está revisando tu pedido. En cuanto lo confirme, empezamos.
               </p>
             </div>
@@ -712,15 +712,15 @@ function MissionDetailBody({
     return (
       <section className="space-y-5">
         <MissionSummary mission={mission} title="Tu pedido" />
-        <article className="rounded-md border border-emerald-400/20 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.28)] sm:p-8">
-          <div className="flex flex-col items-center gap-3 text-center sm:gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10 shadow-[0_0_28px_rgba(52,211,153,0.15)]">
-              <Clock3 aria-hidden="true" className="h-8 w-8 animate-pulse text-emerald-300" />
+        <article className="rounded-md border border-emerald-400/28 bg-gradient-to-br from-orbi-panel/90 via-orbi-panel/75 to-orbi-black/82 px-6 py-8 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_32px_rgba(52,211,153,0.06)] sm:px-8 sm:py-10">
+          <div className="flex flex-col items-center gap-4 text-center sm:gap-5">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/[0.10] shadow-[0_0_36px_rgba(52,211,153,0.20)]">
+              <Clock3 aria-hidden="true" className="h-9 w-9 animate-pulse text-emerald-300" />
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">En preparación</p>
-              <h2 className="mt-2 text-2xl font-black text-orbi-text">Ya comenzaron a preparar tu pedido</h2>
-              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted">
+              <h2 className="mt-2 text-2xl font-black text-orbi-text sm:text-3xl">Ya comenzaron a preparar tu pedido</h2>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-orbi-muted/85">
                 El agente saldrá a recogerlo en cuanto esté listo.
               </p>
             </div>
@@ -898,18 +898,18 @@ function MissionDetailBody({
 
 function MissionSummary({ mission, title }: { mission: ActiveMission; title: string }) {
   return (
-    <article className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
+    <article className="rounded-md border border-white/[0.07] bg-gradient-to-br from-orbi-panel/80 via-orbi-panel/65 to-orbi-black/80 p-5 shadow-[0_8px_24px_rgba(0,0,0,0.20)] sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orbi-muted/70">
             {title}
           </p>
-          <h2 className="mt-2 text-2xl font-black text-orbi-text">{mission.service_type}</h2>
+          <h2 className="mt-2 text-xl font-bold text-orbi-text">{mission.service_type}</h2>
           <p className="mt-2 text-sm leading-6 text-orbi-muted">
             {mission.detail || mission.service_type} — lo estamos cuidando.
           </p>
         </div>
-        <span className="inline-flex w-fit items-center rounded-full border border-orbi-cyan/25 bg-orbi-blue/10 px-3 py-1 text-xs font-bold text-orbi-cyan">
+        <span className="inline-flex w-fit items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-xs font-semibold text-orbi-muted/80">
           {getOrbitVisualStatusLabel(mission)}
         </span>
       </div>
@@ -966,7 +966,7 @@ function MissionTimeline({ status }: { status: MissionStatus }) {
               className={`rounded-md border px-3 py-3 text-xs font-bold ${
                 index <= currentIndex
                   ? "border-orbi-cyan/25 bg-orbi-blue/10 text-orbi-cyan"
-                  : "border-white/10 bg-white/[0.03] text-orbi-muted"
+                  : "border-white/[0.05] bg-transparent text-orbi-muted/45"
               }`}
             >
               {customerTimelineLabels[state] ?? state}
@@ -1246,12 +1246,12 @@ function MissionTile({
   value: string;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <div className="flex items-center gap-2 text-orbi-cyan">
+    <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-3">
+      <div className="flex items-center gap-2 text-orbi-cyan/60">
         <Icon aria-hidden="true" className="h-4 w-4" />
-        <p className="text-xs font-bold uppercase tracking-[0.14em]">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em]">{label}</p>
       </div>
-      <p className="mt-2 font-black text-orbi-text">{value}</p>
+      <p className="mt-2 font-semibold text-orbi-text/85">{value}</p>
     </div>
   );
 }

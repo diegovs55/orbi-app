@@ -229,20 +229,20 @@ export function NearbyOrbitsPreview() {
   // ── Initial state: map not yet open ──────────────────────────────────────
   if (!showMap) {
     return (
-      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur text-center">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+      <div className="rounded-md border border-white/[0.05] bg-gradient-to-br from-orbi-panel/55 via-orbi-panel/45 to-orbi-black/65 px-5 py-7 shadow-[0_8px_24px_rgba(0,0,0,0.16)] backdrop-blur text-center sm:px-8 sm:py-9">
+        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-orbi-cyan/70">
           Órbitas disponibles
         </p>
-        <p className="mt-2 text-sm text-orbi-muted">
+        <p className="mt-2 text-sm leading-6 text-orbi-muted/80">
           Pon misiones en las órbitas o tómalas para trasladarte.
         </p>
-        {geoError && <p className="mt-2 text-xs text-red-300">{geoError}</p>}
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
+        {geoError && <p className="mt-2 text-xs text-red-300/90">{geoError}</p>}
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
           <button
             type="button"
             onClick={handleGeolocate}
             disabled={loading}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-60"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orbi-blue px-6 py-3 text-sm font-black text-white shadow-[0_3px_20px_rgba(31,139,255,0.28),inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:bg-[#0f7af0] disabled:opacity-60"
           >
             {loading ? (
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -262,11 +262,11 @@ export function NearbyOrbitsPreview() {
     : ZUMPAHUACAN;
 
   return (
-    <div className="overflow-hidden rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur">
+    <div className="overflow-hidden rounded-xl border border-orbi-cyan/[0.18] bg-gradient-to-b from-[rgba(31,139,255,0.07)] to-[rgba(8,20,36,0.72)] shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(54,215,255,0.08)] backdrop-blur">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-orbi-cyan/70">
             Órbitas disponibles
           </p>
           {!queryPoint && !loading && (
@@ -310,7 +310,7 @@ export function NearbyOrbitsPreview() {
               onClick={handleRefresh}
               disabled={loading}
               aria-label="Actualizar disponibilidad"
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-orbi-cyan/25 bg-orbi-blue/[0.08] text-orbi-cyan transition hover:bg-orbi-blue/15 disabled:opacity-60"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-orbi-cyan/[0.18] bg-orbi-blue/[0.08] text-orbi-cyan/80 transition hover:bg-orbi-blue/15 disabled:opacity-60"
             >
               <RefreshCw
                 aria-hidden="true"
@@ -324,7 +324,7 @@ export function NearbyOrbitsPreview() {
             onClick={handleGeolocate}
             disabled={loading}
             aria-label="Usar mi ubicación"
-            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-muted transition hover:bg-white/10 disabled:opacity-60"
+            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.09] bg-transparent px-3 text-xs font-medium text-orbi-muted/55 transition hover:border-white/18 hover:text-orbi-muted/85 disabled:opacity-60"
           >
             <Navigation aria-hidden="true" className="h-3.5 w-3.5" />
             Mi ubicación
@@ -334,7 +334,7 @@ export function NearbyOrbitsPreview() {
             type="button"
             onClick={handleClose}
             aria-label="Cerrar mapa"
-            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-orbi-muted transition hover:bg-white/10"
+            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/[0.09] bg-transparent px-3 text-xs font-medium text-orbi-muted/55 transition hover:border-white/18 hover:text-orbi-muted/85"
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
             Cerrar
@@ -391,7 +391,7 @@ export function NearbyOrbitsPreview() {
         <div className="p-4">
           <Link
             href="/pedir"
-            className="inline-flex min-h-10 w-full items-center justify-center rounded-md bg-orbi-blue px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#0f7af0]"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-lg bg-orbi-blue px-5 py-2.5 text-sm font-black text-white shadow-[0_3px_20px_rgba(31,139,255,0.24),inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:bg-[#0f7af0]"
           >
             Poner una misión en órbita →
           </Link>
@@ -401,7 +401,7 @@ export function NearbyOrbitsPreview() {
       {/* Top 3 — public profiles from the same available[] set, no coordinates */}
       {data !== null && data.nearby_agents.length > 0 && (
         <div className="border-t border-white/[0.07] px-4 pb-4 pt-4">
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-orbi-cyan">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-orbi-cyan/70">
             Agentes disponibles en esta zona
           </p>
           {data.available > 3 && (
@@ -424,7 +424,7 @@ export function NearbyOrbitsPreview() {
 
 function NearbyAgentCard({ agent }: { agent: NearbyAgent }) {
   return (
-    <div className="flex items-center gap-3 rounded-md border border-white/[0.07] bg-white/[0.03] px-3 py-3">
+    <div className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3">
       {agent.photo_url ? (
         <div
           aria-label={agent.name}

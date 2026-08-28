@@ -36,8 +36,8 @@ const queryIcon = L.divIcon({
 const businessIcon = L.divIcon({
   className: "",
   html: `<svg width="22" height="30" viewBox="0 0 22 30" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M11 0C5.477 0 1 4.477 1 10c0 6.627 10 20 10 20S21 16.627 21 10C21 4.477 16.523 0 11 0z" fill="#022c22" stroke="#10b981" stroke-width="1.5"/>
-    <circle cx="11" cy="10" r="4" fill="#10b981"/>
+    <path d="M11 0C5.477 0 1 4.477 1 10c0 6.627 10 20 10 20S21 16.627 21 10C21 4.477 16.523 0 11 0z" fill="#081424" stroke="#36D7FF" stroke-width="1.5"/>
+    <circle cx="11" cy="10" r="4" fill="#36D7FF"/>
   </svg>`,
   iconAnchor: [11, 30],
   iconSize: [22, 30],
@@ -253,24 +253,24 @@ export function AffiliatedBusinesses({ onOpenRequest }: { onOpenRequest?: () => 
 
   if (!showMap) {
     return (
-      <div className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.08)] backdrop-blur text-center">
-        <p className="mt-2 text-sm text-orbi-muted">
+      <div className="rounded-md border border-white/[0.05] bg-gradient-to-br from-orbi-panel/55 via-orbi-panel/45 to-orbi-black/65 px-5 py-7 shadow-[0_8px_24px_rgba(0,0,0,0.16)] backdrop-blur text-center sm:px-8 sm:py-9">
+        <p className="mt-2 text-sm text-orbi-muted/80">
           Productos y servicios cerca de ti
         </p>
         {dataLoading && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-orbi-muted">
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-xs text-orbi-muted">
             <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
             Cargando red local…
           </p>
         )}
         {dataError && <p className="mt-2 text-xs text-red-300">{dataError}</p>}
         {geoError && <p className="mt-2 text-xs text-red-300">{geoError}</p>}
-        <div className="mt-4">
+        <div className="mt-6">
           <button
             type="button"
             onClick={handleGeolocate}
             disabled={geoLoading}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-orbi-blue px-4 py-2 text-sm font-bold text-white transition hover:bg-[#0f7af0] disabled:opacity-60"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-orbi-blue px-7 py-3 text-base font-bold text-white shadow-[0_2px_12px_rgba(31,139,255,0.22)] transition hover:bg-[#0f7af0] disabled:opacity-60"
           >
             {geoLoading ? (
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -416,7 +416,7 @@ export function AffiliatedBusinesses({ onOpenRequest }: { onOpenRequest?: () => 
               value={textQuery}
               onChange={(e) => setTextQuery(e.target.value)}
               placeholder="Negocio, categoría o producto..."
-              className="w-full rounded-md border border-white/10 bg-white/[0.04] py-2 pl-8 pr-3 text-sm text-orbi-text placeholder:text-orbi-muted outline-none transition focus:border-orbi-cyan/40 focus:bg-white/[0.06]"
+              className="w-full rounded-md border border-white/[0.10] bg-white/[0.05] py-2.5 pl-8 pr-3 text-sm text-orbi-text placeholder:text-orbi-muted/60 outline-none transition focus:border-orbi-cyan/45 focus:bg-white/[0.08] focus:ring-1 focus:ring-orbi-cyan/10"
             />
           </div>
         </div>
@@ -542,8 +542,8 @@ function BusinessCompactRow({
   onDetails: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md border border-orbi-cyan/12 bg-white/[0.03] px-3 py-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300">
+    <div className="flex items-center gap-3 rounded-md border border-white/[0.07] bg-white/[0.03] px-3 py-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/18 bg-orbi-blue/[0.08] text-orbi-cyan/70">
         <Building2 aria-hidden="true" className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
@@ -553,7 +553,7 @@ function BusinessCompactRow({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="hidden rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold text-emerald-200 sm:inline">
+        <span className="hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] font-semibold text-orbi-muted/65 sm:inline">
           {business.status}
         </span>
         <button
@@ -578,7 +578,7 @@ function ProductResultRow({
   onViewBusiness: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md border border-orbi-cyan/12 bg-white/[0.03] px-3 py-3">
+    <div className="flex items-center gap-3 rounded-md border border-white/[0.07] bg-white/[0.03] px-3 py-3">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/[0.08] text-orbi-cyan">
         <ShoppingBag aria-hidden="true" className="h-4 w-4" />
       </div>

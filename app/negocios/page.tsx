@@ -116,7 +116,7 @@ export default function NegociosPage() {
       title="Los negocios que confían en Orbi."
       description=""
     >
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-12">
         <AffiliatedBusinesses onOpenRequest={() => openBusinessRequest.current?.()} />
         <BusinessAccessPanel
           onLogin={() => void syncSession()}

@@ -309,14 +309,19 @@ function SessionView({
               const isPending = m.status === "por_tomar";
               const isMoving = m.status === "aceptada" || m.status === "en_mision";
               const borderClass = isMoving
-                ? "border-orbi-cyan/40"
+                ? "border-orbi-cyan/50 shadow-[0_0_20px_rgba(54,215,255,0.08)]"
                 : isPending
-                ? "border-orbi-cyan/20"
-                : "border-white/10";
+                ? "border-orbi-cyan/28"
+                : "border-white/[0.08]";
+              const bgClass = isMoving
+                ? "bg-orbi-blue/[0.08]"
+                : isPending
+                ? "bg-orbi-blue/[0.05]"
+                : "bg-white/[0.03]";
               return (
                 <div
                   key={m.id}
-                  className={`rounded-md border bg-white/[0.04] px-4 py-4 transition-colors ${borderClass}`}
+                  className={`rounded-md border px-4 py-4 transition-colors ${borderClass} ${bgClass}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5">
@@ -375,21 +380,21 @@ function SessionView({
       )}
 
       {/* Identity card */}
-      <div className="flex items-start gap-4 rounded-md border border-orbi-cyan/20 bg-orbi-blue/10 p-5">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan">
-          <UserRound aria-hidden="true" className="h-6 w-6" />
+      <div className="flex items-start gap-4 rounded-md border border-orbi-cyan/[0.14] bg-orbi-blue/[0.07] px-5 py-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-orbi-cyan/20 bg-orbi-blue/15 text-orbi-cyan/80">
+          <UserRound aria-hidden="true" className="h-5 w-5" />
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-lg font-black text-orbi-text">{session.name}</p>
-          <p className="mt-0.5 font-mono text-xs font-bold text-orbi-cyan">{session.phone}</p>
+          <p className="mt-0.5 font-mono text-xs text-orbi-muted/75">{session.phone}</p>
           {session.email ? (
-            <p className="mt-0.5 truncate text-xs text-orbi-muted">{session.email}</p>
+            <p className="mt-0.5 truncate text-[11px] text-orbi-muted/55">{session.email}</p>
           ) : null}
         </div>
         <button
           type="button"
           onClick={onLogout}
-          className="shrink-0 text-xs font-semibold text-orbi-muted underline underline-offset-2 transition hover:text-red-400"
+          className="shrink-0 text-[10px] font-medium text-orbi-muted/40 transition hover:text-red-400"
         >
           Cerrar sesión
         </button>
@@ -424,15 +429,15 @@ function SessionView({
           Historial de misiones
         </p>
 
-        <div className="overflow-hidden rounded-md border border-white/10">
+        <div className="overflow-hidden rounded-md border border-white/[0.07]">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[440px] border-collapse text-left text-xs">
               <thead>
-                <tr className="border-b border-white/10 bg-white/[0.03]">
+                <tr className="border-b border-white/[0.07] bg-white/[0.02]">
                   {["Fecha", "Servicio", "Estado", "Total"].map((h) => (
                     <th
                       key={h}
-                      className="px-4 py-3 font-bold uppercase tracking-[0.14em] text-orbi-muted"
+                      className="px-4 py-3 font-medium uppercase tracking-[0.12em] text-orbi-muted/60"
                     >
                       {h}
                     </th>
@@ -458,19 +463,19 @@ function SessionView({
                   missions.map((m) => (
                     <tr
                       key={m.id}
-                      className="border-b border-white/[0.06] last:border-0 hover:bg-white/[0.03]"
+                      className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.03]"
                     >
-                      <td className="px-4 py-3 text-orbi-muted">
+                      <td className="px-4 py-3.5 text-orbi-muted/70">
                         {formatDate(m.created_at || m.updated_at)}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-orbi-text">
+                      <td className="px-4 py-3.5 font-semibold text-orbi-text/90">
                         {m.service_type}
-                        <span className="block font-mono text-[10px] text-orbi-muted/50">{shortFolio(m.id)}</span>
+                        <span className="block font-mono text-[10px] text-orbi-muted/40">{shortFolio(m.id)}</span>
                       </td>
-                      <td className="px-4 py-3 text-orbi-muted">
+                      <td className="px-4 py-3.5 text-orbi-muted/65">
                         {getMissionStatusLabel(m.status)}
                       </td>
-                      <td className="px-4 py-3 font-bold text-orbi-text">
+                      <td className="px-4 py-3.5 font-bold text-orbi-text">
                         {(m.total_amount ?? 0) > 0
                           ? `$${(m.total_amount ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 0 })}`
                           : "—"}
@@ -539,9 +544,9 @@ function KpiChip({
       : "text-orbi-text";
 
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-4 flex flex-col">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orbi-muted min-h-[2.5rem] flex items-start">{label}</p>
-      <p className={`mt-1.5 text-xl font-black ${valueClass}`}>{value}</p>
+    <div className="rounded-md border border-white/[0.07] bg-white/[0.025] px-3 py-3 flex flex-col">
+      <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-orbi-muted/58 min-h-[2rem] flex items-start">{label}</p>
+      <p className={`mt-1 text-xl font-black ${valueClass}`}>{value}</p>
     </div>
   );
 }
