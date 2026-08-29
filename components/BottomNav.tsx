@@ -60,7 +60,7 @@ export function BottomNav() {
                   </span>
                 )}
                 <span
-                  className={`text-[10px] sm:text-[11px] ${active ? "font-bold" : "font-medium"}`}
+                  className={`flex h-[2.5em] items-center justify-center text-center leading-tight text-[10px] sm:text-[11px] ${active ? "font-bold" : "font-medium"}`}
                 >
                   {item.label}
                 </span>
