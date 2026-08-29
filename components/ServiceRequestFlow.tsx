@@ -850,7 +850,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   // handleSelectProduct is defined in render scope — intentionally excluded from deps.
   // consumedProductIdRef prevents double-invoke.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedProductId, catalogItems, orbitCenter, isReconcilingMission]);
+  }, [resolvedProductId, catalogItems, orbitCenter, missionCheckPending, isReconcilingMission]);
 
   useEffect(() => {
     let isActive = true;
