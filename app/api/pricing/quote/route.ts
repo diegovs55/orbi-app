@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { computeQuote } from "@/lib/pricing/server";
+import { computeQuote, loadMotorParams } from "@/lib/pricing/server";
 import { calcularMisionCatalogo } from "@/lib/pricing";
 import { getAdmin } from "@/lib/supabase-admin";
 import { getRouteDistanceKm, RoutingError } from "@/lib/routing/server";
@@ -209,7 +209,11 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // ── Direct mission branch (unchanged) ────────────────────────────────────
+  // ── Direct mission branch ─────────────────────────────────────────────────
+  // Carga motor_params para validar radio_servicio_maximo_km con distancia vial.
+  // Se pasa como preloadedMotorData a computeQuote para evitar segunda lectura a DB.
+  const motorData = await loadMotorParams("zumpahuacan");
+
   try {
     const result = await computeQuote({
       isCatalog:        Boolean(body.is_catalog),
@@ -224,9 +228,36 @@ export async function POST(req: NextRequest) {
                           ? (body.items as Array<{ product_id: string; quantity: number }>)
                           : [],
       serviceType:      typeof body.service_type === "string" ? body.service_type : "",
+      preloadedMotorData: motorData,
     });
+
+    // A2.1 — Validación de cobertura con distancia vial (autoritativa).
+    // result.distanceKm es el km OSRM ya calculado por computeQuote — sin segunda llamada.
+    if (result.distanceKm != null && result.distanceKm > motorData.params.radioServicioMaximoKm) {
+      return NextResponse.json(
+        {
+          error: "Distancia fuera de cobertura.",
+          code: "OUT_OF_RANGE",
+          distance_km: result.distanceKm,
+        },
+        { status: 422 }
+      );
+    }
+
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof RoutingError) {
+      if (err.code === "NO_ROUTE") {
+        return NextResponse.json(
+          { error: "No existe ruta vial entre el origen y el destino indicado.", code: "NO_ROUTE" },
+          { status: 422 }
+        );
+      }
+      return NextResponse.json(
+        { error: "No se pudo calcular la ruta. Intenta de nuevo en unos momentos.", code: "ROUTING_UNAVAILABLE" },
+        { status: 503 }
+      );
+    }
     const message = err instanceof Error ? err.message : "Error al calcular cotización.";
     return NextResponse.json({ error: message }, { status: 422 });
   }
