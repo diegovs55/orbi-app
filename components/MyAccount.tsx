@@ -17,6 +17,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { PushSetup } from "@/components/PushSetup";
 import { apiUrl } from "@/lib/api-url";
+import { clearDraft } from "@/lib/order-draft";
 import {
   ActiveMission,
   CustomerMissionStats,
@@ -133,6 +134,7 @@ export function MyAccount() {
       } catch { /* best-effort */ } finally { clearTimeout(timeout); }
     }
     clearCustomerSession();
+    clearDraft();
     void supabase.auth.signOut({ scope: 'local' });
     setSession(null);
     setCleared(true);
