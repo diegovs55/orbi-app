@@ -267,9 +267,12 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   // Initialized as null to avoid SSR/client hydration mismatch (localStorage
   // is unavailable on the server). The useEffect below loads the real value.
   const [activeMission, setActiveMission] = useState<ActiveMission | null>(null);
-  // True while the reconciliation effect is running — blocks form and mission card.
-  const [isReconcilingMission, setIsReconcilingMission] = useState(true);
-  const isReconcilingMissionRef = useRef(true);
+  // True while the initial mission-check effect is running.
+  // Separate from isReconcilingMission (RESUME-SYNC-01) so the UI is not blocked at mount.
+  const [missionCheckPending, setMissionCheckPending] = useState(true);
+  // True only during foreground re-reconciliation (RESUME-SYNC-01). Starts false.
+  const [isReconcilingMission, setIsReconcilingMission] = useState(false);
+  const isReconcilingMissionRef = useRef(false);
   const [networkReconcileError, setNetworkReconcileError] = useState(false);
   const [expandedDraftSection, setExpandedDraftSection] = useState<DraftSection | null>(null);
   const [isCartDetailExpanded, setIsCartDetailExpanded] = useState(false);
@@ -444,7 +447,8 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   // localStorage is not consulted for missions — Supabase is the only source of truth.
   useEffect(() => {
     async function loadActiveMission() {
-      // isReconcilingMission starts true — nothing renders until this resolves.
+      // missionCheckPending starts true — submit and confirm stage are gated until this resolves.
+      // The UI (service selector, zone picker) renders immediately; only creation is blocked.
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
@@ -454,8 +458,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
           setDraftId(draft.draftId);
           setShowDraftChoice(true);
         }
-        isReconcilingMissionRef.current = false;
-        setIsReconcilingMission(false);
+        setMissionCheckPending(false);
         return;
       }
 
@@ -475,8 +478,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
         }
       }
 
-      isReconcilingMissionRef.current = false;
-      setIsReconcilingMission(false);
+      setMissionCheckPending(false);
     }
 
     void loadActiveMission();
@@ -530,11 +532,11 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
   // Covers the case where no agent was available at creation time and the user stayed on
   // /pedir watching the WaitingRequestCard. orbitExperienceActive guards against double-navigation.
   useEffect(() => {
-    if (isReconcilingMission) return;
+    if (missionCheckPending || isReconcilingMission) return;
     if (!activeMission || activeMission.status !== "aceptada") return;
     if (orbitExperienceActive) return;
     router.push(`/orbita/${activeMission.id}`);
-  }, [activeMission?.status, activeMission?.id, isReconcilingMission, orbitExperienceActive, router]);
+  }, [activeMission?.status, activeMission?.id, missionCheckPending, isReconcilingMission, orbitExperienceActive, router]);
 
   // Autofill solicitante — Auth is source of truth, localStorage is fallback.
   // Runs once on mount (SSR-safe). Two-phase: localStorage fills immediately,
@@ -828,7 +830,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
     if (!resolvedProductId) return;
     if (consumedProductIdRef.current === resolvedProductId) return;
     if (catalogItems.length === 0) return;
-    if (isReconcilingMission) return;
+    if (missionCheckPending) return;
     if (!orbitCenter) return;
 
     const product = catalogItems.find(
@@ -1554,6 +1556,11 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
     if (!selectedService || isSendingRef.current) {
       return;
     }
+    // Safety guard: never create a mission before the initial check completes.
+    // missionCheckPending=true means we don't yet know if an active mission exists.
+    if (missionCheckPending || isReconcilingMission) {
+      return;
+    }
 
     const userId = overrideUserId ?? authUserId;
 
@@ -1891,7 +1898,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
         </section>
       ) : null}
 
-      {!networkReconcileError && !isReconcilingMission && !selectedService ? (
+      {!networkReconcileError && !selectedService ? (
         <>
           <section className="rounded-md border border-orbi-cyan/[0.08] bg-gradient-to-br from-orbi-panel/80 via-orbi-panel/65 to-orbi-black/75 p-5 shadow-[0_12px_40px_rgba(0,0,0,0.22)] sm:p-6">
             {/* G2 — Zona de búsqueda */}
@@ -2350,7 +2357,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
         </form>
       ) : null}
 
-      {!isReconcilingMission && !networkReconcileError && !isOrbitExperienceActive && activeMission?.status === "por_tomar" && activeMission.selected_agent_id ? (
+      {!missionCheckPending && !isReconcilingMission && !networkReconcileError && !isOrbitExperienceActive && activeMission?.status === "por_tomar" && activeMission.selected_agent_id ? (
         <PendingMissionCard mission={activeMission} />
       ) : null}
 
@@ -2361,7 +2368,7 @@ export function ServiceRequestFlow({ productId }: { productId?: string } = {}) {
         />
       ) : null}
 
-      {!isReconcilingMission && !networkReconcileError && selectedService && isConfirmStage && !isOrbitExperienceActive && ((!activeMission || isMissionClosed(activeMission)) || isSending) ? (
+      {!missionCheckPending && !isReconcilingMission && !networkReconcileError && selectedService && isConfirmStage && !isOrbitExperienceActive && ((!activeMission || isMissionClosed(activeMission)) || isSending) ? (
         <section className="rounded-md border border-orbi-cyan/15 bg-gradient-to-br from-orbi-panel/88 via-orbi-panel/70 to-orbi-black/82 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.28),0_0_28px_rgba(31,139,255,0.1)] sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-orbi-cyan">
             Tu pedido
