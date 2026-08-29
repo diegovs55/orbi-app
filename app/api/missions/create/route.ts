@@ -506,16 +506,75 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const directResult = await computeQuote({
-      isCatalog:          false,
-      agentLat, agentLng,
-      originLat:          oLat, originLng: oLng,
-      destinationLat:     dLat, destinationLng: dLng,
-      clientDistanceKm:   null, // create siempre usa haversine propio; OSRM viene del cliente solo para catálogo
-      items:              [],
-      serviceType:        service_type as string,
-      preloadedMotorData: motorData,
-    });
+    let directResult: Awaited<ReturnType<typeof computeQuote>>;
+    try {
+      directResult = await computeQuote({
+        isCatalog:          false,
+        agentLat, agentLng,
+        originLat:          oLat, originLng: oLng,
+        destinationLat:     dLat, destinationLng: dLng,
+        clientDistanceKm:   null, // distancia vial calculada internamente por computeQuote (OSRM)
+        items:              [],
+        serviceType:        service_type as string,
+        preloadedMotorData: motorData,
+      });
+    } catch (err) {
+      const code = err instanceof RoutingError ? err.code : "ROUTING_UNAVAILABLE";
+      const osrmO = err instanceof RoutingError ? err.osrmOutcome : "provider_error";
+      const orsO  = err instanceof RoutingError ? err.orsOutcome  : "provider_error";
+      await logEvent({
+        event_type:   "api.create.error_routing",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: code, osrm: osrmO, ors: orsO },
+        http_status:  code === "NO_ROUTE" ? 422 : 503,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
+      if (err instanceof RoutingError && err.code === "NO_ROUTE") {
+        return NextResponse.json(
+          { error: "No existe ruta vial entre el origen y el destino indicado.", code: "NO_ROUTE" },
+          { status: 422 }
+        );
+      }
+      return NextResponse.json(
+        { error: "No se pudo calcular la ruta. Intenta de nuevo en unos momentos.", code: "ROUTING_UNAVAILABLE" },
+        { status: 503 }
+      );
+    }
+
+    // A2.1 — Validación autoritativa de cobertura con distancia vial real.
+    // El pre-check Haversine (línea 481) es fast-fail optimización.
+    // Este check es la autoridad final: si la distancia vial supera el límite → 422.
+    // Reutiliza directResult.distanceKm — sin segunda llamada OSRM.
+    if (directResult.distanceKm != null && directResult.distanceKm > motorData.params.radioServicioMaximoKm) {
+      const limitKm   = motorData.params.radioServicioMaximoKm;
+      const delta     = directResult.distanceKm - limitKm;
+      const displayKm = delta < 0.1
+        ? directResult.distanceKm.toFixed(2)
+        : directResult.distanceKm.toFixed(1);
+      await logEvent({
+        event_type:   "api.create.error_422",
+        severity:     "warn",
+        source:       "api_route",
+        entity_type:  "mission",
+        entity_id:    id as string,
+        actor_type:   "system",
+        payload:      { reason: "a2_coverage_exceeded_vial", pricingDistanceKm: directResult.distanceKm, radioServicioMaximoKm: limitKm, scope: "zumpahuacan" },
+        http_status:  422,
+        duration_ms:  Date.now() - startedAt,
+        request_id:   requestId,
+      });
+      return NextResponse.json(
+        {
+          error: `Esta solicitud cubre aproximadamente ${displayKm} km por ruta vial y supera el límite actual de cobertura de ORBI de ${limitKm} km. Ajusta el origen o destino para continuar.`,
+        },
+        { status: 422 }
+      );
+    }
 
     serviceFee            = directResult.serviceFee;
     totalAmount           = directResult.totalAmount;

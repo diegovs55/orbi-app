@@ -12,6 +12,7 @@ import { getAdmin } from "@/lib/supabase-admin";
 import { DIRECT, PRICING_RULE } from "./config";
 import { estimateMissionCost } from "./direct";
 import { calcularMisionCatalogo } from "./catalog";
+import { getRouteDistanceKm } from "@/lib/routing/server";
 import type { DirectParams } from "./direct";
 
 export type QuoteInput = {
@@ -190,10 +191,10 @@ export async function computeQuote(
     throw new Error("[pricing/server] Coordenadas de origen o destino ausentes. No se puede cotizar sin distancia real (A4).");
   }
 
-  const serverHaversine = haversineKmServer(originLat!, originLng!, destinationLat!, destinationLng!);
-  const pricingDistanceKm = resolveDistanceServer(clientDistanceKm, serverHaversine);
-
   if (isCatalog) {
+    // Catálogo: distancia resuelta por el caller (OSRM externo), validada contra Haversine.
+    const serverHaversine = haversineKmServer(originLat!, originLng!, destinationLat!, destinationLng!);
+    const pricingDistanceKm = resolveDistanceServer(clientDistanceKm, serverHaversine);
     const result = calcularMisionCatalogo(pricingDistanceKm, 0, serviceType);
     return {
       serviceFee:         result.servicioOrbi,
@@ -206,7 +207,10 @@ export async function computeQuote(
     };
   }
 
-  // Misión directa — DEC-16-B sobre distancia origin→destination.
+  // Misión directa — distancia vial OSRM como fuente canónica de pricing (DEC-16-B).
+  // Propaga RoutingError al caller para manejo controlado (NO fallback a Haversine).
+  const routeResult = await getRouteDistanceKm(originLat!, originLng!, destinationLat!, destinationLng!);
+  const pricingDistanceKm = routeResult.distance_km;
   const { params: motorParams, version } = preloadedMotorData ?? await loadMotorParams(scope);
   const result = estimateMissionCost(pricingDistanceKm, motorParams);
 
